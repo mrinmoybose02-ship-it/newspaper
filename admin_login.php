@@ -106,8 +106,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .error-msg { background: #ffebee; color: #c62828; padding: 10px; border-radius: 4px; margin-bottom: 20px; text-align: center; font-size: 14px; border: 1px solid #ef9a9a; }
         .back-link { display: block; text-align: center; margin-top: 20px; color: #666; text-decoration: none; font-size: 14px; }
         .back-link:hover { color: #B71C1C; }
-        .reset-link { display:block; text-align:center; margin-top:15px; margin-bottom:15px; color:#B71C1C; text-decoration:none; font-size:14px; font-weight:600; }
-        .reset-link:hover { text-decoration: underline; }
+        
+        /* Action Links Container */
+        .action-links { display: flex; justify-content: space-between; margin-top: 15px; margin-bottom: 15px; gap: 10px; }
+        .action-links a { text-align: center; color: #B71C1C; text-decoration: none; font-size: 14px; font-weight: 600; background: #F4F1EB; padding: 10px; border-radius: 5px; flex: 1; border: 1px solid #DDD5C8; transition: 0.3s; }
+        .action-links a:hover { background: #B71C1C; color: #fff; border-color: #B71C1C; }
     </style>
 </head>
 <body>
@@ -127,7 +130,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <button type="submit" class="btn-login">লগইন করুন</button>
         </form>
-        <a href="forgot_password.php" class="reset-link"><i class="fas fa-key"></i> পাসওয়ার্ড ভুলে গেছেন? রিসেট করুন</a>
+        
+        <!-- নতুন লিংক সেকশন: পাসওয়ার্ড রিসেট এবং নতুন ইউজার তৈরি -->
+        <div class="action-links">
+            <a href="update_password.php"><i class="fas fa-key"></i> পাসওয়ার্ড রিসেট</a>
+            <a href="create_user.php"><i class="fas fa-user-plus"></i> নতুন ইউজার</a>
+        </div>
+
         <a href="?page=home" class="back-link"><i class="fas fa-arrow-left"></i> ওয়েবসাইটে ফিরুন</a>
     </div>
 

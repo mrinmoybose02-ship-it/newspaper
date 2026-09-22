@@ -2,7 +2,7 @@
 if (!isset($_SESSION["user_id"])) { header("Location: ?page=admin_login"); exit; }
 
 try {
-    $userCheckStmt = $pdo->prepare("SELECT is_approved, permissions FROM users WHERE id = ?");
+    $userCheckStmt = $pdo->prepare("SELECT is_approved, permissions, role FROM users WHERE id = ?");
     $userCheckStmt->execute([$_SESSION["user_id"]]);
     $currentUserData = $userCheckStmt->fetch(PDO::FETCH_ASSOC);
     if (!$currentUserData || empty($currentUserData['is_approved'])) {
@@ -70,31 +70,31 @@ function roleColor($color) {
 }
 
 if (!function_exists('handleUpload')) {
-function handleUpload($inputName, $maxSizeMB = 5, $allowedTypes = null) {
-    if ($allowedTypes === null) $allowedTypes = ['image/jpeg','image/jpg','image/png','image/gif','image/webp','image/svg+xml'];
-    if (!isset($_FILES[$inputName])) return null;
-    $file = $_FILES[$inputName];
-    if ($file['error'] !== UPLOAD_ERR_OK) {
-        $m = [1=>'Server limit exceeded.',2=>'Form limit exceeded.',3=>'Partial upload.',4=>'No file selected.',6=>'Missing temp folder.',7=>'Failed to write to disk.',8=>'Extension blocked.'];
-        return ["error" => $m[$file['error']] ?? 'Error code: '.$file['error']];
+    function handleUpload($inputName, $maxSizeMB = 5, $allowedTypes = null) {
+        if ($allowedTypes === null) $allowedTypes = ['image/jpeg','image/jpg','image/png','image/gif','image/webp','image/svg+xml'];
+        if (!isset($_FILES[$inputName])) return null;
+        $file = $_FILES[$inputName];
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $m = [1=>'Server limit exceeded.',2=>'Form limit exceeded.',3=>'Partial upload.',4=>'No file selected.',6=>'Missing temp folder.',7=>'Failed to write to disk.',8=>'Extension blocked.'];
+            return ["error" => $m[$file['error']] ?? 'Error code: '.$file['error']];
+        }
+        if ($file['size'] > $maxSizeMB*1024*1024) return ["error" => "Maximum {$maxSizeMB}MB. Yours: ".round($file['size']/1024/1024,2)."MB"];
+        if ($file['size'] === 0) return ["error" => "File is empty."];
+        $dm = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+        if (!in_array($dm, $allowedTypes)) return ["error" => "Type (".$dm.") is not allowed. Please use JPG, PNG, GIF, WebP."];
+        $em = ['image/jpeg'=>'jpg','image/jpg'=>'jpg','image/png'=>'png','image/gif'=>'gif','image/webp'=>'webp','image/svg+xml'=>'svg'];
+        $ext = $em[$dm] ?? 'jpg';
+        if ($dm !== 'image/svg+xml' && !@getimagesize($file['tmp_name'])) return ["error" => "Not a valid image."];
+        $isAd = (strpos($inputName, 'ad_') === 0);
+        $sub = $isAd ? 'ads' : 'news';
+        $dir = __DIR__ . '/../uploads/'.$sub.'/'.date('Y/m/').'/';
+        if (!is_dir($dir)) { if (!@mkdir($dir, 0755, true)) return ["error" => "Failed to create directory."]; }
+        $fn = ($isAd?'ad_':'news_').time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
+        $dest = $dir . $fn;
+        if (!@move_uploaded_file($file['tmp_name'], $dest) && !@copy($file['tmp_name'], $dest)) return ["error" => "Failed to save file."];
+        @chmod($dest, 0644);
+        return ["path" => "uploads/".$sub.'/'.date('Y/m/').'/'.$fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size']];
     }
-    if ($file['size'] > $maxSizeMB*1024*1024) return ["error" => "Maximum {$maxSizeMB}MB. Yours: ".round($file['size']/1024/1024,2)."MB"];
-    if ($file['size'] === 0) return ["error" => "File is empty."];
-    $dm = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
-    if (!in_array($dm, $allowedTypes)) return ["error" => "Type (".$dm.") is not allowed. Please use JPG, PNG, GIF, WebP."];
-    $em = ['image/jpeg'=>'jpg','image/jpg'=>'jpg','image/png'=>'png','image/gif'=>'gif','image/webp'=>'webp','image/svg+xml'=>'svg'];
-    $ext = $em[$dm] ?? 'jpg';
-    if ($dm !== 'image/svg+xml' && !@getimagesize($file['tmp_name'])) return ["error" => "Not a valid image."];
-    $isAd = (strpos($inputName, 'ad_') === 0);
-    $sub = $isAd ? 'ads' : 'news';
-    $dir = __DIR__ . '/../uploads/'.$sub.'/'.date('Y/m/').'/';
-    if (!is_dir($dir)) { if (!@mkdir($dir, 0755, true)) return ["error" => "Failed to create directory."]; }
-    $fn = ($isAd?'ad_':'news_').time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
-    $dest = $dir . $fn;
-    if (!@move_uploaded_file($file['tmp_name'], $dest) && !@copy($file['tmp_name'], $dest)) return ["error" => "Failed to save file."];
-    @chmod($dest, 0644);
-    return ["path" => "uploads/".$sub.'/'.date('Y/m/').'/'.$fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size']];
-}
 }
 
  $section = $_GET["section"] ?? "dashboard";
@@ -300,7 +300,7 @@ if ($section === "edit") {
 
  $manageSuccess = ""; $manageFilter = $_GET["filter"] ?? "all"; $manageSearch = trim($_GET["sq"] ?? ""); $manageNews = []; $totalManageResults = 0; $totalPages = 1;
 if ($section === "manage") {
-    if (isset($_GET["delete"]) && isset($_GET["dtoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["dtoken"])) { $di = (int)$_GET["delete"]; $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$di]); $dr = $pdo->prepare("SELECT image FROM news WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__.'/'.$dw["image"])) @unlink(__DIR__.'/'.$dw["image"]); $pdo->prepare("DELETE FROM news WHERE id=?")->execute([$di]); $manageSuccess = "Deleted successfully."; } }
+    if (isset($_GET["delete"]) && isset($_GET["d_token"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["d_token"])) { $di = (int)$_GET["delete"]; $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$di]); $dr = $pdo->prepare("SELECT image FROM news WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__.'/'.$dw["image"])) @unlink(__DIR__.'/'.$dw["image"]); $pdo->prepare("DELETE FROM news WHERE id=?")->execute([$di]); $manageSuccess = "Deleted successfully."; } }
     if (isset($_GET["toggle"]) && isset($_GET["ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ttoken"])) { $pdo->prepare("UPDATE news SET status=IF(status='published','draft','published') WHERE id=?")->execute([(int)$_GET["toggle"]]); $manageSuccess = "Status changed successfully."; } }
     $cs = "SELECT COUNT(*) FROM news n WHERE 1=1"; $mp = [];
     if ($manageFilter === "published") $cs .= " AND n.status='published'"; elseif ($manageFilter === "draft") $cs .= " AND n.status='draft'"; elseif ($manageFilter === "featured") $cs .= " AND n.is_featured=1";
@@ -322,7 +322,7 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
     else { $ca = $_POST["cat_action"] ?? "";
         if ($ca === "add") { $cn = trim($_POST["cat_name"] ?? ""); if (empty($cn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM categories WHERE name=?"); $ck->execute([$cn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($cn); $sl = makeUniqueCatSlug($pdo, $sl); $pdo->prepare("INSERT INTO categories (name,slug) VALUES (?,?)")->execute([$cn, $sl]); $catSuccess = "Added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } } }
         if ($ca === "delete") { $ci = (int)($_POST["cat_id"] ?? 0); $nc = $pdo->prepare("SELECT COUNT(*) FROM news WHERE category_id=?"); $nc->execute([$ci]); if ($nc->fetchColumn() > 0) { $catError = "News exists in this category."; } else { $si = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=?"); $si->execute([$ci]); $sia = array_column($si->fetchAll(), 'id'); if (!empty($sia)) { $ph = implode(",", array_fill(0, count($sia), "?")); $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id IN ($ph)")->execute($sia); } $pdo->prepare("DELETE FROM subcategories WHERE category_id=?")->execute([$ci]); $pdo->prepare("DELETE FROM categories WHERE id=?")->execute([$ci]); $catSuccess = "Deleted successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } }
-        if ($ca === "add_sub") { $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); if ($sci < 1) { $catError = "Please select a category."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); $ck->execute([$sci, $sn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); $ck2->execute([$sl]); $c = 1; while ($ck2->fetch()) { $sl = generateSlug($sn).'-'.$c++; $ck2->execute([$sl]); } $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?,?)")->execute([$sci, $sn, $sl]); $catSuccess = "Subcategory added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } } } }
+        if ($ca === "add_sub") { $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); if ($sci < 1) { $catError = "Please select a category."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); $ck->execute([$sci, $sn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); $ck2->execute([$sl]); $c = 1; while ($ck2->fetch()) { $sl = generateSlug($sn).'-'.$c++; $ck2->execute([$sl]); } $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?)")->execute([$sci, $sn, $sl]); $catSuccess = "Subcategory added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } } } }
         if ($ca === "delete_sub") { $sid = (int)($_POST["sub_id"] ?? 0); $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id=?")->execute([$sid]); $pdo->prepare("DELETE FROM subcategories WHERE id=?")->execute([$sid]); $catSuccess = "Subcategory deleted successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } }
         if ($ca === "edit_cat") { $ci = (int)($_POST["cat_id"] ?? 0); $cn = trim($_POST["cat_name"] ?? ""); $cs = trim($_POST["cat_slug"] ?? ""); if ($ci < 1) { $catError = "Invalid category."; } elseif (empty($cn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?"); $ck->execute([$cn, $ci]); if ($ck->fetch()) { $catError = "Category name already exists."; } else { if (empty($cs)) $cs = generateSlug($cn); $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?"); $ck2->execute([$cs, $ci]); $c = 1; $orig_slug = $cs; while ($ck2->fetch()) { $cs = $orig_slug . '-' . $c++; $ck2->execute([$cs, $ci]); } $pdo->prepare("UPDATE categories SET name=?, slug=? WHERE id=?")->execute([$cn, $cs, $ci]); $catSuccess = "Category updated successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $catEditData = null; } } }
         if ($ca === "edit_sub") { $si = (int)($_POST["sub_id"] ?? 0); $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); $ss = trim($_POST["sub_slug"] ?? ""); if ($si < 1 || $sci < 1) { $catError = "Invalid selection."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=? AND id != ?"); $ck->execute([$sci, $sn, $si]); if ($ck->fetch()) { $catError = "Subcategory name already exists in this category."; } else { if (empty($ss)) $ss = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=? AND id != ?"); $ck2->execute([$ss, $si]); $c = 1; $orig_slug = $ss; while ($ck2->fetch()) { $ss = $orig_slug . '-' . $c++; $ck2->execute([$ss, $si]); } $pdo->prepare("UPDATE subcategories SET category_id=?, name=?, slug=? WHERE id=?")->execute([$sci, $sn, $ss, $si]); $catSuccess = "Subcategory updated successfully."; $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } $subEditData = null; } } }
@@ -392,7 +392,6 @@ if ($section === "password" && $_SERVER["REQUEST_METHOD"] === "POST" && !isset($
 
  $vidSuccess = ""; $vidError = ""; $videos = [];
 
-// Automatically ensure the videos table and 'code' column exist to prevent DB errors
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS videos (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -401,7 +400,6 @@ try {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
 } catch (Exception $e) {}
-// Silently add the 'code' column if the table existed previously but lacked it
 try { 
     $pdo->exec("ALTER TABLE videos ADD COLUMN code TEXT NOT NULL"); 
 } catch (Exception $e) {}
@@ -444,6 +442,9 @@ if (!function_exists('secLink')) { function secLink($s, $i, $l, $b = "") { globa
 
  $pendingUsersCount = 0;
 try { $pendingUsersCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE is_approved = 0")->fetchColumn(); } catch (Exception $e) {}
+
+ $currentRoleKey = !empty($currentUserData['role']) ? $currentUserData['role'] : getUserRole($currentUserData['permissions'] ?? null);
+ $currentUserRoleLabel = $allRoles[$currentRoleKey]['label'] ?? 'Custom';
 ?>
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
@@ -619,7 +620,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="admin-layout">
 <aside class="admin-sidebar">
 <div class="sb-header"><div class="sb-logo">A</div><div class="sb-brand">News Portal<small>Admin Panel</small></div></div>
-<div class="sb-user"><div class="sb-avatar"><?= mb_substr($fullName,0,1) ?></div><div class="sb-user-info"><?= htmlspecialchars($fullName) ?><small><?= $currentUserPerms === null ? 'Super Admin' : 'Editor' ?></small></div></div>
+<div class="sb-user"><div class="sb-avatar"><?= mb_substr($fullName,0,1) ?></div><div class="sb-user-info"><?= htmlspecialchars($fullName) ?><small><?= htmlspecialchars($currentUserRoleLabel) ?></small></div></div>
 <nav class="sb-nav">
 <?php if (hasPerm('dashboard')): ?>
 <div class="sb-nav-label">Main</div>
@@ -714,6 +715,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-bolt"></i> Quick Actions</div></div><div class="panel-body" style="display:flex;flex-direction:column;gap:8px">
 <?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="quick-action"><i class="fas fa-plus"></i> Write New News</a><?php endif; ?>
 <?php if (hasPerm('breaking')): ?><a href="?page=admin_dashboard&section=breaking" class="quick-action"><i class="fas fa-bolt"></i> Add Breaking News</a><?php endif; ?>
+<?php if (hasPerm('categories')): ?><a href="?page=admin_dashboard&section=categories" class="quick-action"><i class="fas fa-folder-tree"></i> Manage Categories</a><?php endif; ?>
+<?php if (hasPerm('home_panels')): ?><a href="?page=admin_dashboard&section=home_panels" class="quick-action"><i class="fas fa-table-cells"></i> Home Page Panels</a><?php endif; ?>
+<?php if (hasPerm('videos')): ?><a href="?page=admin_dashboard&section=videos" class="quick-action"><i class="fas fa-video"></i> Manage Videos</a><?php endif; ?>
 <?php if (hasPerm('ads')): ?><a href="?page=admin_dashboard&section=ads" class="quick-action"><i class="fas fa-rectangle-ad"></i> Manage Advertisements</a><?php endif; ?>
 <?php if (hasPerm('users')): ?><a href="?page=admin_dashboard&section=users" class="quick-action"><i class="fas fa-users"></i> Manage Users & Roles</a><?php endif; ?>
 <?php if (hasPerm('nse_market')): ?><a href="?page=admin_dashboard&section=nse_market" class="quick-action"><i class="fas fa-chart-line"></i> View NSE Market</a><?php endif; ?>
@@ -822,7 +826,10 @@ if (typeof CKEDITOR !== 'undefined') CKEDITOR.replace('editor1', { height: 400, 
 <div class="admin-topbar"><h1><i class="fas fa-table-cells" style="color:var(--green)"></i> Home Page Panels</h1></div>
 <?php if ($homeError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($homeError) ?></div><?php endif; ?>
 <?php if ($homeSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($homeSuccess) ?></div><?php endif; ?>
-<div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-list"></i> Select Categories for Homepage Panels</div></div><form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><div class="panel-body"><p style="margin-bottom:15px;color:var(--muted);font-size:13px;">Toggle the switches to select which categories will be displayed as panels on the frontend homepage layout.</p><div class="home-cat-grid"><?php foreach ($catList as $cat): ?><div class="home-cat-item"><label class="switch"><input type="checkbox" name="home_cats[]" value="<?= $cat['id'] ?>" <?= in_array($cat['id'], $homeCatPanels) ? 'checked' : '' ?>><span class="switch-slider"></span></label><div><div style="font-weight:600;font-size:14px"><?= htmlspecialchars($cat['name']) ?></div><div style="font-size:10px;color:var(--muted)">Slug: <?= htmlspecialchars($cat['slug']) ?></div></div></div><?php endforeach; ?><?php if(empty($catList)): ?><div class="empty-state"><i class="fas fa-folder-open"></i><p>No categories found. Please add categories first.</p></div><?php endif; ?></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Panels</button></div></form></div>
+<div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-list"></i> Select Categories for Homepage Panels</div></div><form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><div class="panel-body"><p style="margin-bottom:15px;color:var(--muted);font-size:13px;">Toggle the switches to select which categories will be displayed as panels on the frontend homepage layout.</p><div class="home-cat-grid"><?php foreach ($catList as $cat): ?><div class="home-cat-item"><label class="switch"><input type="checkbox" name="home_cats[]" value="<?= $cat['id'] ?>" <?= in_array($cat['id'], $homeCatPanels) ? 'checked' : '' ?>><span class="switch-slider"></span></label><div><div style="font-weight:600;font-size:14px"><?= htmlspecialchars($cat['name']) ?></div><div style="font-size:10px;color:var(--muted)">Slug: <?= htmlspecialchars($cat['slug']) ?></div></div></div><?php endforeach; ?>
+<div class="home-cat-item"><label class="switch"><input type="checkbox" name="home_cats[]" value="videos_section" <?= in_array("videos_section", $homeCatPanels) ? 'checked' : '' ?>><span class="switch-slider"></span></label><div><div style="font-weight:600;font-size:14px">ভিডিও সংবাদ</div><div style="font-size:10px;color:var(--muted)">Type: video_section</div></div></div>
+<div class="home-cat-item"><label class="switch"><input type="checkbox" name="home_cats[]" value="latest_news_section" <?= in_array("latest_news_section", $homeCatPanels) ? 'checked' : '' ?>><span class="switch-slider"></span></label><div><div style="font-weight:600;font-size:14px">সর্বশেষ সংবাদ</div><div style="font-size:10px;color:var(--muted)">Type: latest_news_section</div></div></div>
+<?php if(empty($catList)): ?><div class="empty-state"><i class="fas fa-folder-open"></i><p>No categories found. Please add categories first.</p></div><?php endif; ?></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Panels</button></div></form></div>
 
 <?php elseif ($section === "social" && hasPerm('social')): ?>
 <div class="admin-topbar"><h1><i class="fas fa-share-nodes" style="color:var(--blue)"></i> Social Media</h1></div>

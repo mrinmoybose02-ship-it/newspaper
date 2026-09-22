@@ -270,17 +270,29 @@ if (!empty($subRows)) {
     'লাইফস্টাইল' => ['icon' => 'fa-spa', 'color' => '#00897B'],
     'পরিবেণ' => ['icon' => 'fa-leaf', 'color' => '#558B2F'],
     'কৃষি' => ['icon' => 'fa-seedling', 'color' => '#8BC34A'],
- ];
+];
  $homeCatPanels = [];
+ $showHomeVideos = false;
+ $showLatestNews = false;
 
 try {
     $homeSettings = loadSettings($pdo, ['home_cat_panels']);
     $activeCatIds = json_decode($homeSettings['home_cat_panels'] ?? '[]', true);
     if (!is_array($activeCatIds)) $activeCatIds = [];
-    if (!empty($activeCatIds)) {
-        $inQuery = implode(',', array_fill(0, count($activeCatIds), '?'));
+    
+    if (in_array('videos_section', $activeCatIds)) {
+        $showHomeVideos = true;
+    }
+    if (in_array('latest_news_section', $activeCatIds)) {
+        $showLatestNews = true;
+    }
+    
+    $numericCatIds = array_filter($activeCatIds, 'is_numeric');
+    
+    if (!empty($numericCatIds)) {
+        $inQuery = implode(',', array_fill(0, count($numericCatIds), '?'));
         $catStmt = $pdo->prepare("SELECT name FROM categories WHERE id IN ($inQuery) ORDER BY id ASC");
-        $catStmt->execute($activeCatIds);
+        $catStmt->execute($numericCatIds);
         $activeCatNames = $catStmt->fetchAll(PDO::FETCH_COLUMN);
         foreach ($activeCatNames as $hpName) {
             $homeCatPanels[] = ['name' => $hpName, 'icon' => $panelDefaults[$hpName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$hpName]['color'] ?? '#B71C1C'];
@@ -289,7 +301,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -301,7 +313,6 @@ foreach ($homeCatPanels as $hcp) {
     $homePanelData[$hcp['name']] = ['info' => $hcp, 'items' => array_map('safeMapNewsKeys', $hpStmt->fetchAll())];
 }
 
-// ====== VIDEO DATA FROM DATABASE ======
  $videos = [];
 try {
     if (isset($pdo)) {
@@ -370,7 +381,7 @@ if ($currentSub) $pagBase .= '&sub=' . $currentSub;
  $paginationHTML = renderPagination($currentPage, $totalPages, $pagBase);
 
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','পরিবেণ'=>'fa-leaf','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
- $todayStr = date('d F Y, l');
+ $todayStr = date('d F Y, f');
  $isLoggedIn = isset($_SESSION['user_id']);
  $loginLink = $isLoggedIn ? '?page=admin_dashboard' : '?page=admin_login';
  $loginLabel = $isLoggedIn ? 'অ্যাডমিন' : 'লগইন';
@@ -379,11 +390,9 @@ if ($currentSub) $pagBase .= '&sub=' . $currentSub;
  $contactVals = [];
 try { $in = implode(",", array_fill(0, count($contactKeys), "?")); $cs = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ($in)"); $cs->execute($contactKeys); $csRows = $cs->fetchAll(PDO::FETCH_KEY_PAIR); foreach ($contactKeys as $ck) { $contactVals[$ck] = $csRows[$ck] ?? ""; } } catch (Exception $e) { foreach ($contactKeys as $ck) { $contactVals[$ck] = ""; } }
 
-// Fetch Bottom Advertisements Embed Codes
  $adKeys = ['ad_bottom_1_embed', 'ad_bottom_2_embed'];
  $adVals = loadSettings($pdo, $adKeys);
 
-// ====== PRE-LOAD ALL AD POSITIONS FROM ADVERTISEMENTS TABLE ======
  $adHeaderBanner = renderAdsByPos($pdo, 'header_banner');
  $adContentTop = renderAdsByPos($pdo, 'content_top');
  $adAfter1st = renderAdsByPos($pdo, 'after_1st_para');
@@ -710,36 +719,35 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .sb-toggle{position:fixed;bottom:20px;right:20px;width:44px;height:44px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:18px;z-index:90;box-shadow:0 4px 16px rgba(183,28,28,.4);transition:all .2s;align-items:center;justify-content:center;display:flex}
 .sb-toggle:hover{transform:scale(1.1);box-shadow:0 6px 20px rgba(183,28,28,.5)}
 
-/* Ensure iframes in the video section stretch properly */
 .video-embed { position: relative; width: 100%; padding-bottom: 56.25%; height: 0; background: #000; overflow: hidden; }
 .video-embed iframe, .video-embed video, .video-embed object, .video-embed embed { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; border: 0; }
 
 @media(max-width:1024px){
-.kol-layout{grid-template-columns:1fr}
-.kol-sidebar{position:fixed;left:-280px;top:0;bottom:0;width:280px;background:var(--bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;max-height:100vh;overflow-y:auto}
-.kol-sidebar.open{left:0}
-.sb-close{display:none}
-.vid-grid{grid-template-columns:1fr}
-.cat-panel-row{grid-template-columns:repeat(3,1fr)}
-.feat-grid{grid-template-columns:1fr}
-.feat-main{min-height:280px}
-.news-grid{grid-template-columns:repeat(2,1fr)}
+    .kol-layout{grid-template-columns:1fr}
+    .kol-sidebar{position:fixed;left:-280px;top:0;bottom:0;width:280px;background:var(--bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;max-height:100vh;overflow-y:auto}
+    .kol-sidebar.open{left:0}
+    .sb-close{display:none}
+    .vid-grid{grid-template-columns:1fr}
+    .cat-panel-row{grid-template-columns:repeat(3,1fr)}
+    .feat-grid{grid-template-columns:1fr}
+    .feat-main{min-height:280px}
+    .news-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:640px){
-.kol-topbar .date{display:none}
-.kn-search input{width:90px}
-.kn-search input:focus{width:120px}
-.kn-panel{min-width:280px;max-width:calc(100vw - 24px);right:0}
-.vid-main{min-height:220px}
-.vid-grid{grid-template-columns:1fr}
-.vid-card{flex-direction:column}
-.vid-thumb{width:100%;min-height:180px}
-.cat-panel-row{grid-template-columns:repeat(2,1fr)}
-.news-grid{grid-template-columns:1fr}
-.feat-side .feat-si img{width:90px;height:72px}
-.rel-grid{grid-template-columns:1fr}
-.single-wrap{padding:16px}
-.single-wrap h1{font-size:20px}
+    .kol-topbar .date{display:none}
+    .kn-search input{width:90px}
+    .kn-search input:focus{width:120px}
+    .kn-panel{min-width:280px;max-width:calc(100vw - 24px);right:0}
+    .vid-main{min-height:220px}
+    .vid-grid{grid-template-columns:1fr}
+    .vid-card{flex-direction:column}
+    .vid-thumb{width:100%;min-height:180px}
+    .cat-panel-row{grid-template-columns:repeat(2,1fr)}
+    .news-grid{grid-template-columns:1fr}
+    .feat-side .feat-si img{width:90px;height:72px}
+    .rel-grid{grid-template-columns:1fr}
+    .single-wrap{padding:16px}
+    .single-wrap h1{font-size:20px}
 }
 </style>
 </head>
@@ -1044,7 +1052,8 @@ echo '<div class="single-content">' . $out . '</div>';
 </div>
 <?php endif; ?>
 
-<?php if (!$searchQuery && !$currentSub && !$currentCat && $page === 'home' && !empty($homeVideos)): ?>
+<?php // Check if 'videos_section' is explicitly enabled via the checkbox in admin dashboard ?>
+<?php if (!$searchQuery && !$currentSub && !$currentCat && $page === 'home' && !empty($homeVideos) && $showHomeVideos): ?>
 <div class="vid-sec">
 <h2 class="sec-title"><span style="background:var(--red);color:#fff;width:32px;height:32px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;margin-right:8px"><i class="fas fa-play" style="margin-left:2px"></i></span> ভিডিও সংবাদ</h2>
 <div class="vid-grid">
@@ -1119,68 +1128,77 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 </div>
 <?php endif; ?>
 
-<?php if (!empty($pagedGrid)): ?>
+<?php 
+// Determine if we should show the standard full-width "সর্বশেষ সংবাদ" grid
+ $showStandardNewsGrid = !empty($pagedGrid);
+// If it's the home page and the admin hasn't checked the "সর্বশেষ সংবাদ" box, we hide the grid.
+if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showLatestNews) {
+    $showStandardNewsGrid = false;
+}
+?>
+
+<?php if ($showStandardNewsGrid): ?>
 <div class="news-sec">
-<?php if ($searchQuery): ?>
-<h2 class="sec-title">সার্চ: "<?= htmlspecialchars($searchQuery) ?>"</h2>
-<?php elseif ($currentSub && $currentSubData): ?>
-<h2 class="sec-title"><?= htmlspecialchars($currentSubData['name']) ?></h2>
-<?php elseif ($currentCat): ?>
-<h2 class="sec-title"><?= htmlspecialchars($currentCat) ?></h2>
-<?php else: ?>
-<h2 class="sec-title">সর্বশেষ সংবাদ</h2>
-<?php endif; ?>
-<div class="news-grid">
-<?php foreach ($pagedGrid as $ni): ?>
-<a href="?page=single&id=<?= $ni['id'] ?>" class="nc">
-<div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
-<div class="nc-body">
-<div class="nc-cat"><?= htmlspecialchars($ni['category']) ?></div>
-<h3><?= htmlspecialchars($ni['title']) ?></h3>
-<?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars($ni['excerpt']) ?></p><?php endif; ?>
-<div class="nc-meta">
-<span><i class="far fa-clock"></i> <?= timeAgo($ni['created_at']) ?></span>
-<span><i class="far fa-eye"></i> <?= htmlspecialchars($ni['views'] ?? '0') ?></span>
-</div>
-</div>
-</a>
-<?php endforeach; ?>
-</div>
-<?= $paginationHTML ?>
+    <?php if ($searchQuery): ?>
+    <h2 class="sec-title">সার্চ: "<?= htmlspecialchars($searchQuery) ?>"</h2>
+    <?php elseif ($currentSub && $currentSubData): ?>
+    <h2 class="sec-title"><?= htmlspecialchars($currentSubData['name']) ?></h2>
+    <?php elseif ($currentCat): ?>
+    <h2 class="sec-title"><?= htmlspecialchars($currentCat) ?></h2>
+    <?php else: ?>
+    <h2 class="sec-title">সর্বশেষ সংবাদ</h2>
+    <?php endif; ?>
+    <div class="news-grid">
+        <?php foreach ($pagedGrid as $ni): ?>
+        <a href="?page=single&id=<?= $ni['id'] ?>" class="nc">
+            <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
+            <div class="nc-body">
+                <div class="nc-cat"><?= htmlspecialchars($ni['category']) ?></div>
+                <h3><?= htmlspecialchars($ni['title']) ?></h3>
+                <?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars($ni['excerpt']) ?></p><?php endif; ?>
+                <div class="nc-meta">
+                    <span><i class="far fa-clock"></i> <?= timeAgo($ni['created_at']) ?></span>
+                    <span><i class="far fa-eye"></i> <?= htmlspecialchars($ni['views'] ?? '0') ?></span>
+                </div>
+            </div>
+        </a>
+        <?php endforeach; ?>
+    </div>
+    <?= $paginationHTML ?>
 </div>
 <?php if (!empty($adContentMiddle)) echo $adContentMiddle; ?>
 <?php elseif (empty($displayFeatured) || $searchQuery || $currentSub): ?>
 <div class="no-res">
-<i class="fas fa-newspaper"></i>
-<h3>কোনো সংবাদ পাওয়া যায়নি</h3>
-<a href="?">হোমে ফিরুন</a>
+    <i class="fas fa-newspaper"></i>
+    <h3>কোনো সংবাদ পাওয়া যায়নি</h3>
+    <a href="?">হোমে ফিরুন</a>
 </div>
 <?php endif; ?>
 
 <?php if (!$searchQuery && !$currentSub && !$currentCat && $page === 'home'): ?>
-<?php foreach ($homePanelData as $hpName => $hpData): $hpInfo = $hpData['info']; $hpItems = $hpData['items']; ?>
-<div class="cat-panel-sec">
-<div class="cat-panel-head">
-<h2 class="cat-panel-title" style="color:<?= $hpInfo['color'] ?>"><i class="fas <?= $hpInfo['icon'] ?>"></i> <?= htmlspecialchars($hpName) ?></h2>
-<a href="?cat=<?= urlencode($hpName) ?>" class="cat-panel-all">সব দেখুন <i class="fas fa-arrow-right"></i></a>
-</div>
-<div class="cat-panel-row">
-<?php if (empty($hpItems)): ?>
-<p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:20px;">এই বিভাগে কোনো সংবাদ নেই।</p>
-<?php else: ?>
-<?php foreach ($hpItems as $hpi): ?>
-<a href="?page=single&id=<?= $hpi['id'] ?>" class="cat-panel-card">
-<div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
-<div class="cpc-body">
-<h3><?= htmlspecialchars($hpi['title']) ?></h3>
-<div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?></div>
-</div>
-</a>
-<?php endforeach; ?>
-<?php endif; ?>
-</div>
-</div>
-<?php endforeach; ?>
+    <?php foreach ($homePanelData as $hpName => $hpData): $hpInfo = $hpData['info']; $hpItems = $hpData['items']; ?>
+    <div class="cat-panel-sec">
+        <div class="cat-panel-head">
+            <h2 class="cat-panel-title" style="color:<?= $hpInfo['color'] ?>"><i class="fas <?= $hpInfo['icon'] ?>"></i> <?= htmlspecialchars($hpName) ?></h2>
+            <a href="?cat=<?= urlencode($hpName) ?>" class="cat-panel-all">সব দেখুন <i class="fas fa-arrow-right"></i></a>
+        </div>
+        <div class="cat-panel-row">
+            <?php if (empty($hpItems)): ?>
+            <p style="grid-column:1/-1;text-align:center;color:var(--muted);padding:20px;">এই বিভাগে কোনো সংবাদ নেই।</p>
+            <?php else: ?>
+            <?php foreach ($hpItems as $hpi): ?>
+            <a href="?page=single&id=<?= $hpi['id'] ?>" class="cat-panel-card">
+                <div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
+                <div class="cpc-body">
+                    <h3><?= htmlspecialchars($hpi['title']) ?></h3>
+                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?></div>
+                </div>
+            </a>
+            <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+    <?php endforeach; ?>
 <?php endif; ?>
 
 <?php endif; ?>

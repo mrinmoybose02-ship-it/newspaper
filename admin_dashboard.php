@@ -224,11 +224,13 @@ try { $catStats = $pdo->query("SELECT c.name, COUNT(n.id) as cnt FROM categories
 try { $subRows = $pdo->query("SELECT s.*, c.name as category_name FROM subcategories s LEFT JOIN categories c ON s.category_id=c.id ORDER BY s.category_id, s.name ASC")->fetchAll(); foreach ($subRows as $sr) { $allSubcategories[$sr["category_id"]][] = $sr; } } catch (Exception $e) {}
 
 if (!function_exists('getNewsSubcategoryIds')) { function getNewsSubcategoryIds($pdo, $nid) { try { $s = $pdo->prepare("SELECT subcategory_id FROM news_subcategories WHERE news_id=?"); $s->execute([$nid]); return array_column($s->fetchAll(), 'subcategory_id'); } catch (Exception $e) { return []; } } }
-if (!function_exists('saveNewsSubcategories')) { function saveNewsSubcategories($pdo, $nid, $sids) { $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$nid]); if (!empty($sids)) { $st = $pdo->prepare("INSERT IGNORE INTO news_subcategories (news_id,subcategory_id) VALUES (?,?)"); foreach ($sids as $sid) { $sid=(int)$sid; if ($sid>0) $st->execute([$nid,$sid]); } } } }
+if (!function_exists('saveNewsSubcategories')) { function saveNewsSubcategories($pdo, $nid, $sids) { $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$nid]); if (!is_array($sids)) $sids = []; if (!empty($sids)) { $st = $pdo->prepare("INSERT INTO news_subcategories (news_id,subcategory_id) VALUES (?,?)"); foreach ($sids as $sid) { $sid=(int)$sid; if ($sid>0) $st->execute([$nid,$sid]); } } } }
 if (!function_exists('loadSettings')) { function loadSettings($pdo, $keys) { $v = []; try { $in = implode(",", array_fill(0, count($keys), "?")); $st = $pdo->prepare("SELECT setting_key,setting_value FROM site_settings WHERE setting_key IN ($in)"); $st->execute($keys); $rows = $st->fetchAll(PDO::FETCH_KEY_PAIR); foreach ($keys as $k) { $v[$k] = $rows[$k] ?? ""; } } catch (Exception $e) { foreach ($keys as $k) { $v[$k] = ""; } } return $v; } }
 if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st = $pdo->prepare("INSERT INTO site_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?,updated_at=NOW()"); foreach ($data as $k => $val) { $st->execute([$k, $val, $val]); } } }
 
  $adPositions = ["header_banner"=>["label"=>"Header Banner","icon"=>"fas fa-window-maximize","color"=>"#C41E3A"],"content_top"=>["label"=>"Top of Content","icon"=>"fas fa-arrow-up","color"=>"#1E5A8C"],"after_1st_para"=>["label"=>"After 1st Paragraph","icon"=>"fas fa-paragraph","color"=>"#6B21A8"],"after_2nd_para"=>["label"=>"After 2nd Paragraph","icon"=>"fas fa-paragraph","color"=>"#7C3AED"],"after_3rd_para"=>["label"=>"After 3rd Paragraph","icon"=>"fas fa-paragraph","color"=>"#8B5CF6"],"content_middle"=>["label"=>"Middle of Content","icon"=>"fas fa-arrows-up-down","color"=>"#D4A017"],"content_bottom"=>["label"=>"Bottom of Content","icon"=>"fas fa-arrow-down","color"=>"#2D5016"],"sidebar_top"=>["label"=>"Top of Sidebar","icon"=>"fas fa-arrow-up","color"=>"#0891B2"],"sidebar_middle"=>["label"=>"Middle of Sidebar","icon"=>"fas fa-grip-lines","color"=>"#0D9488"],"footer_banner"=>["label"=>"Footer Banner","icon"=>"fas fa-arrow-down","color"=>"#475569"],"popup"=>["label"=>"Popup","icon"=>"fas fa-external-link-alt","color"=>"#DC2626"]];
+
+try { $pdo->exec("ALTER TABLE news ADD COLUMN subcategory_id INT DEFAULT NULL AFTER category_id"); } catch(PDOException $e) {}
 
  $categories = $pdo->query("SELECT id, name FROM categories ORDER BY name ASC")->fetchAll();
  $addError = ""; $addSuccess = ""; $addData = ["title"=>"","slug"=>"","content"=>"","image"=>"","tags"=>"","category_id"=>"","subcategories"=>[],"author"=>$fullName,"status"=>"draft","is_featured"=>0];
@@ -255,8 +257,9 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
             if ($ur !== null) { if (isset($ur["error"])) { $addError = $ur["error"]; } else { $addData["image"] = $ur["path"]; } }
             if (empty($addError)) {
                 try {
-                    $pdo->prepare("INSERT INTO news (title,slug,content,image,tags,category_id,author,status,is_featured,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-                        ->execute([$addData["title"],$addData["slug"],$addData["content"],$addData["image"],$addData["tags"],!empty($addData["category_id"])?(int)$addData["category_id"]:null,$addData["author"],$addData["status"],$addData["is_featured"], date('Y-m-d H:i:s')]);
+                    $firstSubId = !empty($addData["subcategories"]) ? (int)$addData["subcategories"][0] : null;
+                    $pdo->prepare("INSERT INTO news (title,slug,content,image,tags,category_id,subcategory_id,author,status,is_featured,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+                        ->execute([$addData["title"],$addData["slug"],$addData["content"],$addData["image"],$addData["tags"],!empty($addData["category_id"])?(int)$addData["category_id"]:null,$firstSubId,$addData["author"],$addData["status"],$addData["is_featured"], date('Y-m-d H:i:s')]);
                     $nid = $pdo->lastInsertId();
                     saveNewsSubcategories($pdo, $nid, $addData["subcategories"]);
                     $addSuccess = "Saved successfully.";
@@ -287,8 +290,9 @@ if ($section === "edit") {
                 if ($ur !== null) { if (isset($ur["error"])) { $editError = $ur["error"]; } else { if (!empty($editData["image"]) && file_exists(__DIR__.'/'.$editData["image"])) @unlink(__DIR__.'/'.$editData["image"]); $editData["image"] = $ur["path"]; } }
                 if (empty($editError)) {
                     try {
-                        $pdo->prepare("UPDATE news SET title=?,slug=?,content=?,image=?,tags=?,category_id=?,author=?,status=?,is_featured=?,updated_at=? WHERE id=?")
-                            ->execute([$editData["title"],$editData["slug"],$editData["content"],$editData["image"],$editData["tags"],!empty($editData["category_id"])?(int)$editData["category_id"]:null,$editData["author"],$editData["status"],$editData["is_featured"], date('Y-m-d H:i:s'), $eid]);
+                        $firstSubId = !empty($editData["subcategories"]) ? (int)$editData["subcategories"][0] : null;
+                        $pdo->prepare("UPDATE news SET title=?,slug=?,content=?,image=?,tags=?,category_id=?,subcategory_id=?,author=?,status=?,is_featured=?,updated_at=? WHERE id=?")
+                            ->execute([$editData["title"],$editData["slug"],$editData["content"],$editData["image"],$editData["tags"],!empty($editData["category_id"])?(int)$editData["category_id"]:null,$firstSubId,$editData["author"],$editData["status"],$editData["is_featured"], date('Y-m-d H:i:s'), $eid]);
                         saveNewsSubcategories($pdo, $eid, $editData["subcategories"]);
                         $editSuccess = "Updated successfully.";
                     } catch (PDOException $e) { $editError = "Failed: ".$e->getMessage(); }
@@ -321,9 +325,40 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
     if (!verifyCSRF()) { $catError = "Token mismatch."; }
     else { $ca = $_POST["cat_action"] ?? "";
         if ($ca === "add") { $cn = trim($_POST["cat_name"] ?? ""); if (empty($cn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM categories WHERE name=?"); $ck->execute([$cn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($cn); $sl = makeUniqueCatSlug($pdo, $sl); $pdo->prepare("INSERT INTO categories (name,slug) VALUES (?,?)")->execute([$cn, $sl]); $catSuccess = "Added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } } }
-        if ($ca === "delete") { $ci = (int)($_POST["cat_id"] ?? 0); $nc = $pdo->prepare("SELECT COUNT(*) FROM news WHERE category_id=?"); $nc->execute([$ci]); if ($nc->fetchColumn() > 0) { $catError = "News exists in this category."; } else { $si = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=?"); $si->execute([$ci]); $sia = array_column($si->fetchAll(), 'id'); if (!empty($sia)) { $ph = implode(",", array_fill(0, count($sia), "?")); $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id IN ($ph)")->execute($sia); } $pdo->prepare("DELETE FROM subcategories WHERE category_id=?")->execute([$ci]); $pdo->prepare("DELETE FROM categories WHERE id=?")->execute([$ci]); $catSuccess = "Deleted successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } }
+        
+        // Fixed Delete Category Logic
+        if ($ca === "delete") { 
+            $ci = (int)($_POST["cat_id"] ?? 0); 
+            $si = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=?"); 
+            $si->execute([$ci]); 
+            $sia = array_column($si->fetchAll(), 'id'); 
+            if (!empty($sia)) { 
+                $ph = implode(",", array_fill(0, count($sia), "?")); 
+                $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id IN ($ph)")->execute($sia); 
+                $pdo->prepare("UPDATE news SET subcategory_id=NULL WHERE subcategory_id IN ($ph)")->execute($sia);
+            } 
+            $pdo->prepare("DELETE FROM subcategories WHERE category_id=?")->execute([$ci]); 
+            $pdo->prepare("UPDATE news SET category_id=NULL WHERE category_id=?")->execute([$ci]);
+            $pdo->prepare("DELETE FROM categories WHERE id=?")->execute([$ci]); 
+            $catSuccess = "Category deleted successfully. Associated news moved to uncategorized."; 
+            $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
+        }
+        
         if ($ca === "add_sub") { $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); if ($sci < 1) { $catError = "Please select a category."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); $ck->execute([$sci, $sn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); $ck2->execute([$sl]); $c = 1; while ($ck2->fetch()) { $sl = generateSlug($sn).'-'.$c++; $ck2->execute([$sl]); } $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?)")->execute([$sci, $sn, $sl]); $catSuccess = "Subcategory added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } } } }
-        if ($ca === "delete_sub") { $sid = (int)($_POST["sub_id"] ?? 0); $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id=?")->execute([$sid]); $pdo->prepare("DELETE FROM subcategories WHERE id=?")->execute([$sid]); $catSuccess = "Subcategory deleted successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } }
+        
+        // Fixed Delete Subcategory Logic
+        if ($ca === "delete_sub") { 
+            $sid = (int)($_POST["sub_id"] ?? 0); 
+            $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id=?")->execute([$sid]); 
+            $pdo->prepare("UPDATE news SET subcategory_id=NULL WHERE subcategory_id=?")->execute([$sid]);
+            $pdo->prepare("DELETE FROM subcategories WHERE id=?")->execute([$sid]); 
+            $catSuccess = "Subcategory deleted successfully."; 
+            $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
+            $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
+            $allSubcategories = []; 
+            foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } 
+        }
+        
         if ($ca === "edit_cat") { $ci = (int)($_POST["cat_id"] ?? 0); $cn = trim($_POST["cat_name"] ?? ""); $cs = trim($_POST["cat_slug"] ?? ""); if ($ci < 1) { $catError = "Invalid category."; } elseif (empty($cn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?"); $ck->execute([$cn, $ci]); if ($ck->fetch()) { $catError = "Category name already exists."; } else { if (empty($cs)) $cs = generateSlug($cn); $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?"); $ck2->execute([$cs, $ci]); $c = 1; $orig_slug = $cs; while ($ck2->fetch()) { $cs = $orig_slug . '-' . $c++; $ck2->execute([$cs, $ci]); } $pdo->prepare("UPDATE categories SET name=?, slug=? WHERE id=?")->execute([$cn, $cs, $ci]); $catSuccess = "Category updated successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $catEditData = null; } } }
         if ($ca === "edit_sub") { $si = (int)($_POST["sub_id"] ?? 0); $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); $ss = trim($_POST["sub_slug"] ?? ""); if ($si < 1 || $sci < 1) { $catError = "Invalid selection."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=? AND id != ?"); $ck->execute([$sci, $sn, $si]); if ($ck->fetch()) { $catError = "Subcategory name already exists in this category."; } else { if (empty($ss)) $ss = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=? AND id != ?"); $ck2->execute([$ss, $si]); $c = 1; $orig_slug = $ss; while ($ck2->fetch()) { $ss = $orig_slug . '-' . $c++; $ck2->execute([$ss, $si]); } $pdo->prepare("UPDATE subcategories SET category_id=?, name=?, slug=? WHERE id=?")->execute([$sci, $sn, $ss, $si]); $catSuccess = "Subcategory updated successfully."; $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } $subEditData = null; } } }
     }
@@ -758,7 +793,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="form-row" style="align-items:center"><div class="form-group" style="margin-bottom:0"><label class="form-label">Status</label><div class="radio-group"><div class="radio-item <?= $fD["status"] === 'draft' ? 'selected' : '' ?>"><input type="radio" name="status" value="draft" <?= $fD["status"] === 'draft' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Draft</label></div><div class="radio-item <?= $fD["status"] === 'published' ? 'selected' : '' ?>"><input type="radio" name="status" value="published" <?= $fD["status"] === 'published' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Published</label></div></div></div><div class="form-group" style="margin-bottom:0"><label class="form-label">Featured</label><label class="switch"><input type="checkbox" name="is_featured" value="1" <?= $fD["is_featured"] ? 'checked' : '' ?>><span class="switch-slider"></span></label></div></div>
 </div><div class="form-actions-bar"><?php if (hasPerm('manage_news')): ?><a href="?page=admin_dashboard&section=manage" class="btn btn-outline"><i class="fas fa-times"></i> Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> <?= $section === 'edit' ? 'Update' : 'Save' ?></button></div></div></form>
 <script>
-var cs = document.getElementById('catSelect'), ss = document.getElementById('subCatSelect'), sel = <?= json_encode($fD["subcategories"] ?? []) ?>;
+var cs = document.getElementById('catSelect'), ss = document.getElementById('subCatSelect'), sel = <?= json_encode(array_map('intval', $fD["subcategories"] ?? [])) ?>;
 if (cs && ss) {
     cs.onchange = function() {
         var v = this.value;
@@ -767,7 +802,13 @@ if (cs && ss) {
         fetch('?page=admin_dashboard&section=api_subcategories&category_id=' + v).then(function(r) { return r.json(); }).then(function(d) {
             ss.innerHTML = '';
             if (!d.length) { ss.innerHTML = '<option>No Subcategories</option>'; return; }
-            d.forEach(function(s) { var o = document.createElement('option'); o.value = s.id; o.textContent = s.name; if (sel.indexOf(parseInt(s.id)) !== -1) o.selected = true; ss.appendChild(o); });
+            d.forEach(function(s) { 
+                var o = document.createElement('option'); 
+                o.value = s.id; 
+                o.textContent = s.name; 
+                if (sel.indexOf(parseInt(s.id)) !== -1) o.selected = true; 
+                ss.appendChild(o); 
+            });
         }).catch(function() { ss.innerHTML = '<option>Load Failed</option>'; });
     };
     if (cs.value) cs.dispatchEvent(new Event('change'));
@@ -1064,7 +1105,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-eye"></i> Live Share Market Company List (Watchlist)</div></div><div class="panel-body" style="padding:0"><table class="data-table" id="nseWatchlist"><thead><tr><th>Company</th><th>Price</th><th>Change</th><th>High</th><th>Low</th><th>Volume</th></tr></thead><tbody><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 </div>
 <script>
-function updateNSEClock(){var now=new Date();var utc=now.getTime()+(now.getTimezoneOffset()*60000);var istDate=new Date(utc+5.5*3600000);var day=String(istDate.getDate()).padStart(2,'0');var mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var month=mn[istDate.getMonth()];var year=istDate.getFullYear();var dateStr=day+' '+month+' '+year;var hours=istDate.getHours();var ampm=hours>=12?'PM':'AM';hours=hours%12;hours=hours?hours:12;var minutes=String(istDate.getMinutes()).padStart(2,'0');var seconds=String(istDate.getSeconds()).padStart(2,'0');var timeStr=String(hours).padStart(2,'0')+':'+minutes+':'+seconds+' '+ampm;var el=document.getElementById('nseTimeDate');if(el)el.innerHTML='<i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> '+dateStr+'<br><i class="far fa-clock" style="color:#138808;margin-right:5px;"></i> '+timeStr+' (IST)';}
+function updateNSEClock(){var now=new Date();var utc=now.getTime()+(now.getTimezoneOffset()*60000);var istDate=new Date(utc+5.5*3600000);var day=String(istDate.getDate()).padStart(2,'0');var mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var month=mn[istDate.getMonth()];var year=istDate.getFullYear();var dateStr=day+' '+month+' '+year;var hours=istDate.getHours();var ampm=hours>=12?'PM':'AM';hours=hours%12;hours=hours?hours:12;var minutes=String(istDate.getMinutes()).padStart(2,'0');var seconds=String(istDate.getSeconds()).padStart(2,'0');var timeStr=String(hours).padStart(2,'0')+':'+minutes+':'+seconds+' '+ampm;var el=document.getElementById('nseTimeDate');if(el)el.innerHTML='<i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> '+dateStr+'<br><i class="far fa-clock" style="color:#138808;margin-right:5px."</i> '+timeStr+' (IST)';}
 setInterval(updateNSEClock,1000);updateNSEClock();
 var isNSELoading=false,nextRefreshTime=0,countdownInterval=null;
 function scheduleNextRefresh(delay){nextRefreshTime=Date.now()+delay;if(countdownInterval)clearInterval(countdownInterval);countdownInterval=setInterval(function(){var t=document.getElementById('nseRefreshTimer');if(!t)return;if(isNSELoading){t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';return;}var r=Math.max(0,(nextRefreshTime-Date.now())/1000);if(r>0){t.innerHTML='<i class="fas fa-clock"></i> Next auto-refresh in '+r.toFixed(1)+'s';}else{t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';}},100);}

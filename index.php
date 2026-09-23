@@ -211,6 +211,9 @@ try { $pdo->exec("ALTER TABLE news ADD COLUMN tags VARCHAR(500) DEFAULT '' AFTER
  $currentCat = $_GET['cat'] ?? '';
  $searchQuery = trim($_GET['q'] ?? '');
  $currentSub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
+ $archYear = isset($_GET['y']) ? (int)$_GET['y'] : 0;
+ $archMonth = isset($_GET['m']) ? (int)$_GET['m'] : 0;
+ 
  $currentSubData = null;
 if ($currentSub) {
     $subStmt = $pdo->prepare("SELECT s.*, c.name as category_name FROM subcategories s JOIN categories c ON s.category_id = c.id WHERE s.id = ?");
@@ -218,11 +221,20 @@ if ($currentSub) {
     if ($currentSubData) { $currentCat = $currentSubData['category_name']; } else { $currentSub = 0; }
 }
 
+// Fetch Archive Dates
+ $archiveDates = [];
+try {
+    $archStmt = $pdo->query("SELECT YEAR(created_at) as y, MONTH(created_at) as m FROM news WHERE status = 'published' GROUP BY y, m ORDER BY y DESC, m DESC");
+    $archiveDates = $archStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+ $bnMonths = [1=>'জানুয়ারি', 2=>'ফেব্রুয়ারি', 3=>'মার্চ', 4=>'এপ্রিল', 5=>'মে', 6=>'জুন', 7=>'জুলাই', 8=>'আগস্ট', 9=>'সেপ্টেম্বর', 10=>'অক্টোবর', 11=>'নভেম্বর', 12=>'ডিসেম্বর'];
+
  $categories = $pdo->query("SELECT MIN(id) as id, name FROM categories GROUP BY name ORDER BY MIN(id) ASC")->fetchAll();
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
- $allNewsData = array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id ORDER BY n.created_at DESC")->fetchAll());
+// Fetch all recent news (Last 30 Days) for sidebars, tags, etc.
+ $allNewsData = array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC")->fetchAll());
  $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll());
 
  $tagCounts = [];
@@ -308,7 +320,8 @@ if (empty($homeCatPanels)) {
 
  $homePanelData = [];
 foreach ($homeCatPanels as $hcp) {
-    $hpStmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE c.name = ? AND n.status = 'published' ORDER BY n.created_at DESC LIMIT 5");
+    // Fetch home panels limited to last 30 days
+    $hpStmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE c.name = ? AND n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC LIMIT 5");
     $hpStmt->execute([$hcp['name']]);
     $homePanelData[$hcp['name']] = ['info' => $hcp, 'items' => array_map('safeMapNewsKeys', $hpStmt->fetchAll())];
 }
@@ -324,6 +337,7 @@ try {
  $homeVideos = array_slice($videos, 0, 6);
 
 if ($page === 'single') {
+    // Single news doesn't have 30 day limit, so people can still read shared links
     $stmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id = ? AND n.status = 'published'");
     $stmt->execute([(int)($_GET['id'] ?? 0)]);
     if ($row = $stmt->fetch()) {
@@ -331,12 +345,12 @@ if ($page === 'single') {
         $singleRelatedTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',', $singleNews['tags']))) : [];
         $related = [];
         if (!empty($singleRelatedTags)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND n.status = 'published' AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
             $stmt2->execute(array_merge([$singleNews['id']], array_map(function($t){ return "%$t%"; }, $singleRelatedTags)));
             $related = array_map('safeMapNewsKeys', $stmt2->fetchAll());
         }
         if (empty($related)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND c.name = ? AND n.status = 'published' ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND c.name = ? AND n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC LIMIT 6");
             $stmt2->execute([$singleNews['id'], $singleNews['category']]);
             $related = array_map('safeMapNewsKeys', $stmt2->fetchAll());
         }
@@ -349,9 +363,22 @@ if ($page === 'single') {
     if ($currentCat) { $sql .= " AND c.name = ?"; $countSql .= " AND c.name = ?"; $params[] = $currentCat; }
     if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
     if ($currentSub) { $sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $countSql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $params[] = $currentSub; }
+    
+    // Handle Archive or 30-Day Limit
+    if ($archYear) {
+        $sql .= " AND YEAR(n.created_at) = ?"; $countSql .= " AND YEAR(n.created_at) = ?"; $params[] = $archYear;
+        if ($archMonth) {
+            $sql .= " AND MONTH(n.created_at) = ?"; $countSql .= " AND MONTH(n.created_at) = ?"; $params[] = $archMonth;
+        }
+    } else {
+        // Apply 30-day limit if NOT viewing an archive
+        $sql .= " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+        $countSql .= " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+    }
+
     $gridSql = $sql . " ORDER BY n.created_at DESC";
     $gridCountSql = $countSql;
-    if (!$searchQuery && !$currentSub) {
+    if (!$searchQuery && !$currentSub && !$archYear && !$archMonth) {
         $hasRealFeatured = false;
         try { $stmt = $pdo->prepare($sql . " AND n.is_featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map('safeMapNewsKeys', $stmt->fetchAll()); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {}
         if (!$hasRealFeatured) { try { $stmt = $pdo->prepare($sql . " AND n.featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map('safeMapNewsKeys', $stmt->fetchAll()); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {} }
@@ -364,7 +391,7 @@ if ($page === 'single') {
     $offset = ($currentPage - 1) * NEWS_PER_PAGE;
     $stmt = $pdo->prepare($gridSql . " LIMIT " . NEWS_PER_PAGE . " OFFSET " . $offset); $stmt->execute($params);
     $pagedGrid = array_map('safeMapNewsKeys', $stmt->fetchAll());
-    if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub) {
+    if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth) {
         $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE . " OFFSET 0"); $stmt->execute($params);
         $pagedGrid = array_map('safeMapNewsKeys', $stmt->fetchAll());
         $stmt = $pdo->prepare($countSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
@@ -378,6 +405,8 @@ if ($page === 'single') {
 if ($currentCat) $pagBase .= '&cat=' . urlencode($currentCat);
 if ($searchQuery) $pagBase .= '&q=' . urlencode($searchQuery);
 if ($currentSub) $pagBase .= '&sub=' . $currentSub;
+if ($archYear) $pagBase .= '&y=' . $archYear;
+if ($archMonth) $pagBase .= '&m=' . $archMonth;
  $paginationHTML = renderPagination($currentPage, $totalPages, $pagBase);
 
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','পরিবেণ'=>'fa-leaf','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
@@ -819,6 +848,31 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <a href="?cat=<?= urlencode($nci) ?>" class="kn-link<?= $ncActive ? ' active' : '' ?>"><i class="fas <?= $ncIcon ?>"></i> <?= htmlspecialchars($nci) ?></a>
 <?php endif; ?>
 <?php endforeach; ?>
+
+<!-- ====== ARCHIVE DROPDOWN MENU ====== -->
+<div class="kn-sep"></div>
+<div class="kn-inline" id="archiveMenu">
+    <a href="#" class="kn-link" onclick="event.preventDefault()"><i class="fas fa-clock-rotate-left"></i> আর্কাইভ</a>
+    <span class="kn-arrow"><i class="fas fa-chevron-down"></i></span>
+    <div class="kn-drop" style="min-width: 180px;">
+        <?php if(!empty($archiveDates)): ?>
+            <?php foreach($archiveDates as $ad): 
+                $y = $ad['y'];
+                $m = $ad['m'];
+                $mName = $bnMonths[$m] ?? '';
+                $archActive = ($archYear == $y && $archMonth == $m);
+            ?>
+                <a href="?y=<?= $y ?>&m=<?= $m ?>" class="kn-drop-link<?= $archActive ? ' active' : '' ?>">
+                    <i class="far fa-calendar-alt"></i> <?= htmlspecialchars($mName . ' ' . $y) ?>
+                </a>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <span class="kn-drop-link" style="cursor:default; justify-content:center;">কোনো আর্কাইভ নেই</span>
+        <?php endif; ?>
+    </div>
+</div>
+<!-- ====== END ARCHIVE DROPDOWN ====== -->
+
 <div class="kn-sep"></div>
 <button class="kn-more-btn" id="knMoreBtn"><i class="fas fa-th"></i> আরও <i class="fas fa-chevron-down"></i></button>
 <div class="kn-search">
@@ -1027,7 +1081,7 @@ echo '<div class="single-content">' . $out . '</div>';
 
 <?php else: ?>
 
-<?php if (!empty($displayFeatured) && !$searchQuery && !$currentSub): ?>
+<?php if (!empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth): ?>
 <div class="feat-section">
 <?php $fm = $displayFeatured[0]; $fsItems = array_slice($displayFeatured, 1); ?>
 <div class="feat-grid">
@@ -1058,7 +1112,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <?php endif; ?>
 
 <?php // Check if 'videos_section' is explicitly enabled via the checkbox in admin dashboard ?>
-<?php if (!$searchQuery && !$currentSub && !$currentCat && $page === 'home' && !empty($homeVideos) && $showHomeVideos): ?>
+<?php if (!$searchQuery && !$currentSub && !$currentCat && !$archYear && !$archMonth && $page === 'home' && !empty($homeVideos) && $showHomeVideos): ?>
 <div class="vid-sec">
 <h2 class="sec-title"><span style="background:var(--red);color:#fff;width:32px;height:32px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;margin-right:8px"><i class="fas fa-play" style="margin-left:2px"></i></span> ভিডিও সংবাদ</h2>
 <div class="vid-grid">
@@ -1137,7 +1191,7 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 // Determine if we should show the standard full-width "সর্বশেষ সংবাদ" grid
  $showStandardNewsGrid = !empty($pagedGrid);
 // If it's the home page and the admin hasn't checked the "সর্বশেষ সংবাদ" box, we hide the grid.
-if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showLatestNews) {
+if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showLatestNews && !$archYear && !$archMonth) {
     $showStandardNewsGrid = false;
 }
 ?>
@@ -1146,6 +1200,8 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 <div class="news-sec">
     <?php if ($searchQuery): ?>
     <h2 class="sec-title">সার্চ: "<?= htmlspecialchars($searchQuery) ?>"</h2>
+    <?php elseif ($archYear && $archMonth): ?>
+    <h2 class="sec-title">আর্কাইভ: <?= htmlspecialchars($bnMonths[$archMonth] . ' ' . $archYear) ?></h2>
     <?php elseif ($currentSub && $currentSubData): ?>
     <h2 class="sec-title"><?= htmlspecialchars($currentSubData['name']) ?></h2>
     <?php elseif ($currentCat): ?>
@@ -1172,7 +1228,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     <?= $paginationHTML ?>
 </div>
 <?php if (!empty($adContentMiddle)) echo $adContentMiddle; ?>
-<?php elseif (empty($displayFeatured) || $searchQuery || $currentSub): ?>
+<?php elseif (empty($displayFeatured) || $searchQuery || $currentSub || $archYear || $archMonth): ?>
 <div class="no-res">
     <i class="fas fa-newspaper"></i>
     <h3>কোনো সংবাদ পাওয়া যায়নি</h3>
@@ -1180,7 +1236,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 </div>
 <?php endif; ?>
 
-<?php if (!$searchQuery && !$currentSub && !$currentCat && $page === 'home'): ?>
+<?php if (!$searchQuery && !$currentSub && !$currentCat && !$archYear && !$archMonth && $page === 'home'): ?>
     <?php foreach ($homePanelData as $hpName => $hpData): $hpInfo = $hpData['info']; $hpItems = $hpData['items']; ?>
     <div class="cat-panel-sec">
         <div class="cat-panel-head">

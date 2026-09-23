@@ -1,50 +1,190 @@
 <?php
 /**
- * ══════════════════════════════════════════════════════
- *   পাসওয়ার্ড রিসেট টুল
- * ══════════════════════════════════════════════════════
+ * পাসওয়ার্ড রিসেট টুল (auto-fix existing password_reset_requests schema)
  */
 require_once 'config.php';
 
-// Ensure necessary columns exist in the database
+// Force exceptions so failures are visible
+ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+/* ---- 1) Ensure users.password is wide enough (bcrypt = 60 chars) ---- */
 try {
-    $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `is_approved` TINYINT(1) NOT NULL DEFAULT 1");
-    $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `permissions` TEXT NULL DEFAULT '{}'");
-    $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `role` VARCHAR(50) NULL DEFAULT 'viewer'");
+    $pdo->exec("ALTER TABLE `users` MODIFY COLUMN `password` VARCHAR(255) NOT NULL");
+} catch (PDOException $e) {}
+
+/* ---- 2) Make sure password_reset_requests table exists & has all columns ---- */
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `password_reset_requests` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `user_id` INT NOT NULL,
+        `username` VARCHAR(100) NULL,
+        `reset_by` VARCHAR(100) NULL,
+        `new_password_hash` VARCHAR(255) NULL,
+        `request_ip` VARCHAR(45) NULL,
+        `user_agent` VARCHAR(255) NULL,
+        `status` VARCHAR(20) NOT NULL DEFAULT 'success',
+        `note` TEXT NULL,
+        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 } catch (PDOException $e) {
-    // Ignore if they already exist
+    // If CREATE failed because table already exists with different schema,
+    // we'll add the columns we need one by one below.
 }
+
+// Always try to add each needed column. Already-existing columns are skipped.
+ $neededCols = [
+    'user_id'           => 'INT NOT NULL',
+    'username'          => 'VARCHAR(100) NULL',
+    'reset_by'          => 'VARCHAR(100) NULL',
+    'new_password_hash' => 'VARCHAR(255) NULL',
+    'request_ip'        => 'VARCHAR(45) NULL',
+    'user_agent'        => 'VARCHAR(255) NULL',
+    'status'            => "VARCHAR(20) NOT NULL DEFAULT 'success'",
+    'note'              => 'TEXT NULL',
+    'created_at'        => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+];
+
+// Get existing columns so we only ALTER when needed (works on all MySQL/MariaDB versions)
+try {
+    $existingCols = $pdo->query("SHOW COLUMNS FROM `password_reset_requests`")->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    $existingCols = [];
+}
+
+foreach ($neededCols as $col => $def) {
+    if (!in_array($col, $existingCols, true)) {
+        try {
+            $pdo->exec("ALTER TABLE `password_reset_requests` ADD COLUMN `$col` $def");
+            $existingCols[] = $col;
+        } catch (PDOException $e) {
+            // ignore and continue — error will surface later if column truly needed
+        }
+    }
+}
+
+/* ---- 3) Fetch users ---- */
+ $allUsers = [];
+try {
+    $allUsers = $pdo->query("SELECT id, username, full_name FROM users ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {}
 
  $msg = ''; $msgType = '';
 
-// Fetch all users for the dropdown
- $allUsers = [];
-try {
-    $allUsers = $pdo->query("SELECT * FROM users ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    // Table doesn't exist yet
-}
-
-/* POST হ্যান্ডেল */
+/* ---- 4) Handle POST ---- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    // 1. Update Existing User Password
     if ($action === 'update_password') {
         $targetUserId = (int)($_POST['target_user_id'] ?? 0);
-        $newPass = trim($_POST['new_password'] ?? '');
-        
-        if (empty($targetUserId) || empty($newPass)) { 
-            $msg = 'ইউজার এবং নতুন পাসওয়ার্ড দিন।'; $msgType = 'error'; 
+        $newPass      = trim($_POST['new_password'] ?? '');
+        $resetBy      = $_POST['reset_by'] ?? 'admin';
+
+        if (empty($targetUserId) || empty($newPass)) {
+            $msg = 'ইউজার এবং নতুন পাসওয়ার্ড দিন।';
+            $msgType = 'error';
         } else {
-            $hash = password_hash($newPass, PASSWORD_DEFAULT);
-            $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
-            $stmt->execute([$hash, $targetUserId]);
-            
-            if ($stmt->rowCount() > 0) {
-                $msg = "পাসওয়ার্ড সফলভাবে আপডেট হয়েছে!"; $msgType = 'success';
+            // Look up the user
+            $check = $pdo->prepare("SELECT id, username FROM users WHERE id = ?");
+            $check->execute([$targetUserId]);
+            $uRow = $check->fetch(PDO::FETCH_ASSOC);
+
+            if (!$uRow) {
+                $msg = 'ইউজার খুঁজে পাওয়া যায়নি (ID: ' . $targetUserId . ')';
+                $msgType = 'error';
             } else {
-                $msg = "পাসওয়ার্ড আপডেট করতে সমস্যা হয়েছে বা একই পাসওয়ার্ড দেওয়া হয়েছে।"; $msgType = 'error';
+                $hash = password_hash($newPass, PASSWORD_DEFAULT);
+
+                try {
+                    $pdo->beginTransaction();
+
+                    // Update user's password
+                    $upd = $pdo->prepare("UPDATE users SET password = :pwd WHERE id = :id");
+                    $upd->execute([':pwd' => $hash, ':id' => $targetUserId]);
+
+                    // Build INSERT using ONLY columns that actually exist in the table
+                    $cols = [];
+                    $vals = [];
+
+                    if (in_array('user_id', $existingCols, true)) {
+                        $cols[] = 'user_id';             $vals[':user_id'] = $targetUserId;
+                    }
+                    if (in_array('username', $existingCols, true)) {
+                        $cols[] = 'username';            $vals[':username'] = $uRow['username'];
+                    }
+                    if (in_array('reset_by', $existingCols, true)) {
+                        $cols[] = 'reset_by';             $vals[':reset_by'] = $resetBy;
+                    }
+                    if (in_array('new_password_hash', $existingCols, true)) {
+                        $cols[] = 'new_password_hash';    $vals[':hash'] = $hash;
+                    }
+                    if (in_array('request_ip', $existingCols, true)) {
+                        $cols[] = 'request_ip';          $vals[':ip'] = $_SERVER['REMOTE_ADDR'] ?? null;
+                    }
+                    if (in_array('user_agent', $existingCols, true)) {
+                        $cols[] = 'user_agent';           $vals[':ua'] = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+                    }
+                    if (in_array('status', $existingCols, true)) {
+                        $cols[] = 'status';              $vals[':status'] = 'success';
+                    }
+                    if (in_array('note', $existingCols, true)) {
+                        $cols[] = 'note';                 $vals[':note'] = 'Password reset via admin tool';
+                    }
+
+                    if ($cols) {
+                        $placeholders = [];
+                        foreach ($cols as $c) {
+                            $placeholders[] = ':' . $c;
+                        }
+                        // map placeholder names back to the keys we used above
+                        // (build a clean placeholder list matching cols order)
+                        $namedPlaceholders = [
+                            'user_id'           => ':user_id',
+                            'username'          => ':username',
+                            'reset_by'          => ':reset_by',
+                            'new_password_hash' => ':hash',
+                            'request_ip'        => ':ip',
+                            'user_agent'        => ':ua',
+                            'status'            => ':status',
+                            'note'              => ':note',
+                        ];
+                        $phList = [];
+                        foreach ($cols as $c) {
+                            $phList[] = $namedPlaceholders[$c];
+                        }
+
+                        $sql = "INSERT INTO password_reset_requests (" . implode(',', $cols) . ")
+                                VALUES (" . implode(',', $phList) . ")";
+                        $ins = $pdo->prepare($sql);
+                        $ins->execute($vals);
+
+                        $insertedId = $pdo->lastInsertId();
+                    } else {
+                        $insertedId = null;
+                    }
+
+                    $pdo->commit();
+
+                    // Verify
+                    if ($insertedId) {
+                        $ver = $pdo->prepare("SELECT id, user_id, created_at FROM password_reset_requests WHERE id = ?");
+                        $ver->execute([$insertedId]);
+                        $row = $ver->fetch(PDO::FETCH_ASSOC);
+                    } else {
+                        $row = false;
+                    }
+
+                    if ($row) {
+                        $msg = '✅ পাসওয়ার্ড আপডেট ও লগ সফল হয়েছে! (User: ' . htmlspecialchars($uRow['username']) . ', Log ID: ' . $row['id'] . ')';
+                        $msgType = 'success';
+                    } else {
+                        $msg = '✅ পাসওয়ার্ড আপডেট হয়েছে (তবে লগ টেবিলে কলাম নেই, তাই লগ রেকর্ড করা যায়নি)।';
+                        $msgType = 'success';
+                    }
+                } catch (PDOException $e) {
+                    if ($pdo->inTransaction()) $pdo->rollBack();
+                    $msg = 'PDOException: ' . htmlspecialchars($e->getMessage());
+                    $msgType = 'error';
+                }
             }
         }
     }
@@ -75,10 +215,8 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
 .form-group label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px}
 .form-group input[type="text"],.form-group input[type="password"],.form-group select{width:100%;padding:10px 14px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;color:#1e293b;font-family:inherit;font-size:14px;outline:none;transition:border-color .3s, box-shadow .3s}
 .form-group input:focus,.form-group select:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.15)}
-.form-group select option{background:#fff;color:#1e293b}
 .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:all .3s}
 .btn:hover{transform:translateY(-1px)}
-.btn-red{background:var(--red);color:#fff}.btn-red:hover{background:#7F0000}
 .btn-green{background:var(--green);color:#fff}.btn-green:hover{background:#15803d}
 .btn-block{width:100%;justify-content:center}
 .toast{position:fixed;top:20px;right:20px;padding:14px 24px;border-radius:10px;color:#fff;font-weight:600;font-size:14px;z-index:9999;animation:ti .4s ease,to .4s ease 2.6s forwards;box-shadow:0 8px 25px rgba(0,0,0,.2);max-width:90vw}
@@ -86,15 +224,15 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
 @keyframes ti{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:translateX(0)}}
 @keyframes to{from{opacity:1}to{opacity:0;transform:translateY(-20px)}}
 .back-link{text-align:center;margin-top:20px;display:flex;justify-content:center;gap:15px;flex-wrap:wrap}
-.back-link a{color:var(--red);font-size:14px;text-decoration:none;transition:color .2s;padding: 8px 12px; border: 1px solid #E2E8F0; border-radius: 6px;}
-.back-link a:hover{color:var(--green);border-color: var(--green)}
+.back-link a{color:var(--red);font-size:14px;text-decoration:none;transition:color .2s;padding:8px 12px;border:1px solid #E2E8F0;border-radius:6px}
+.back-link a:hover{color:var(--green);border-color:var(--green)}
 @media(max-width:600px){.header h1{font-size:22px}}
 </style>
 </head>
 <body>
 
 <?php if ($msg): ?>
-<div class="toast toast-<?= $msgType ?>"><?= htmlspecialchars($msg) ?></div>
+<div class="toast toast-<?= htmlspecialchars($msgType) ?>"><?= $msg ?></div>
 <?php endif; ?>
 
 <div class="wrapper">
@@ -103,7 +241,6 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
         <p>নিরাপদ পাসওয়ার্ড তৈরি ও ডাটাবেসে আপডেট করুন</p>
     </div>
 
-    <!-- ১. বর্তমান ইউজারের পাসওয়ার্ড রিসেট -->
     <?php if (!empty($allUsers)): ?>
     <div class="card">
         <h3><i class="fas fa-user-pen"></i> ইউজারের পাসওয়ার্ড আপডেট</h3>
@@ -129,7 +266,7 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
     </div>
     <?php else: ?>
     <div class="card" style="text-align:center;">
-        <p style="margin-bottom: 15px;">কোনো ইউজার পাওয়া যায়নি। অনুগ্রহ করে নতুন ইউজার তৈরি করুন।</p>
+        <p style="margin-bottom:15px;">কোনো ইউজার পাওয়া যায়নি। অনুগ্রহ করে নতুন ইউজার তৈরি করুন।</p>
     </div>
     <?php endif; ?>
 

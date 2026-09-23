@@ -381,7 +381,12 @@ if ($currentSub) $pagBase .= '&sub=' . $currentSub;
  $paginationHTML = renderPagination($currentPage, $totalPages, $pagBase);
 
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','পরিবেণ'=>'fa-leaf','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
- $todayStr = date('d F Y, f');
+
+// ====== FIXED DATE FUNCTION ======
+ $bnDays = ['Sunday'=>'রবিবার','Monday'=>'সোমবার','Tuesday'=>'মঙ্গলবার','Wednesday'=>'বুধবার','Thursday'=>'বৃহস্পতিবার','Friday'=>'শুক্রবার','Saturday'=>'শনিবার'];
+ $todayStr = date('d F Y') . ', ' . ($bnDays[date('l')] ?? date('l'));
+// ================================
+
  $isLoggedIn = isset($_SESSION['user_id']);
  $loginLink = $isLoggedIn ? '?page=admin_dashboard' : '?page=admin_login';
  $loginLabel = $isLoggedIn ? 'অ্যাডমিন' : 'লগইন';

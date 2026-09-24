@@ -1,6 +1,26 @@
 <?php
 require_once __DIR__ . '/config.php';
 
+// ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION ======
+if (isset($_GET['ajax_check_new_news'])) {
+    header('Content-Type: application/json');
+    $last_id = isset($_GET['last_id']) ? (int)$_GET['last_id'] : 0;
+    try {
+        $stmt = $pdo->prepare("SELECT id, title FROM news WHERE status = 'published' AND id > ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$last_id]);
+        $newNews = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($newNews) {
+            echo json_encode(['status' => 'new', 'id' => $newNews['id'], 'title' => $newNews['title']]);
+        } else {
+            echo json_encode(['status' => 'no_new']);
+        }
+    } catch (Exception $e) {
+        echo json_encode(['status' => 'error']);
+    }
+    exit;
+}
+// =====================================================
+
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_requests (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -192,7 +212,7 @@ if (in_array($page, $otherAdminPages)) {
 
 try { $pdo->exec("DELETE t1 FROM categories t1 INNER JOIN categories t2 WHERE t1.name = t2.name AND t1.id > t2.id"); } catch(PDOException $e) {}
 
- $defaultCategories = ['প্রধান খবর','জাতীয়','রাজনীতি','আন্তর্জাতিক','অর্থনীতি','খেলাধুলা','বিনোদন','শিক্ষা','প্রযুক্তি','স্বাস্থ্য','বিশেষ সংবাদ','লাইফস্টাইল','ধর্ম','সংস্কৃতি','মতামত','ক্রাইম','পরিবেণ','কৃষি','ভ্রমণ','চাকরি'];
+ $defaultCategories = ['প্রধান খবর','জাতীয়','রাজনীতি','আন্তর্জাতিক','অর্থনীতি','খেলাধুলা','বিনোদন','শিক্ষা','প্রযুক্তি','স্বাস্থ্য','বিশেষ সংবাদ','লাইফস্টাইল','ধর্ম','সংস্কৃতি','মতামত','ক্রাইম','কৃষি','ভ্রমণ','চাকরি'];
  $existingCats = $pdo->query("SELECT name FROM categories GROUP BY name ORDER BY MIN(id) ASC")->fetchAll(PDO::FETCH_COLUMN);
 foreach ($defaultCategories as $cat) {
     if (!in_array($cat, $existingCats)) {
@@ -221,6 +241,10 @@ if ($currentSub) {
     if ($currentSubData) { $currentCat = $currentSubData['category_name']; } else { $currentSub = 0; }
 }
 
+// Determine if user opted to see ALL news
+ $show_all_news = isset($_COOKIE['show_all_news']) && $_COOKIE['show_all_news'] === 'yes';
+ $dateLimitSQL = $show_all_news ? "" : " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+
 // Fetch Archive Dates
  $archiveDates = [];
 try {
@@ -233,9 +257,12 @@ try {
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
-// Fetch all recent news (Last 30 Days) for sidebars, tags, etc.
- $allNewsData = array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC")->fetchAll());
+// Fetch all recent news based on limit preference
+ $allNewsData = array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll());
  $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll());
+
+// Get the latest news ID for the AJAX notification check
+ $latestNewsId = !empty($allNewsData[0]['id']) ? (int)$allNewsData[0]['id'] : 0;
 
  $tagCounts = [];
 foreach ($allNewsData as $n) {
@@ -280,7 +307,6 @@ if (!empty($subRows)) {
     'অর্থনীতি' => ['icon' => 'fa-chart-line', 'color' => '#00838F'],
     'শিক্ষা' => ['icon' => 'fa-graduation-cap', 'color' => '#F57F17'],
     'লাইফস্টাইল' => ['icon' => 'fa-spa', 'color' => '#00897B'],
-    'পরিবেণ' => ['icon' => 'fa-leaf', 'color' => '#558B2F'],
     'কৃষি' => ['icon' => 'fa-seedling', 'color' => '#8BC34A'],
 ];
  $homeCatPanels = [];
@@ -320,8 +346,7 @@ if (empty($homeCatPanels)) {
 
  $homePanelData = [];
 foreach ($homeCatPanels as $hcp) {
-    // Fetch home panels limited to last 30 days
-    $hpStmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE c.name = ? AND n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC LIMIT 5");
+    $hpStmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 5");
     $hpStmt->execute([$hcp['name']]);
     $homePanelData[$hcp['name']] = ['info' => $hcp, 'items' => array_map('safeMapNewsKeys', $hpStmt->fetchAll())];
 }
@@ -337,7 +362,7 @@ try {
  $homeVideos = array_slice($videos, 0, 6);
 
 if ($page === 'single') {
-    // Single news doesn't have 30 day limit, so people can still read shared links
+    // Single news bypasses 30-day limit for direct links
     $stmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id = ? AND n.status = 'published'");
     $stmt->execute([(int)($_GET['id'] ?? 0)]);
     if ($row = $stmt->fetch()) {
@@ -345,12 +370,12 @@ if ($page === 'single') {
         $singleRelatedTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',', $singleNews['tags']))) : [];
         $related = [];
         if (!empty($singleRelatedTags)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
             $stmt2->execute(array_merge([$singleNews['id']], array_map(function($t){ return "%$t%"; }, $singleRelatedTags)));
             $related = array_map('safeMapNewsKeys', $stmt2->fetchAll());
         }
         if (empty($related)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND c.name = ? AND n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 6");
             $stmt2->execute([$singleNews['id'], $singleNews['category']]);
             $related = array_map('safeMapNewsKeys', $stmt2->fetchAll());
         }
@@ -371,9 +396,8 @@ if ($page === 'single') {
             $sql .= " AND MONTH(n.created_at) = ?"; $countSql .= " AND MONTH(n.created_at) = ?"; $params[] = $archMonth;
         }
     } else {
-        // Apply 30-day limit if NOT viewing an archive
-        $sql .= " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
-        $countSql .= " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+        $sql .= $dateLimitSQL;
+        $countSql .= $dateLimitSQL;
     }
 
     $gridSql = $sql . " ORDER BY n.created_at DESC";
@@ -409,7 +433,7 @@ if ($archYear) $pagBase .= '&y=' . $archYear;
 if ($archMonth) $pagBase .= '&m=' . $archMonth;
  $paginationHTML = renderPagination($currentPage, $totalPages, $pagBase);
 
- $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','পরিবেণ'=>'fa-leaf','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
+ $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
 
 // ====== FIXED DATE FUNCTION ======
  $bnDays = ['Sunday'=>'রবিবার','Monday'=>'সোমবার','Tuesday'=>'মঙ্গলবার','Wednesday'=>'বুধবার','Thursday'=>'বৃহস্পতিবার','Friday'=>'শুক্রবার','Saturday'=>'শনিবার'];
@@ -1371,6 +1395,35 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 
 <button class="sb-toggle" id="sbToggle" aria-label="সাইডবার টগল"><i class="fas fa-bars"></i></button>
 
+<!-- Permission Popup (Step 1) -->
+<div id="allowNewsPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;align-items:center;justify-content:center;">
+    <div style="background:#fff;padding:40px 30px;border-radius:12px;text-align:center;max-width:380px;width:90%;box-shadow:0 10px 30px rgba(0,0,0,.3);">
+        <div style="width:70px;height:70px;background:#FFF0F0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
+            <i class="fas fa-bell" style="font-size:32px;color:var(--red);"></i>
+        </div>
+        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">আপনার বিজ্ঞপ্তি সেবা!</h3>
+        <p style="font-size:15px;color:#555;margin-bottom:10px;">আপনার বিজ্ঞপ্তি নাম: <strong>সংবাদ সংকলন</strong></p>
+        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">কি আপনার ইচ্ছা?</p>
+        <div style="display:flex;justify-content:center;gap:15px;">
+            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
+            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">না</button>
+        </div>
+    </div>
+</div>
+
+<!-- New News Notification Popup (HTML Fallback) -->
+<div id="newNewsPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;align-items:center;justify-content:center;">
+    <div style="background:#fff;padding:30px;border-radius:10px;text-align:center;max-width:400px;width:90%;box-shadow:0 10px 30px rgba(0,0,0,.3);">
+        <i class="fas fa-bell" style="font-size:32px;color:var(--red);margin-bottom:15px;display:block;"></i>
+        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:10px;color:#333;font-size:20px;">নতুন সংবাদ প্রকাশিত হয়েছে!</h3>
+        <p style="font-size:14px;color:#666;margin-bottom:5px;">একটি নতুন সংবাদ যুক্ত হয়েছে:</p>
+        <p id="newNewsTitle" style="font-weight:bold;margin-bottom:20px;color:var(--red);"></p>
+        <p style="font-size:14px;color:#666;margin-bottom:20px;">আপনি কি এখন দেখতে চান?</p>
+        <button id="btnNewNewsYes" style="background:var(--red);color:#fff;border:none;padding:10px 25px;border-radius:5px;cursor:pointer;font-weight:bold;margin:0 5px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
+        <button id="btnNewNewsNo" style="background:#eee;color:#333;border:none;padding:10px 25px;border-radius:5px;cursor:pointer;font-weight:bold;margin:0 5px;font-family:'Hind Siliguri',sans-serif;">না</button>
+    </div>
+</div>
+
 <?php if (!empty($adPopup)): ?>
 <div id="popupAdOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99998;align-items:center;justify-content:center;">
 <div style="position:relative;max-width:400px;width:90%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3);">
@@ -1433,6 +1486,135 @@ document.addEventListener('click',function(e){
 });
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
+
+// ====== SYSTEM NOTIFICATION LOGIC ======
+var latestNewsId = <?= $latestNewsId ?>;
+var allowNewsPopup = document.getElementById('allowNewsPopup');
+var newNewsPopup = document.getElementById('newNewsPopup');
+var newNewsTitle = document.getElementById('newNewsTitle');
+var currentNewNewsId = 0;
+var newsInterval;
+
+// Function to display Native OS Notification
+function showSystemNotification(title, body, url) {
+    if (!("Notification" in window)) {
+        return false; // Not supported
+    }
+    if (Notification.permission === "granted") {
+        var notification = new Notification(title, {
+            body: body,
+            icon: 'https://via.placeholder.com/150/B71C1C/FFFFFF?text=News', // You can replace this with your logo URL
+            tag: 'new-news-notification' // Prevents multiple notifications from stacking up
+        });
+        notification.onclick = function() {
+            window.focus();
+            window.location.href = url;
+            notification.close();
+        };
+        return true;
+    }
+    return false;
+}
+
+function checkForNewNews() {
+    fetch('?ajax_check_new_news=1&last_id=' + latestNewsId)
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'new' && newNewsPopup && newNewsPopup.style.display === 'none') {
+            currentNewNewsId = data.id;
+            if (newNewsTitle) newNewsTitle.textContent = data.title;
+            
+            var url = '?page=single&id=' + currentNewNewsId;
+            // Try showing system notification
+            var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
+
+            if (!systemShown) {
+                // Fallback to HTML popup if system notification fails or isn't permitted
+                newNewsPopup.style.display = 'flex';
+            } else {
+                // If system notification was shown, update ID so we don't spam
+                latestNewsId = currentNewNewsId;
+            }
+        }
+    }).catch(error => console.error('Error checking for new news:', error));
+}
+
+function startNewsCheck() {
+    if (!newsInterval) {
+        checkForNewNews();
+        newsInterval = setInterval(checkForNewNews, 30000);
+    }
+}
+
+var newsAllowed = localStorage.getItem('news_popup_allowed');
+
+if (newsAllowed === 'granted') {
+    startNewsCheck();
+} else if (newsAllowed === null || newsAllowed === undefined) {
+    setTimeout(function() {
+        if (allowNewsPopup) allowNewsPopup.style.display = 'flex';
+    }, 2000);
+}
+
+// Handle Custom Allow Popup "Yes"
+var btnAllowYes = document.getElementById('btnAllowYes');
+if (btnAllowYes) {
+    btnAllowYes.addEventListener('click', function() {
+        if (allowNewsPopup) allowNewsPopup.style.display = 'none';
+
+        if (!("Notification" in window)) {
+            // Browser doesn't support system notifications
+            localStorage.setItem('news_popup_allowed', 'granted');
+            startNewsCheck();
+            return;
+        }
+
+        // Request OS system permission
+        Notification.requestPermission().then(function (permission) {
+            if (permission === "granted") {
+                localStorage.setItem('news_popup_allowed', 'granted');
+                startNewsCheck();
+                // Show a welcome system notification
+                showSystemNotification('বিজ্ঞপ্তি সফল হয়েছে!', 'আপনি এখন নতুন সংবাদের বিজ্ঞপ্তি পাবেন।', '?page=home');
+            } else {
+                // Denied OS permission, fallback to HTML popup
+                localStorage.setItem('news_popup_allowed', 'granted');
+                startNewsCheck();
+            }
+        });
+    });
+}
+
+// Handle Custom Allow Popup "No"
+var btnAllowNo = document.getElementById('btnAllowNo');
+if (btnAllowNo) {
+    btnAllowNo.addEventListener('click', function() {
+        localStorage.setItem('news_popup_allowed', 'denied');
+        if (allowNewsPopup) allowNewsPopup.style.display = 'none';
+    });
+}
+
+// Handle HTML Fallback Popup "Yes"
+var btnNewNewsYes = document.getElementById('btnNewNewsYes');
+if (btnNewNewsYes) {
+    btnNewNewsYes.addEventListener('click', function() {
+        newNewsPopup.style.display = 'none';
+        if (currentNewNewsId > 0) {
+            window.location.href = '?page=single&id=' + currentNewNewsId;
+        }
+    });
+}
+
+// Handle HTML Fallback Popup "No"
+var btnNewNewsNo = document.getElementById('btnNewNewsNo');
+if (btnNewNewsNo) {
+    btnNewNewsNo.addEventListener('click', function() {
+        newNewsPopup.style.display = 'none';
+        if (currentNewNewsId > 0) {
+            latestNewsId = currentNewNewsId;
+        }
+    });
+}
 })();
 </script>
 </body>

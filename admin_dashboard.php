@@ -332,10 +332,30 @@ if ($section === "breaking" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!ver
  $catSuccess = ""; $catError = ""; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $catEditData = null; $subEditData = null;
 if (isset($_GET["edit_cat"])) { $eci = (int)$_GET["edit_cat"]; $er = $pdo->prepare("SELECT * FROM categories WHERE id=?"); $er->execute([$eci]); $catEditData = $er->fetch(); }
 if (isset($_GET["edit_sub"])) { $esi = (int)$_GET["edit_sub"]; $er = $pdo->prepare("SELECT * FROM subcategories WHERE id=?"); $er->execute([$esi]); $subEditData = $er->fetch(); }
+
 if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
-    if (!verifyCSRF()) { $catError = "Token mismatch."; }
-    else { $ca = $_POST["cat_action"] ?? "";
-        if ($ca === "add") { $cn = trim($_POST["cat_name"] ?? ""); if (empty($cn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM categories WHERE name=?"); $ck->execute([$cn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($cn); $sl = makeUniqueCatSlug($pdo, $sl); $pdo->prepare("INSERT INTO categories (name,slug) VALUES (?,?)")->execute([$cn, $sl]); $catSuccess = "Added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } } }
+    if (!verifyCSRF()) { 
+        $catError = "Token mismatch."; 
+    } else { 
+        $ca = $_POST["cat_action"] ?? "";
+        if ($ca === "add") { 
+            $cn = trim($_POST["cat_name"] ?? ""); 
+            if (empty($cn)) { 
+                $catError = "Please provide a name."; 
+            } else { 
+                $ck = $pdo->prepare("SELECT id FROM categories WHERE name=?"); 
+                $ck->execute([$cn]); 
+                if ($ck->fetch()) { 
+                    $catError = "Already exists."; 
+                } else { 
+                    $sl = generateSlug($cn); 
+                    $sl = makeUniqueCatSlug($pdo, $sl); 
+                    $pdo->prepare("INSERT INTO categories (name,slug) VALUES (?,?)")->execute([$cn, $sl]); 
+                    $catSuccess = "Added successfully."; 
+                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
+                } 
+            } 
+        }
         if ($ca === "delete") { 
             $ci = (int)($_POST["cat_id"] ?? 0); 
             $si = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=?"); 
@@ -352,7 +372,38 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
             $catSuccess = "Category deleted successfully. Associated news moved to uncategorized."; 
             $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
         }
-        if ($ca === "add_sub") { $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); if ($sci < 1) { $catError = "Please select a category."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); $ck->execute([$sci, $sn]); if ($ck->fetch()) { $catError = "Already exists."; } else { $sl = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); $ck2->execute([$sl]); $c = 1; while ($ck2->fetch()) { $sl = generateSlug($sn).'-'.$c++; $ck2->execute([$sl]); } $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?)")->execute([$sci, $sn, $sl]); $catSuccess = "Subcategory added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } } } }
+        if ($ca === "add_sub") { 
+            $sci = (int)($_POST["sub_category_id"] ?? 0); 
+            $sn = trim($_POST["sub_name"] ?? ""); 
+            if ($sci < 1) { 
+                $catError = "Please select a category."; 
+            } elseif (empty($sn)) { 
+                $catError = "Please provide a name."; 
+            } else { 
+                $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); 
+                $ck->execute([$sci, $sn]); 
+                if ($ck->fetch()) { 
+                    $catError = "Already exists."; 
+                } else { 
+                    $sl = generateSlug($sn); 
+                    $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); 
+                    $ck2->execute([$sl]); 
+                    $c = 1; 
+                    while ($ck2->fetch()) { 
+                        $sl = generateSlug($sn).'-'.$c++; 
+                        $ck2->execute([$sl]); 
+                    } 
+                    $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?,?)")->execute([$sci, $sn, $sl]); 
+                    $catSuccess = "Subcategory added successfully."; 
+                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
+                    $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
+                    $allSubcategories = []; 
+                    foreach ($srs as $s) { 
+                        $allSubcategories[$s["category_id"]][] = $s; 
+                    } 
+                } 
+            } 
+        }
         if ($ca === "delete_sub") { 
             $sid = (int)($_POST["sub_id"] ?? 0); 
             $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id=?")->execute([$sid]); 
@@ -362,11 +413,74 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
             $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
             $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
             $allSubcategories = []; 
-            foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } 
+            foreach ($srs as $s) { 
+                $allSubcategories[$s["category_id"]][] = $s; 
+            } 
         }
-        if ($ca === "edit_cat") { $ci = (int)($_POST["cat_id"] ?? 0); $cn = trim($_POST["cat_name"] ?? ""); $cs = trim($_POST["cat_slug"] ?? ""); if ($ci < 1) { $catError = "Invalid category."; } elseif (empty($cn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?"); $ck->execute([$cn, $ci]); if ($ck->fetch()) { $catError = "Category name already exists."; } else { if (empty($cs)) $cs = generateSlug($cn); $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?"); $ck2->execute([$cs, $ci]); $c = 1; $orig_slug = $cs; while ($ck2->fetch()) { $cs = $orig_slug . '-' . $c++; $ck2->execute([$cs, $ci]); } $pdo->prepare("UPDATE categories SET name=?, slug=? WHERE id=?")->execute([$cn, $cs, $ci]); $catSuccess = "Category updated successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $catEditData = null; } } }
-        if ($ca === "edit_sub") { $si = (int)($_POST["sub_id"] ?? 0); $sci = (int)($_POST["sub_category_id"] ?? 0); $sn = trim($_POST["sub_name"] ?? ""); $ss = trim($_POST["sub_slug"] ?? ""); if ($si < 1 || $sci < 1) { $catError = "Invalid selection."; } elseif (empty($sn)) { $catError = "Please provide a name."; } else { $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=? AND id != ?"); $ck->execute([$sci, $sn, $si]); if ($ck->fetch()) { $catError = "Subcategory name already exists in this category."; } else { if (empty($ss)) $ss = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=? AND id != ?"); $ck2->execute([$ss, $si]); $c = 1; $orig_slug = $ss; while ($ck2->fetch()) { $ss = $orig_slug . '-' . $c++; $ck2->execute([$ss, $si]); } $pdo->prepare("UPDATE subcategories SET category_id=?, name=?, slug=? WHERE id=?")->execute([$sci, $sn, $ss, $si]); $catSuccess = "Subcategory updated successfully."; $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); $allSubcategories = []; foreach ($srs as $s) { $allSubcategories[$s["category_id"]][] = $s; } $subEditData = null; } } }
-    }
+        if ($ca === "edit_cat") { 
+            $ci = (int)($_POST["cat_id"] ?? 0); 
+            $cn = trim($_POST["cat_name"] ?? ""); 
+            $cs = trim($_POST["cat_slug"] ?? ""); 
+            if ($ci < 1) { 
+                $catError = "Invalid category."; 
+            } elseif (empty($cn)) { 
+                $catError = "Please provide a name."; 
+            } else { 
+                $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?"); 
+                $ck->execute([$cn, $ci]); 
+                if ($ck->fetch()) { 
+                    $catError = "Category name already exists."; 
+                } else { 
+                    if (empty($cs)) $cs = generateSlug($cn); 
+                    $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?"); 
+                    $ck2->execute([$cs, $ci]); 
+                    $c = 1; $orig_slug = $cs; 
+                    while ($ck2->fetch()) { 
+                        $cs = $orig_slug . '-' . $c++; 
+                        $ck2->execute([$cs, $ci]); 
+                    } 
+                    $pdo->prepare("UPDATE categories SET name=?, slug=? WHERE id=?")->execute([$cn, $cs, $ci]); 
+                    $catSuccess = "Category updated successfully."; 
+                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
+                    $catEditData = null; 
+                } 
+            } 
+        }
+        if ($ca === "edit_sub") { 
+            $si = (int)($_POST["sub_id"] ?? 0); 
+            $sci = (int)($_POST["sub_category_id"] ?? 0); 
+            $sn = trim($_POST["sub_name"] ?? ""); 
+            $ss = trim($_POST["sub_slug"] ?? ""); 
+            if ($si < 1 || $sci < 1) { 
+                $catError = "Invalid selection."; 
+            } elseif (empty($sn)) { 
+                $catError = "Please provide a name."; 
+            } else { 
+                $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=? AND id != ?"); 
+                $ck->execute([$sci, $sn, $si]); 
+                if ($ck->fetch()) { 
+                    $catError = "Subcategory name already exists in this category."; 
+                } else { 
+                    if (empty($ss)) $ss = generateSlug($sn); 
+                    $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=? AND id != ?"); 
+                    $ck2->execute([$ss, $si]); 
+                    $c = 1; $orig_slug = $ss; 
+                    while ($ck2->fetch()) { 
+                        $ss = $orig_slug . '-' . $c++; 
+                        $ck2->execute([$ss, $si]); 
+                    } 
+                    $pdo->prepare("UPDATE subcategories SET category_id=?, name=?, slug=? WHERE id=?")->execute([$sci, $sn, $ss, $si]); 
+                    $catSuccess = "Subcategory updated successfully."; 
+                    $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
+                    $allSubcategories = []; 
+                    foreach ($srs as $s) { 
+                        $allSubcategories[$s["category_id"]][] = $s; 
+                    } 
+                    $subEditData = null; 
+                } 
+            } 
+        }
+    } 
 }
 
  $socialSuccess = ""; $socialError = "";
@@ -733,7 +847,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -741,7 +855,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -911,7 +1025,7 @@ if (typeof CKEDITOR !== 'undefined') CKEDITOR.replace('editor1', { height: 400, 
 <?php if ($adError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($adError) ?></div><?php endif; ?>
 <?php if ($adSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($adSuccess) ?></div><?php endif; ?>
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-code"></i> Advertisement Embed Codes</div></div><form method="POST"><input type="hidden" name="update_ads" value="1"><div class="panel-body"><div class="form-group"><label class="form-label">Bottom Ad Embed 1 (HTML/Scripts allowed)</label><textarea name="ad_bottom_1_embed" class="form-input" rows="5" placeholder='<iframe src="..."></iframe>'><?= htmlspecialchars($currentAds['ad_bottom_1_embed'] ?? '') ?></textarea></div><div class="form-group"><label class="form-label">Bottom Ad Embed 2 (HTML/Scripts allowed)</label><textarea name="ad_bottom_2_embed" class="form-input" rows="5" placeholder='<iframe src="..."></iframe>'><?= htmlspecialchars($currentAds['ad_bottom_2_embed'] ?? '') ?></textarea></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Embed Codes</button></div></form></div>
-<div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-<?= $adEditData ? 'pen' : 'plus-circle' ?>"></i> <?= $adEditData ? 'Edit' : 'New Advertisement' ?></div></div><form method="POST" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><?php if ($adEditData): ?><input type="hidden" name="ad_id" value="<?= $adEditData["id"] ?>"><?php endif; ?><div class="panel-body"><div class="form-row"><div class="form-group"><label class="form-label">Name *</label><input type="text" name="ad_title" class="form-input" value="<?= htmlspecialchars($adEditData["title"] ?? "") ?>" required></div><div class="form-group"><label class="form-label">Position</label><select name="ad_position" class="form-select"><?php foreach ($adPositions as $pk => $pc): ?><option value="<?= $pk ?>" <?= ($adEditData["position"] ?? "") === $pk ? 'selected' : '' ?>><?= $pc["label"] ?></option><?php endforeach; ?></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Type</label><div class="radio-group"><div class="radio-item <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="image" <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='block';document.getElementById('adCodeSec').style.display='none';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Image</label></div><div class="radio-item <?= ($adEditData["ad_type"] ?? "") === "code" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="code" <?= ($adEditData["ad_type"] ?? "") === "code" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='none';document.getElementById('adCodeSec').style.display='block';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Code</label></div></div></div><div class="form-group"><label class="form-label">Sort</label><input type="number" name="ad_sort_order" class="form-input" value="<?= $adEditData["sort_order"] ?? 0 ?>" min="0"></div></div><div id="adImgSec" style="display:<?= ($adEditData["ad_type"] ?? "image") === "image" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">Link URL</label><input type="url" name="ad_link_url" class="form-input" value="<?= htmlspecialchars($adEditData["link_url"] ?? "") ?>"></div><div class="form-group"><label class="form-label">Image</label><div class="img-upload-area <?= !empty($adEditData["image"]) ? 'has-image' : '' ?>" id="adImgArea"><input type="file" name="ad_image" id="ad_image" accept="image/jpeg,image/png,image/gif,image/webp"><?php if (!empty($adEditData["image"])): ?><img src="<?= htmlspecialchars($adEditData["image"]) ?>" class="img-preview" id="adImgPreview" alt=""><div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div><?php else: ?><div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div><div class="img-upload-text">Select image</div><div class="img-upload-hint">JPG, PNG, GIF, WebP — 5MB</div><img src="" class="img-preview" id="adImgPreview" style="display:none" alt=""><?php endif; ?></div></div></div><div id="adCodeSec" style="display:<?= ($adEditData["ad_type"] ?? "") === "code" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">HTML Code</label><textarea name="ad_code" class="form-input" rows="8"><?= htmlspecialchars($adEditData["ad_code"] ?? "") ?></textarea></div></div><div class="form-row"><div class="form-group"><label class="form-label">Start Date</label><input type="date" name="ad_start_date" class="form-input" value="<?= $adEditData["start_date"] ?? "" ?>"></div><div class="form-group"><label class="form-label">End Date</label><input type="date" name="ad_end_date" class="form-input" value="<?= $adEditData["end_date"] ?? "" ?>"></div></div><div class="form-group" style="max-width:200px"><label class="form-label">Max Impressions</label><input type="number" name="ad_max_impressions" class="form-input" value="<?= $adEditData["max_impressions"] ?? "" ?>" min="0" placeholder="Unlimited"></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-gold"><i class="fas fa-save"></i> <?= $adEditData ? 'Update' : 'Add' ?></button></div></form></div>
+<div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-<?= $adEditData ? 'pen' : 'plus-circle' ?>"></i> <?= $adEditData ? 'Edit' : 'New Advertisement' ?></div></div><form method="POST" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><?php if ($adEditData): ?><input type="hidden" name="ad_id" value="<?= $adEditData["id"] ?>"><?php endif; ?><div class="panel-body"><div class="form-row"><div class="form-group"><label class="form-label">Name *</label><input type="text" name="ad_title" class="form-input" value="<?= htmlspecialchars($adEditData["title"] ?? "") ?>" required></div><div class="form-group"><label class="form-label">Position</label><select name="ad_position" class="form-select"><?php foreach ($adPositions as $pk => $pc): ?><option value="<?= $pk ?>" <?= ($adEditData["position"] ?? "") === $pk ? 'selected' : '' ?>><?= $pc["label"] ?></option><?php endforeach; ?></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Type</label><div class="radio-group"><div class="radio-item <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="image" <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='block';document.getElementById('adCodeSec').style.display='none';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Image</label></div><div class="radio-item <?= ($adEditData["ad_type"] ?? "") === "code" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="code" <?= ($adEditData["ad_type"] ?? "") === "code" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='none';document.getElementById('adCodeSec').style.display='block';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Code</label></div></div></div><div class="form-group"><label class="form-label">Sort</label><input type="number" name="ad_sort_order" class="form-input" value="<?= $adEditData["sort_order"] ?? 0 ?>" min="0"></div></div><div id="adImgSec" style="display:<?= ($adEditData["ad_type"] ?? "image") === "image" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">Link URL</label><input type="url" name="ad_link_url" class="form-input" value="<?= htmlspecialchars($adEditData["link_url"] ?? "") ?>"></div><div class="form-group"><label class="form-label">Image</label><div class="img-upload-area <?= !empty($adEditData["image"]) ? 'has-image' : '' ?>" id="adImgArea"><input type="file" name="ad_image" id="ad_image" accept="image/jpeg,image/png,image/gif/image/webp"><?php if (!empty($adEditData["image"])): ?><img src="<?= htmlspecialchars($adEditData["image"]) ?>" class="img-preview" id="adImgPreview" alt=""><div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div><?php else: ?><div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div><div class="img-upload-text">Select image</div><div class="img-upload-hint">JPG, PNG, GIF, WebP — 5MB</div><img src="" class="img-preview" id="adImgPreview" style="display:none" alt=""><?php endif; ?></div></div></div><div id="adCodeSec" style="display:<?= ($adEditData["ad_type"] ?? "") === "code" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">HTML Code</label><textarea name="ad_code" class="form-input" rows="8"><?= htmlspecialchars($adEditData["ad_code"] ?? "") ?></textarea></div></div><div class="form-row"><div class="form-group"><label class="form-label">Start Date</label><input type="date" name="ad_start_date" class="form-input" value="<?= $adEditData["start_date"] ?? "" ?>"></div><div class="form-group"><label class="form-label">End Date</label><input type="date" name="ad_end_date" class="form-input" value="<?= $adEditData["end_date"] ?? "" ?>"></div></div><div class="form-group" style="max-width:200px"><label class="form-label">Max Impressions</label><input type="number" name="ad_max_impressions" class="form-input" value="<?= $adEditData["max_impressions"] ?? "" ?>" min="0" placeholder="Unlimited"></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-gold"><i class="fas fa-save"></i> <?= $adEditData ? 'Update' : 'Add' ?></button></div></form></div>
 <div class="panel"><div class="panel-header"><div class="filter-tabs"><?php foreach (["all"=>"All (".$adTotal.")","active"=>"Active","inactive"=>"Inactive","image"=>"Image","code"=>"Code"] as $f => $l): ?><a href="?page=admin_dashboard&section=ads&ad_filter=<?= $f ?>" class="filter-tab <?= $adFilter === $f ? 'active' : '' ?>"><?= $l ?></a><?php endforeach; ?></div></div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Name</th><th>Position</th><th>Type</th><th>Status</th><th>Clicks</th><th>Impressions</th><th>Action</th></tr></thead><tbody>
 <?php foreach ($adList as $ad): $pc = $adPositions[$ad["position"]] ?? ["label"=>$ad["position"],"color"=>"#666","icon"=>"fas fa-circle"]; ?>
 <tr><td style="font-weight:600"><?= htmlspecialchars($ad["title"]) ?></td><td><span class="ad-pos-chip" style="border-color:<?= $pc["color"] ?>;color:<?= $pc["color"] ?>"><i class="<?= $pc["icon"] ?>"></i> <?= $pc["label"] ?></span></td><td style="font-size:12px"><?= $ad["ad_type"] === 'image' ? '<i class="fas fa-image" style="color:var(--blue)"></i> Image' : '<i class="fas fa-code" style="color:var(--purple)"></i> Code' ?></td><td><span class="status-badge status-<?= $ad["is_active"] ? 'active' : 'inactive' ?>"><i class="fas fa-circle"></i> <?= $ad["is_active"] ? 'Active' : 'Inactive' ?></span></td><td style="font-weight:600"><?= number_format($ad["clicks"] ?? 0) ?></td><td style="font-weight:600"><?= number_format($ad["impressions"] ?? 0) ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=ads&ad_edit=<?= $ad["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=ads&ad_toggle=<?= $ad["id"] ?>&ad_ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&ad_filter=<?= $adFilter ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $ad["is_active"] ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=ads&ad_delete=<?= $ad["id"] ?>&ad_dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&ad_filter=<?= $adFilter ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Delete?')"><i class="fas fa-trash"></i></a></div></td></tr>

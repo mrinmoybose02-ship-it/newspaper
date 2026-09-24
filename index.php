@@ -312,7 +312,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -1101,11 +1101,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <?php
  $vidMain = array_shift($homeVideos);
  $vidEmbed = '';
-if (!empty($vidMain['code'])) {
-    $vidEmbed = extractVideoEmbedUrl($vidMain['code']);
-} elseif (!empty($vidMain['video_url'])) {
-    $vidEmbed = extractVideoEmbedUrl($vidMain['video_url']);
-}
+if (!empty($vidMain['code'])) { $vidEmbed = extractVideoEmbedUrl($vidMain['code']); } elseif (!empty($vidMain['video_url'])) { $vidEmbed = extractVideoEmbedUrl($vidMain['video_url']); }
  $vidPoster = !empty($vidMain['thumbnail']) ? newsImage($vidMain['thumbnail'], '') : '';
 if (empty($vidPoster)) { $vidPoster = videoThumbUrl($vidEmbed); }
 if (empty($vidPoster)) $vidPoster = $placeholderImg;
@@ -1354,19 +1350,6 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     </div>
 </div>
 
-<!-- New News Notification Popup (HTML Fallback) -->
-<div id="newNewsPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;align-items:center;justify-content:center;">
-    <div style="background:#fff;padding:30px;border-radius:10px;text-align:center;max-width:400px;width:90%;box-shadow:0 10px 30px rgba(0,0,0,.3);">
-        <i class="fas fa-bell" style="font-size:32px;color:var(--red);margin-bottom:15px;display:block;"></i>
-        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:10px;color:#333;font-size:20px;">নতুন সংবাদ প্রকাশিত হয়েছে!</h3>
-        <p style="font-size:14px;color:#666;margin-bottom:5px;">একটি নতুন সংবাদ যুক্ত হয়েছে:</p>
-        <p id="newNewsTitle" style="font-weight:bold;margin-bottom:20px;color:var(--red);"></p>
-        <p style="font-size:14px;color:#666;margin-bottom:20px;">আপনি কি এখন দেখতে চান?</p>
-        <button id="btnNewNewsYes" style="background:var(--red);color:#fff;border:none;padding:10px 25px;border-radius:5px;cursor:pointer;font-weight:bold;margin:0 5px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
-        <button id="btnNewNewsNo" style="background:#eee;color:#333;border:none;padding:10px 25px;border-radius:5px;cursor:pointer;font-weight:bold;margin:0 5px;font-family:'Hind Siliguri',sans-serif;">না</button>
-    </div>
-</div>
-
 <?php if (!empty($adPopup)): ?>
 <div id="popupAdOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99998;align-items:center;justify-content:center;">
 <div style="position:relative;max-width:400px;width:90%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3);">
@@ -1430,11 +1413,9 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// ====== SYSTEM NOTIFICATION LOGIC (Cross-OS Support) ======
+// ====== SYSTEM NOTIFICATION LOGIC ONLY (No HTML Popup) ======
 var latestNewsId = <?= $latestNewsId ?>;
 var allowNewsPopup = document.getElementById('allowNewsPopup');
-var newNewsPopup = document.getElementById('newNewsPopup');
-var newNewsTitle = document.getElementById('newNewsTitle');
 var currentNewNewsId = 0;
 var newsInterval;
 
@@ -1456,7 +1437,7 @@ function showSystemNotification(title, body, url) {
         var options = {
             body: body,
             icon: 'https://via.placeholder.com/150/B71C1C/FFFFFF?text=News',
-            tag: 'new-news-' + url, // Unique tag
+            tag: 'new-news-' + url, 
             data: { url: url }
         };
         
@@ -1481,18 +1462,15 @@ function checkForNewNews() {
     fetch('?ajax_check_new_news=1&last_id=' + latestNewsId)
     .then(response => response.json())
     .then(data => {
-        if (data.status === 'new' && newNewsPopup && newNewsPopup.style.display === 'none') {
+        if (data.status === 'new') {
             currentNewNewsId = data.id;
-            if (newNewsTitle) newNewsTitle.textContent = data.title;
-            
             var url = '?page=single&id=' + currentNewNewsId;
-            var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
-
-            if (!systemShown) {
-                newNewsPopup.style.display = 'flex';
-            } else {
-                latestNewsId = currentNewNewsId;
-            }
+            
+            // Directly call System Notification
+            showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
+            
+            // Update ID to prevent spamming
+            latestNewsId = currentNewNewsId;
         }
     }).catch(error => console.error('Error checking for new news:', error));
 }
@@ -1543,26 +1521,6 @@ if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
         localStorage.setItem('news_popup_allowed', 'denied');
         if (allowNewsPopup) allowNewsPopup.style.display = 'none';
-    });
-}
-
-var btnNewNewsYes = document.getElementById('btnNewNewsYes');
-if (btnNewNewsYes) {
-    btnNewNewsYes.addEventListener('click', function() {
-        newNewsPopup.style.display = 'none';
-        if (currentNewNewsId > 0) {
-            window.location.href = '?page=single&id=' + currentNewNewsId;
-        }
-    });
-}
-
-var btnNewNewsNo = document.getElementById('btnNewNewsNo');
-if (btnNewNewsNo) {
-    btnNewNewsNo.addEventListener('click', function() {
-        newNewsPopup.style.display = 'none';
-        if (currentNewNewsId > 0) {
-            latestNewsId = currentNewNewsId;
-        }
     });
 }
 })();

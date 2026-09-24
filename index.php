@@ -114,48 +114,33 @@ if (!function_exists('videoThumbUrl')) {
     }
 }
 
-// Helper to extract embed URL from raw iframe code or plain URL, forcing autoplay
 if (!function_exists('extractVideoEmbedUrl')) {
     function extractVideoEmbedUrl($rawCode) {
         if (empty($rawCode)) return '';
         $url = '';
-        // Try to match src="..." or src='...'
         if (preg_match('/src=[\"\']?([^\"\'>\s]+)[\"\']?/i', $rawCode, $match)) {
             $url = $match[1];
         } else {
-            $url = trim($rawCode); // Assume it's a plain URL
+            $url = trim($rawCode);
         }
-        
-        // Normalize YouTube URL
         if (preg_match('#(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube-nocookie\.com/embed/)([a-zA-Z0-9_-]{11})#', $url, $m)) {
             $url = 'https://www.youtube.com/embed/' . $m[1];
         }
-        // Normalize Vimeo URL
         if (preg_match('#vimeo\.com/(\d+)#', $url, $m)) {
             $url = 'https://player.vimeo.com/video/' . $m[1];
         }
-        
-        // Ensure it has a valid scheme
         if (strpos($url, 'http://') !== 0 && strpos($url, 'https://') !== 0) {
-            if (strpos($url, '//') === 0) {
-                $url = 'https:' . $url;
-            } else {
-                $url = 'https://' . $url;
-            }
+            if (strpos($url, '//') === 0) { $url = 'https:' . $url; } else { $url = 'https://' . $url; }
         }
-        
-        // Append autoplay=1 if it's a valid embed URL
         if (strpos($url, 'youtube.com/embed/') !== false || strpos($url, 'player.vimeo.com/video/') !== false) {
             if (strpos($url, 'autoplay=1') === false) {
                 $url .= (strpos($url, '?') !== false ? '&' : '?') . 'autoplay=1&rel=0';
             }
         }
-        
         return $url;
     }
 }
 
-// ====== AD DISPLAY FUNCTIONS ======
 if (!function_exists('getActiveAds')) {
     function getActiveAds($pdo, $position) {
         try {
@@ -241,11 +226,9 @@ if ($currentSub) {
     if ($currentSubData) { $currentCat = $currentSubData['category_name']; } else { $currentSub = 0; }
 }
 
-// Determine if user opted to see ALL news
  $show_all_news = isset($_COOKIE['show_all_news']) && $_COOKIE['show_all_news'] === 'yes';
  $dateLimitSQL = $show_all_news ? "" : " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
 
-// Fetch Archive Dates
  $archiveDates = [];
 try {
     $archStmt = $pdo->query("SELECT YEAR(created_at) as y, MONTH(created_at) as m FROM news WHERE status = 'published' GROUP BY y, m ORDER BY y DESC, m DESC");
@@ -257,11 +240,9 @@ try {
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
-// ====== FETCH ALL RECENT NEWS (WITH SUBCATEGORY) ======
  $allNewsData = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll()));
  $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll());
 
-// Get the latest news ID for the AJAX notification check
  $latestNewsId = !empty($allNewsData[0]['id']) ? (int)$allNewsData[0]['id'] : 0;
 
  $tagCounts = [];
@@ -293,7 +274,6 @@ if (!empty($subRows)) {
 }
 
  $navInlineCats = array_slice(array_column($categories, 'name'), 0, 8);
-
  $singleNews = null; $related = []; $displayFeatured = []; $pagedGrid = []; $totalGrid = 0; $totalPages = 1; $currentPage = 1;
 
  $panelDefaults = [
@@ -317,16 +297,9 @@ try {
     $homeSettings = loadSettings($pdo, ['home_cat_panels']);
     $activeCatIds = json_decode($homeSettings['home_cat_panels'] ?? '[]', true);
     if (!is_array($activeCatIds)) $activeCatIds = [];
-    
-    if (in_array('videos_section', $activeCatIds)) {
-        $showHomeVideos = true;
-    }
-    if (in_array('latest_news_section', $activeCatIds)) {
-        $showLatestNews = true;
-    }
-    
+    if (in_array('videos_section', $activeCatIds)) $showHomeVideos = true;
+    if (in_array('latest_news_section', $activeCatIds)) $showLatestNews = true;
     $numericCatIds = array_filter($activeCatIds, 'is_numeric');
-    
     if (!empty($numericCatIds)) {
         $inQuery = implode(',', array_fill(0, count($numericCatIds), '?'));
         $catStmt = $pdo->prepare("SELECT name FROM categories WHERE id IN ($inQuery) ORDER BY id ASC");
@@ -339,7 +312,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -362,7 +335,6 @@ try {
  $homeVideos = array_slice($videos, 0, 6);
 
 if ($page === 'single') {
-    // Single news bypasses 30-day limit for direct links
     $stmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id = ? AND n.status = 'published'");
     $stmt->execute([(int)($_GET['id'] ?? 0)]);
     if ($row = $stmt->fetch()) {
@@ -391,7 +363,6 @@ if ($page === 'single') {
     if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
     if ($currentSub) { $sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $countSql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $params[] = $currentSub; }
     
-    // Handle Archive or 30-Day Limit
     if ($archYear) {
         $sql .= " AND YEAR(n.created_at) = ?"; $countSql .= " AND YEAR(n.created_at) = ?"; $params[] = $archYear;
         if ($archMonth) {
@@ -437,10 +408,8 @@ if ($archMonth) $pagBase .= '&m=' . $archMonth;
 
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
 
-// ====== FIXED DATE FUNCTION ======
  $bnDays = ['Sunday'=>'রবিবার','Monday'=>'সোমবার','Tuesday'=>'মঙ্গলবার','Wednesday'=>'বুধবার','Thursday'=>'বৃহস্পতিবার','Friday'=>'শুক্রবার','Saturday'=>'শনিবার'];
  $todayStr = date('d F Y') . ', ' . ($bnDays[date('l')] ?? date('l'));
-// ================================
 
  $isLoggedIn = isset($_SESSION['user_id']);
  $loginLink = $isLoggedIn ? '?page=admin_dashboard' : '?page=admin_login';
@@ -875,7 +844,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <?php endif; ?>
 <?php endforeach; ?>
 
-<!-- ====== ARCHIVE DROPDOWN MENU ====== -->
 <div class="kn-sep"></div>
 <div class="kn-inline" id="archiveMenu">
     <a href="#" class="kn-link" onclick="event.preventDefault()"><i class="fas fa-clock-rotate-left"></i> আর্কাইভ</a>
@@ -897,7 +865,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
         <?php endif; ?>
     </div>
 </div>
-<!-- ====== END ARCHIVE DROPDOWN ====== -->
 
 <div class="kn-sep"></div>
 <button class="kn-more-btn" id="knMoreBtn"><i class="fas fa-th"></i> আরও <i class="fas fa-chevron-down"></i></button>
@@ -990,18 +957,14 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 
 <?php if (!empty($adContentTop)) echo $adContentTop; ?>
 
-<?php // ====== VIDEOS LISTING PAGE (FROM DATABASE) ====== ?>
 <?php if ($page === 'videos' || $page === 'video'): ?>
-<!-- Start Video Section -->
 <section class="video-section" style="padding: 40px 0; background: #f9f9f9; margin-top: 20px; border-radius: 8px;">
     <div class="container" style="max-width: 1200px; margin: 0 auto; padding: 0 15px;">
         <h2 style="text-align: center; margin-bottom: 30px; font-size: 28px; color: #1a1a1a;">Latest Videos</h2>
-        
         <?php if (!empty($videos)): ?>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px;">
                 <?php foreach ($videos as $vid): 
                     $videoCode = $vid['code'] ?? '';
-                    // If the admin saved a plain URL instead of an iframe, convert it to an iframe
                     if (!empty($videoCode) && stripos($videoCode, '<iframe') === false && stripos($videoCode, '<video') === false && stripos($videoCode, '<embed') === false) {
                         $embedUrl = extractVideoEmbedUrl($videoCode);
                         if (!empty($embedUrl) && filter_var($embedUrl, FILTER_VALIDATE_URL)) {
@@ -1010,17 +973,10 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
                     }
                 ?>
                     <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
-                        <div class="video-embed">
-                            <!-- Output the embed code safely -->
-                            <?= $videoCode ?>
-                        </div>
+                        <div class="video-embed"><?= $videoCode ?></div>
                         <div style="padding: 15px 20px;">
-                            <h3 style="margin: 0 0 8px 0; font-size: 18px; color: #1a1a1a; line-height: 1.4;">
-                                <?= htmlspecialchars($vid['title']) ?>
-                            </h3>
-                            <p style="margin: 0; font-size: 13px; color: #888;">
-                                <i class="far fa-calendar-alt"></i> <?= date("d M Y", strtotime($vid['created_at'])) ?>
-                            </p>
+                            <h3 style="margin: 0 0 8px 0; font-size: 18px; color: #1a1a1a; line-height: 1.4;"><?= htmlspecialchars($vid['title']) ?></h3>
+                            <p style="margin: 0; font-size: 13px; color: #888;"><i class="far fa-calendar-alt"></i> <?= date("d M Y", strtotime($vid['created_at'])) ?></p>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -1033,8 +989,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
         <?php endif; ?>
     </div>
 </section>
-<!-- End Video Section -->
-<?php // ====== SINGLE NEWS PAGE ====== ?>
 <?php elseif ($page === 'single' && $singleNews): ?>
 <article class="single-wrap">
 <div style="margin-bottom:10px;">
@@ -1055,11 +1009,9 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>"></div>
 <?php endif; ?>
 <?php
-// ====== INSERT ADS AFTER PARAGRAPHS ======
  $content = $singleNews['content'];
  $paragraphs = preg_split('/(<\/p>)/', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
- $out = '';
- $paraCount = 0;
+ $out = ''; $paraCount = 0;
 foreach ($paragraphs as $i => $p) {
     $out .= $p;
     if ($p === '</p>') {
@@ -1142,25 +1094,20 @@ echo '<div class="single-content">' . $out . '</div>';
 </div>
 <?php endif; ?>
 
-<?php // Check if 'videos_section' is explicitly enabled via the checkbox in admin dashboard ?>
 <?php if (!$searchQuery && !$currentSub && !$currentCat && !$archYear && !$archMonth && $page === 'home' && !empty($homeVideos) && $showHomeVideos): ?>
 <div class="vid-sec">
 <h2 class="sec-title"><span style="background:var(--red);color:#fff;width:32px;height:32px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;margin-right:8px"><i class="fas fa-play" style="margin-left:2px"></i></span> ভিডিও সংবাদ</h2>
 <div class="vid-grid">
 <?php
  $vidMain = array_shift($homeVideos);
-// Extract embed URL from the `code` column or fallback to `video_url`
  $vidEmbed = '';
 if (!empty($vidMain['code'])) {
     $vidEmbed = extractVideoEmbedUrl($vidMain['code']);
 } elseif (!empty($vidMain['video_url'])) {
     $vidEmbed = extractVideoEmbedUrl($vidMain['video_url']);
 }
-
  $vidPoster = !empty($vidMain['thumbnail']) ? newsImage($vidMain['thumbnail'], '') : '';
-if (empty($vidPoster)) {
-    $vidPoster = videoThumbUrl($vidEmbed);
-}
+if (empty($vidPoster)) { $vidPoster = videoThumbUrl($vidEmbed); }
 if (empty($vidPoster)) $vidPoster = $placeholderImg;
  $vidCat = $vidMain['category_name'] ?? 'ভিডিও';
 ?>
@@ -1185,16 +1132,9 @@ if (empty($vidPoster)) $vidPoster = $placeholderImg;
 <div class="vid-side">
 <?php foreach ($homeVideos as $v):
  $vEmbed = '';
-if (!empty($v['code'])) {
-    $vEmbed = extractVideoEmbedUrl($v['code']);
-} elseif (!empty($v['video_url'])) {
-    $vEmbed = extractVideoEmbedUrl($v['video_url']);
-}
-
+if (!empty($v['code'])) { $vEmbed = extractVideoEmbedUrl($v['code']); } elseif (!empty($v['video_url'])) { $vEmbed = extractVideoEmbedUrl($v['video_url']); }
  $vThumb = !empty($v['thumbnail']) ? newsImage($v['thumbnail'], '') : '';
-if (empty($vThumb)) {
-    $vThumb = videoThumbUrl($vEmbed);
-}
+if (empty($vThumb)) { $vThumb = videoThumbUrl($vEmbed); }
 if (empty($vThumb)) $vThumb = $placeholderImgSm;
  $vCat = $v['category_name'] ?? 'ভিডিও';
 ?>
@@ -1219,9 +1159,7 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 <?php endif; ?>
 
 <?php 
-// Determine if we should show the standard full-width "সর্বশেষ সংবাদ" grid
  $showStandardNewsGrid = !empty($pagedGrid);
-// If it's the home page and the admin hasn't checked the "সর্বশেষ সংবাদ" box, we hide the grid.
 if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showLatestNews && !$archYear && !$archMonth) {
     $showStandardNewsGrid = false;
 }
@@ -1298,7 +1236,6 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 </main>
 </div>
 
-<!-- Bottom Advertising Panel -->
 <div class="ad-bottom-sec">
     <div class="ad-block">
         <div class="ad-label">- Advertisement -</div>
@@ -1408,9 +1345,8 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
         <div style="width:70px;height:70px;background:#FFF0F0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
             <i class="fas fa-bell" style="font-size:32px;color:var(--red);"></i>
         </div>
-        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">আপনার বিজ্ঞপ্তি সেবা!</h3>
-        <p style="font-size:15px;color:#555;margin-bottom:10px;">আপনার বিজ্ঞপ্তি নাম: <strong>সংবাদ সংকলন</strong></p>
-        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">কি আপনার ইচ্ছা?</p>
+        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">নোটিফিকেশন চালু করুন</h3>
+        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">আপনি কি সংবাদ গুলোর নোটিফিকেশন পেতে চান?</p>
         <div style="display:flex;justify-content:center;gap:15px;">
             <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
             <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">না</button>
@@ -1494,7 +1430,7 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// ====== SYSTEM NOTIFICATION LOGIC ======
+// ====== SYSTEM NOTIFICATION LOGIC (Cross-OS Support) ======
 var latestNewsId = <?= $latestNewsId ?>;
 var allowNewsPopup = document.getElementById('allowNewsPopup');
 var newNewsPopup = document.getElementById('newNewsPopup');
@@ -1502,22 +1438,40 @@ var newNewsTitle = document.getElementById('newNewsTitle');
 var currentNewNewsId = 0;
 var newsInterval;
 
+// Register Service Worker for Background Notifications
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('sw.js').then(function(registration) {
+            console.log('ServiceWorker registration successful');
+        }).catch(function(err) {
+            console.log('ServiceWorker registration failed: ', err);
+        });
+    });
+}
+
 // Function to display Native OS Notification
 function showSystemNotification(title, body, url) {
-    if (!("Notification" in window)) {
-        return false; // Not supported
-    }
+    if (!("Notification" in window)) return false;
     if (Notification.permission === "granted") {
-        var notification = new Notification(title, {
+        var options = {
             body: body,
-            icon: 'https://via.placeholder.com/150/B71C1C/FFFFFF?text=News', // You can replace this with your logo URL
-            tag: 'new-news-notification' // Prevents multiple notifications from stacking up
-        });
-        notification.onclick = function() {
-            window.focus();
-            window.location.href = url;
-            notification.close();
+            icon: 'https://via.placeholder.com/150/B71C1C/FFFFFF?text=News',
+            tag: 'new-news-' + url, // Unique tag
+            data: { url: url }
         };
+        
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(function(registration) {
+                registration.showNotification(title, options);
+            });
+        } else {
+            var notification = new Notification(title, options);
+            notification.onclick = function() {
+                window.focus();
+                window.location.href = url;
+                notification.close();
+            };
+        }
         return true;
     }
     return false;
@@ -1532,14 +1486,11 @@ function checkForNewNews() {
             if (newNewsTitle) newNewsTitle.textContent = data.title;
             
             var url = '?page=single&id=' + currentNewNewsId;
-            // Try showing system notification
             var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
 
             if (!systemShown) {
-                // Fallback to HTML popup if system notification fails or isn't permitted
                 newNewsPopup.style.display = 'flex';
             } else {
-                // If system notification was shown, update ID so we don't spam
                 latestNewsId = currentNewNewsId;
             }
         }
@@ -1563,28 +1514,23 @@ if (newsAllowed === 'granted') {
     }, 2000);
 }
 
-// Handle Custom Allow Popup "Yes"
 var btnAllowYes = document.getElementById('btnAllowYes');
 if (btnAllowYes) {
     btnAllowYes.addEventListener('click', function() {
         if (allowNewsPopup) allowNewsPopup.style.display = 'none';
 
         if (!("Notification" in window)) {
-            // Browser doesn't support system notifications
             localStorage.setItem('news_popup_allowed', 'granted');
             startNewsCheck();
             return;
         }
 
-        // Request OS system permission
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
                 localStorage.setItem('news_popup_allowed', 'granted');
                 startNewsCheck();
-                // Show a welcome system notification
                 showSystemNotification('বিজ্ঞপ্তি সফল হয়েছে!', 'আপনি এখন নতুন সংবাদের বিজ্ঞপ্তি পাবেন।', '?page=home');
             } else {
-                // Denied OS permission, fallback to HTML popup
                 localStorage.setItem('news_popup_allowed', 'granted');
                 startNewsCheck();
             }
@@ -1592,7 +1538,6 @@ if (btnAllowYes) {
     });
 }
 
-// Handle Custom Allow Popup "No"
 var btnAllowNo = document.getElementById('btnAllowNo');
 if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
@@ -1601,7 +1546,6 @@ if (btnAllowNo) {
     });
 }
 
-// Handle HTML Fallback Popup "Yes"
 var btnNewNewsYes = document.getElementById('btnNewNewsYes');
 if (btnNewNewsYes) {
     btnNewNewsYes.addEventListener('click', function() {
@@ -1612,7 +1556,6 @@ if (btnNewNewsYes) {
     });
 }
 
-// Handle HTML Fallback Popup "No"
 var btnNewNewsNo = document.getElementById('btnNewNewsNo');
 if (btnNewNewsNo) {
     btnNewNewsNo.addEventListener('click', function() {

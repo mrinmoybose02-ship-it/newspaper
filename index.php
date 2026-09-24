@@ -257,8 +257,8 @@ try {
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
-// Fetch all recent news based on limit preference
- $allNewsData = array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll());
+// ====== FETCH ALL RECENT NEWS (WITH SUBCATEGORY) ======
+ $allNewsData = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll()));
  $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll());
 
 // Get the latest news ID for the AJAX notification check
@@ -346,9 +346,9 @@ if (empty($homeCatPanels)) {
 
  $homePanelData = [];
 foreach ($homeCatPanels as $hcp) {
-    $hpStmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 5");
+    $hpStmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 5");
     $hpStmt->execute([$hcp['name']]);
-    $homePanelData[$hcp['name']] = ['info' => $hcp, 'items' => array_map('safeMapNewsKeys', $hpStmt->fetchAll())];
+    $homePanelData[$hcp['name']] = ['info' => $hcp, 'items' => array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $hpStmt->fetchAll()))];
 }
 
  $videos = [];
@@ -363,26 +363,28 @@ try {
 
 if ($page === 'single') {
     // Single news bypasses 30-day limit for direct links
-    $stmt = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id = ? AND n.status = 'published'");
+    $stmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id = ? AND n.status = 'published'");
     $stmt->execute([(int)($_GET['id'] ?? 0)]);
     if ($row = $stmt->fetch()) {
-        $singleNews = safeMapNewsKeys($row);
+        $row = safeMapNewsKeys($row);
+        $row['subcategory'] = $row['subcategory_name'] ?? '';
+        $singleNews = $row;
         $singleRelatedTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',', $singleNews['tags']))) : [];
         $related = [];
         if (!empty($singleRelatedTags)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
             $stmt2->execute(array_merge([$singleNews['id']], array_map(function($t){ return "%$t%"; }, $singleRelatedTags)));
-            $related = array_map('safeMapNewsKeys', $stmt2->fetchAll());
+            $related = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt2->fetchAll()));
         }
         if (empty($related)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.id != ? AND c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 6");
             $stmt2->execute([$singleNews['id'], $singleNews['category']]);
-            $related = array_map('safeMapNewsKeys', $stmt2->fetchAll());
+            $related = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt2->fetchAll()));
         }
     }
     if (!$singleNews) $page = 'home';
 } elseif ($page !== 'video' && $page !== 'videos') {
-    $sql = "SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published'";
+    $sql = "SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published'";
     $countSql = "SELECT COUNT(*) FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published'";
     $params = [];
     if ($currentCat) { $sql .= " AND c.name = ?"; $countSql .= " AND c.name = ?"; $params[] = $currentCat; }
@@ -404,9 +406,9 @@ if ($page === 'single') {
     $gridCountSql = $countSql;
     if (!$searchQuery && !$currentSub && !$archYear && !$archMonth) {
         $hasRealFeatured = false;
-        try { $stmt = $pdo->prepare($sql . " AND n.is_featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map('safeMapNewsKeys', $stmt->fetchAll()); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {}
-        if (!$hasRealFeatured) { try { $stmt = $pdo->prepare($sql . " AND n.featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map('safeMapNewsKeys', $stmt->fetchAll()); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {} }
-        if (!$hasRealFeatured) { $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map('safeMapNewsKeys', $stmt->fetchAll()); }
+        try { $stmt = $pdo->prepare($sql . " AND n.is_featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {}
+        if (!$hasRealFeatured) { try { $stmt = $pdo->prepare($sql . " AND n.featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {} }
+        if (!$hasRealFeatured) { $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); }
         if ($hasRealFeatured) { try { $gridSql = $sql . " AND n.is_featured = 0 ORDER BY n.created_at DESC"; $gridCountSql = $countSql . " AND n.is_featured = 0"; } catch (PDOException $e) { try { $gridSql = $sql . " AND n.featured = 0 ORDER BY n.created_at DESC"; $gridCountSql = $countSql . " AND n.featured = 0"; } catch (PDOException $e) { $gridSql = $sql . " ORDER BY n.created_at DESC"; $gridCountSql = $countSql; } } }
     }
     $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
@@ -414,10 +416,10 @@ if ($page === 'single') {
     if ($currentPage > $totalPages) $currentPage = $totalPages;
     $offset = ($currentPage - 1) * NEWS_PER_PAGE;
     $stmt = $pdo->prepare($gridSql . " LIMIT " . NEWS_PER_PAGE . " OFFSET " . $offset); $stmt->execute($params);
-    $pagedGrid = array_map('safeMapNewsKeys', $stmt->fetchAll());
+    $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
     if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth) {
         $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE . " OFFSET 0"); $stmt->execute($params);
-        $pagedGrid = array_map('safeMapNewsKeys', $stmt->fetchAll());
+        $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
         $stmt = $pdo->prepare($countSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
         $totalPages = max(1, ceil($totalGrid / NEWS_PER_PAGE));
     }
@@ -1035,7 +1037,12 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <?php // ====== SINGLE NEWS PAGE ====== ?>
 <?php elseif ($page === 'single' && $singleNews): ?>
 <article class="single-wrap">
+<div style="margin-bottom:10px;">
 <a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars($singleNews['category']) ?></a>
+<?php if (!empty($singleNews['subcategory'])): ?>
+<a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)$singleNews['subcategory_id'] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
+<?php endif; ?>
+</div>
 <h1><?= htmlspecialchars($singleNews['title']) ?></h1>
 <div class="single-meta">
 <span><i class="far fa-clock"></i> <?= formatDate($singleNews['created_at']) ?></span>
@@ -1085,7 +1092,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <a href="?page=single&id=<?= $ri['id'] ?>" class="nc">
 <div class="nc-img"><img src="<?= newsImage($ri['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
 <div class="nc-body">
-<div class="nc-cat"><?= htmlspecialchars($ri['category']) ?></div>
+<div class="nc-cat"><?= htmlspecialchars($ri['category']) ?><?php if (!empty($ri['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ri['subcategory']) ?></span><?php endif; ?></div>
 <h3><?= htmlspecialchars($ri['title']) ?></h3>
 <div class="nc-meta"><span><i class="far fa-clock"></i> <?= timeAgo($ri['created_at']) ?></span></div>
 </div>
@@ -1112,7 +1119,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <a href="?page=single&id=<?= $fm['id'] ?>" class="feat-main">
 <img src="<?= newsImage($fm['image'], $placeholderImg) ?>" alt="" loading="lazy">
 <div class="ov">
-<span class="cb"><?= htmlspecialchars($fm['category']) ?></span>
+<span class="cb"><?= htmlspecialchars($fm['category']) ?><?php if (!empty($fm['subcategory'])): ?> / <?= htmlspecialchars($fm['subcategory']) ?><?php endif; ?></span>
 <h2><?= htmlspecialchars($fm['title']) ?></h2>
 <?php if (!empty($fm['excerpt'])): ?><p><?= htmlspecialchars($fm['excerpt']) ?></p><?php endif; ?>
 </div>
@@ -1123,7 +1130,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <a href="?page=single&id=<?= $fsi['id'] ?>" class="feat-si">
 <img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy">
 <div class="fi">
-<div class="fcs"><?= htmlspecialchars($fsi['category']) ?></div>
+<div class="fcs"><?= htmlspecialchars($fsi['category']) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
 <h3><?= htmlspecialchars($fsi['title']) ?></h3>
 <div class="fdt"><i class="far fa-clock"></i> <?= timeAgo($fsi['created_at']) ?></div>
 </div>
@@ -1238,7 +1245,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
         <a href="?page=single&id=<?= $ni['id'] ?>" class="nc">
             <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
             <div class="nc-body">
-                <div class="nc-cat"><?= htmlspecialchars($ni['category']) ?></div>
+                <div class="nc-cat"><?= htmlspecialchars($ni['category']) ?><?php if (!empty($ni['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ni['subcategory']) ?></span><?php endif; ?></div>
                 <h3><?= htmlspecialchars($ni['title']) ?></h3>
                 <?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars($ni['excerpt']) ?></p><?php endif; ?>
                 <div class="nc-meta">
@@ -1276,7 +1283,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
                 <div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
                 <div class="cpc-body">
                     <h3><?= htmlspecialchars($hpi['title']) ?></h3>
-                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?></div>
+                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?> <span style="margin-left:5px;color:var(--red)"><?= htmlspecialchars($hpi['category']) ?><?php if (!empty($hpi['subcategory'])): ?> / <?= htmlspecialchars($hpi['subcategory']) ?><?php endif; ?></span></div>
                 </div>
             </a>
             <?php endforeach; ?>

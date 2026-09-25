@@ -695,7 +695,15 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .single-content{font-size:16px;line-height:1.9;color:#333}
 .single-content p{margin-bottom:14px}
 .single-content h2,.single-content h3,.single-content h4{font-family:'Noto Serif Bengali',serif;margin:20px 0 10px;color:#1a1a1a}
-.single-content img{max-width:100%;height:auto;border-radius:4px;margin:14px 0}
+/* নিউজ কন্টেন্টের ভেতরের ছবির সাইজ ছোট এবং মাঝখানে করা হয়েছে */
+.single-content img {
+    max-width: 80%;
+    height: auto;
+    border-radius: 8px;
+    margin: 20px auto; /* মাঝখানে থাকবে */
+    display: block;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
 .single-tags{margin-top:18px;padding-top:14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .single-tags-label{font-size:12px;font-weight:700;color:var(--muted);margin-right:4px}
 .pg{display:flex;justify-content:center;align-items:center;gap:4px;padding:24px 0 12px;flex-wrap:wrap}
@@ -750,6 +758,38 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 
 .video-embed { position: relative; width: 100%; padding-bottom: 56.25%; height: 0; background: #000; overflow: hidden; }
 .video-embed iframe, .video-embed video, .video-embed object, .video-embed embed { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; border: 0; }
+
+/* নিউজ কন্টেন্টের ভেতরের ভিডিও রেস্পন্সিভ ও সাইজ কমানোর জন্য নতুন CSS */
+.news-video-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 700px; /* ভিডিওর প্রস্থ কমানো হয়েছে */
+    margin: 20px auto; /* মাঝখানে থাকবে */
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.news-video-wrapper iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+    border: 0;
+}
+/* সরাসরি যদি কোনো আইফ্রেম ক্লাস ছাড়া থাকে, তবে তাকেও কন্ট্রোল করার জন্য */
+.single-content iframe[src*="youtube.com"],
+.single-content iframe[src*="vimeo.com"] {
+    max-width: 700px;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+    margin: 20px auto;
+    display: block;
+    border: none;
+    border-radius: 8px;
+}
 
 @media(max-width:1024px){
     .kol-layout{grid-template-columns:1fr}
@@ -972,7 +1012,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
                         }
                     }
                 ?>
-                    <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
+                    <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow:0 4px 15px rgba(0,0,0,0.1); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
                         <div class="video-embed"><?= $videoCode ?></div>
                         <div style="padding: 15px 20px;">
                             <h3 style="margin: 0 0 8px 0; font-size: 18px; color: #1a1a1a; line-height: 1.4;"><?= htmlspecialchars($vid['title']) ?></h3>
@@ -1009,7 +1049,45 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>"></div>
 <?php endif; ?>
 <?php
+// ====== INSERT ADS AFTER PARAGRAPHS ======
  $content = $singleNews['content'];
+ 
+ // 1. Replace plain YouTube URLs
+ $content = preg_replace_callback(
+    '~(?<!src=["\'])https?://(?:www\.)?(?:youtube\.com/(?:watch\?v=|embed/|v/)|youtu\.be/)([a-zA-Z0-9_-]{11})(?:\S*)~i',
+    function($matches) {
+        return '<div class="news-video-wrapper"><iframe src="https://www.youtube.com/embed/' . $matches[1] . '?rel=0&modestbranding=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+    },
+    $content
+);
+
+// 2. Clean up existing YouTube iframes to fix attributes and wrapper
+ $content = preg_replace_callback(
+    '/<iframe[^>]+src=["\'](https?:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com\/(?:embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})\S*)["\'][^>]*><\/iframe>/i',
+    function($matches) {
+        return '<div class="news-video-wrapper"><iframe src="https://www.youtube.com/embed/' . $matches[2] . '?rel=0&modestbranding=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>';
+    },
+    $content
+);
+
+// 3. Replace plain Vimeo URLs
+ $content = preg_replace_callback(
+    '~(?<!src=["\'])https?://(?:www\.)?vimeo\.com/([0-9]+)(?:\S*)~i',
+    function($matches) {
+        return '<div class="news-video-wrapper"><iframe src="https://player.vimeo.com/video/' . $matches[1] . '" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>';
+    },
+    $content
+);
+
+// 4. Clean up existing Vimeo iframes
+ $content = preg_replace_callback(
+    '/<iframe[^>]+src=["\'](https?:\/\/(?:www\.)?player\.vimeo\.com\/video\/([0-9]+)\S*)["\'][^>]*><\/iframe>/i',
+    function($matches) {
+        return '<div class="news-video-wrapper"><iframe src="https://player.vimeo.com/video/' . $matches[2] . '" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>';
+    },
+    $content
+);
+
  $paragraphs = preg_split('/(<\/p>)/', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
  $out = ''; $paraCount = 0;
 foreach ($paragraphs as $i => $p) {
@@ -1350,6 +1428,21 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     </div>
 </div>
 
+<!-- HTML Fallback Popup for New News (If OS Notification Fails or is Blocked) -->
+<div id="newNewsPopup" style="display:none;position:fixed;bottom:20px;right:20px;width:350px;max-width:90%;background:#fff;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);z-index:100000;overflow:hidden;border-top:4px solid var(--red);">
+    <div style="padding:15px 20px;display:flex;align-items:center;gap:15px;">
+        <div style="width:40px;height:40px;background:rgba(183,28,28,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <i class="fas fa-bell" style="color:var(--red);font-size:18px;"></i>
+        </div>
+        <div style="flex:1;">
+            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;">নতুন সংবাদ প্রকাশিত!</h4>
+            <p id="newNewsTitleFallback" style="font-size:13px;color:#666;margin:0;line-height:1.4;"></p>
+        </div>
+        <button id="btnCloseNewNews" style="background:none;border:none;color:#999;cursor:pointer;font-size:16px;padding:5px;">&times;</button>
+    </div>
+    <a id="newNewsLinkFallback" href="#" style="display:block;text-align:center;padding:10px;background:var(--red);color:#fff;text-decoration:none;font-weight:bold;font-size:13px;font-family:'Hind Siliguri',sans-serif;">এখনই পড়ুন</a>
+</div>
+
 <?php if (!empty($adPopup)): ?>
 <div id="popupAdOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99998;align-items:center;justify-content:center;">
 <div style="position:relative;max-width:400px;width:90%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3);">
@@ -1391,7 +1484,10 @@ document.addEventListener('click',function(e){if(!e.target.closest('.kn-inline')
 window.addEventListener('scroll',function(){closeAllInlineDrops();},{passive:true});
 
 var moreBtn=document.getElementById('knMoreBtn'),morePanel=document.getElementById('knPanel');
-if(moreBtn&&morePanel){moreBtn.addEventListener('click',function(e){e.stopPropagation();morePanel.classList.toggle('open');moreBtn.classList.toggle('is-active');});document.addEventListener('click',function(e){if(!morePanel.contains(e.target)&&e.target!==moreBtn&&!moreBtn.contains(e.target)){morePanel.classList.remove('open');moreBtn.classList.remove('is-active');}});}
+if(moreBtn&&morePanel){
+    moreBtn.addEventListener('click',function(e){e.stopPropagation();morePanel.classList.toggle('open');moreBtn.classList.toggle('is-active');});
+    document.addEventListener('click',function(e){if(!morePanel.contains(e.target)&&e.target!==moreBtn&&!moreBtn.contains(e.target)){morePanel.classList.remove('open');moreBtn.classList.remove('is-active');}});
+}
 
 document.querySelectorAll('.kn-pl-link.has-psubs').forEach(function(row){row.addEventListener('click',function(e){if(e.target.closest('.kn-sub-link'))return;var cat=this.getAttribute('data-pcat');var sl=document.querySelector('.kn-subs[data-psubs="'+cat+'"]');var tb=this.querySelector('.kn-sub-tog');if(sl)sl.classList.toggle('open');if(tb)tb.classList.toggle('open');});});
 document.querySelectorAll('.kn-sub-tog').forEach(function(btn){btn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var cat=this.getAttribute('data-ptog');var sl=document.querySelector('.kn-subs[data-psubs="'+cat+'"]');if(sl)sl.classList.toggle('open');this.classList.toggle('open');});});
@@ -1413,13 +1509,17 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// ====== SYSTEM NOTIFICATION LOGIC ONLY (No HTML Popup) ======
+// ====== SYSTEM NOTIFICATION LOGIC WITH HTML FALLBACK ======
 var latestNewsId = <?= $latestNewsId ?>;
 var allowNewsPopup = document.getElementById('allowNewsPopup');
+var newNewsPopup = document.getElementById('newNewsPopup');
+var newNewsTitleFallback = document.getElementById('newNewsTitleFallback');
+var newNewsLinkFallback = document.getElementById('newNewsLinkFallback');
+var btnCloseNewNews = document.getElementById('btnCloseNewNews');
 var currentNewNewsId = 0;
 var newsInterval;
 
-// Register Service Worker for Background Notifications
+// Register Service Worker
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
         navigator.serviceWorker.register('sw.js').then(function(registration) {
@@ -1441,21 +1541,46 @@ function showSystemNotification(title, body, url) {
             data: { url: url }
         };
         
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.ready.then(function(registration) {
-                registration.showNotification(title, options);
-            });
-        } else {
-            var notification = new Notification(title, options);
-            notification.onclick = function() {
-                window.focus();
-                window.location.href = url;
-                notification.close();
-            };
+        try {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then(function(registration) {
+                    registration.showNotification(title, options);
+                });
+            } else {
+                var notification = new Notification(title, options);
+                notification.onclick = function() {
+                    window.focus();
+                    window.location.href = url;
+                    notification.close();
+                };
+            }
+            return true;
+        } catch(e) {
+            console.error("Notification error:", e);
+            return false;
         }
-        return true;
     }
     return false;
+}
+
+// Function to show HTML Popup Fallback
+function showHtmlPopup(title, url) {
+    if (newNewsPopup && newNewsPopup.style.display !== 'block') {
+        if (newNewsTitleFallback) newNewsTitleFallback.textContent = title;
+        if (newNewsLinkFallback) newNewsLinkFallback.href = url;
+        newNewsPopup.style.display = 'block';
+        
+        // Auto hide after 10 seconds
+        setTimeout(function() {
+            if (newNewsPopup) newNewsPopup.style.display = 'none';
+        }, 10000);
+    }
+}
+
+if (btnCloseNewNews) {
+    btnCloseNewNews.addEventListener('click', function() {
+        if (newNewsPopup) newNewsPopup.style.display = 'none';
+    });
 }
 
 function checkForNewNews() {
@@ -1466,8 +1591,13 @@ function checkForNewNews() {
             currentNewNewsId = data.id;
             var url = '?page=single&id=' + currentNewNewsId;
             
-            // Directly call System Notification
-            showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
+            // Try System Notification First
+            var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
+
+            // Fallback to HTML Popup if OS notification fails (e.g. blocked or not supported)
+            if (!systemShown) {
+                showHtmlPopup(data.title, url);
+            }
             
             // Update ID to prevent spamming
             latestNewsId = currentNewNewsId;

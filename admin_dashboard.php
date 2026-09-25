@@ -97,6 +97,26 @@ if (!function_exists('handleUpload')) {
     }
 }
 
+// ডাটাবেসে নিউজ সেভ হওয়ার পর নিচের কোডটি রাখা হলো
+if (!function_exists('sendWebSocketNotification')) {
+    function sendWebSocketNotification($news_id, $news_title) {
+        $data = json_encode(['id' => $news_id, 'title' => $news_title]);
+
+        $ch = curl_init('http://localhost:8081'); // লোকালহোস্ট এবং পোর্ট 8081
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Content-Length: ' . strlen($data)
+        ]);
+
+        $response = curl_exec($ch);
+        curl_close($ch);
+        return $response;
+    }
+}
+
  $section = $_GET["section"] ?? "dashboard";
  $validSections = ["dashboard","add","edit","manage","breaking","categories","social","contact","ads","password","api_subcategories","nse_market","api_nse_data","api_ad_click","videos","home_panels","users"];
 if (!in_array($section, $validSections)) $section = "dashboard";
@@ -232,7 +252,9 @@ if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st
 
 try { $pdo->exec("ALTER TABLE news ADD COLUMN subcategory_id INT DEFAULT NULL AFTER category_id"); } catch(PDOException $e) {}
 
- $categories = $pdo->query("SELECT id, name FROM categories ORDER BY name ASC")->fetchAll();
+ $categories = [];
+try { $categories = $pdo->query("SELECT id, name FROM categories ORDER BY name ASC")->fetchAll(); } catch (Exception $e) {}
+
  $addError = ""; $addSuccess = ""; $addData = ["title"=>"","slug"=>"","content"=>"","image"=>"","tags"=>"","category_id"=>"","subcategories"=>[],"author"=>$fullName,"status"=>"draft","is_featured"=>0];
 
 if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
@@ -262,6 +284,12 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
                         ->execute([$addData["title"],$addData["slug"],$addData["content"],$addData["image"],$addData["tags"],!empty($addData["category_id"])?(int)$addData["category_id"]:null,$firstSubId,$addData["author"],$addData["status"],$addData["is_featured"], date('Y-m-d H:i:s')]);
                     $nid = $pdo->lastInsertId();
                     saveNewsSubcategories($pdo, $nid, $addData["subcategories"]);
+                    
+                    // WebSocket Notification called after successful save
+                    if ($addData["status"] === "published") {
+                        sendWebSocketNotification($nid, $addData["title"]);
+                    }
+                    
                     $addSuccess = "Saved successfully.";
                     $addData = ["title"=>"","slug"=>"","content"=>"","image"=>"","tags"=>"","category_id"=>"","subcategories"=>[],"author"=>$fullName,"status"=>"draft","is_featured"=>0];
                     $section = "manage";
@@ -294,6 +322,12 @@ if ($section === "edit") {
                         $pdo->prepare("UPDATE news SET title=?,slug=?,content=?,image=?,tags=?,category_id=?,subcategory_id=?,author=?,status=?,is_featured=?,updated_at=? WHERE id=?")
                             ->execute([$editData["title"],$editData["slug"],$editData["content"],$editData["image"],$editData["tags"],!empty($editData["category_id"])?(int)$editData["category_id"]:null,$firstSubId,$editData["author"],$editData["status"],$editData["is_featured"], date('Y-m-d H:i:s'), $eid]);
                         saveNewsSubcategories($pdo, $eid, $editData["subcategories"]);
+                        
+                        // WebSocket Notification called after successful update
+                        if ($editData["status"] === "published") {
+                            sendWebSocketNotification($eid, $editData["title"]);
+                        }
+                        
                         $editSuccess = "Updated successfully.";
                     } catch (PDOException $e) { $editError = "Failed: ".$e->getMessage(); }
                 }
@@ -326,161 +360,164 @@ if ($section === "manage") {
     if ($manageSearch) $ms .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $ms .= " GROUP BY n.id ORDER BY n.created_at DESC LIMIT $perPage OFFSET $offset"; $st = $pdo->prepare($ms); $st->execute($mp); $manageNews = $st->fetchAll();
 }
 
- $brkSuccess = ""; $brkError = ""; $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll();
+ $brkSuccess = ""; $brkError = ""; $brkList = [];
+try { $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll(); } catch (Exception $e) {}
 if ($section === "breaking" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $brkError = "Token mismatch."; } else { $ba = $_POST["breaking_action"] ?? ""; if ($ba === "add") { $bt = trim($_POST["breaking_text"] ?? ""); if (empty($bt)) { $brkError = "Please provide text."; } else { $pdo->prepare("INSERT INTO breaking_news (text) VALUES (?)")->execute([$bt]); $brkSuccess = "Added successfully."; $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll(); } } if ($ba === "delete") { $pdo->prepare("DELETE FROM breaking_news WHERE id=?")->execute([(int)($_POST["breaking_id"] ?? 0)]); $brkSuccess = "Deleted successfully."; $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll(); } } }
 
- $catSuccess = ""; $catError = ""; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); $catEditData = null; $subEditData = null;
+ $catSuccess = ""; $catError = ""; $catList = [];
+try { $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } catch (Exception $e) {}
+ $catEditData = null; $subEditData = null;
 if (isset($_GET["edit_cat"])) { $eci = (int)$_GET["edit_cat"]; $er = $pdo->prepare("SELECT * FROM categories WHERE id=?"); $er->execute([$eci]); $catEditData = $er->fetch(); }
 if (isset($_GET["edit_sub"])) { $esi = (int)$_GET["edit_sub"]; $er = $pdo->prepare("SELECT * FROM subcategories WHERE id=?"); $er->execute([$esi]); $subEditData = $er->fetch(); }
 
 if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
-    if (!verifyCSRF()) { 
-        $catError = "Token mismatch."; 
-    } else { 
+    if (!verifyCSRF()) {
+        $catError = "Token mismatch.";
+    } else {
         $ca = $_POST["cat_action"] ?? "";
-        if ($ca === "add") { 
-            $cn = trim($_POST["cat_name"] ?? ""); 
-            if (empty($cn)) { 
-                $catError = "Please provide a name."; 
-            } else { 
-                $ck = $pdo->prepare("SELECT id FROM categories WHERE name=?"); 
-                $ck->execute([$cn]); 
-                if ($ck->fetch()) { 
-                    $catError = "Already exists."; 
-                } else { 
-                    $sl = generateSlug($cn); 
-                    $sl = makeUniqueCatSlug($pdo, $sl); 
-                    $pdo->prepare("INSERT INTO categories (name,slug) VALUES (?,?)")->execute([$cn, $sl]); 
-                    $catSuccess = "Added successfully."; 
-                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
-                } 
-            } 
+        if ($ca === "add") {
+            $cn = trim($_POST["cat_name"] ?? "");
+            if (empty($cn)) {
+                $catError = "Please provide a name.";
+            } else {
+                $ck = $pdo->prepare("SELECT id FROM categories WHERE name=?");
+                $ck->execute([$cn]);
+                if ($ck->fetch()) {
+                    $catError = "Already exists.";
+                } else {
+                    $sl = generateSlug($cn);
+                    $sl = makeUniqueCatSlug($pdo, $sl);
+                    $pdo->prepare("INSERT INTO categories (name,slug) VALUES (?,?)")->execute([$cn, $sl]);
+                    $catSuccess = "Added successfully.";
+                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
+                }
+            }
         }
-        if ($ca === "delete") { 
-            $ci = (int)($_POST["cat_id"] ?? 0); 
-            $si = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=?"); 
-            $si->execute([$ci]); 
-            $sia = array_column($si->fetchAll(), 'id'); 
-            if (!empty($sia)) { 
-                $ph = implode(",", array_fill(0, count($sia), "?")); 
-                $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id IN ($ph)")->execute($sia); 
+        if ($ca === "delete") {
+            $ci = (int)($_POST["cat_id"] ?? 0);
+            $si = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=?");
+            $si->execute([$ci]);
+            $sia = array_column($si->fetchAll(), 'id');
+            if (!empty($sia)) {
+                $ph = implode(",", array_fill(0, count($sia), "?"));
+                $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id IN ($ph)")->execute($sia);
                 $pdo->prepare("UPDATE news SET subcategory_id=NULL WHERE subcategory_id IN ($ph)")->execute($sia);
-            } 
-            $pdo->prepare("DELETE FROM subcategories WHERE category_id=?")->execute([$ci]); 
+            }
+            $pdo->prepare("DELETE FROM subcategories WHERE category_id=?")->execute([$ci]);
             $pdo->prepare("UPDATE news SET category_id=NULL WHERE category_id=?")->execute([$ci]);
-            $pdo->prepare("DELETE FROM categories WHERE id=?")->execute([$ci]); 
-            $catSuccess = "Category deleted successfully. Associated news moved to uncategorized."; 
-            $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
+            $pdo->prepare("DELETE FROM categories WHERE id=?")->execute([$ci]);
+            $catSuccess = "Category deleted successfully. Associated news moved to uncategorized.";
+            $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
         }
-        if ($ca === "add_sub") { 
-            $sci = (int)($_POST["sub_category_id"] ?? 0); 
-            $sn = trim($_POST["sub_name"] ?? ""); 
-            if ($sci < 1) { 
-                $catError = "Please select a category."; 
-            } elseif (empty($sn)) { 
-                $catError = "Please provide a name."; 
-            } else { 
-                $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); 
-                $ck->execute([$sci, $sn]); 
-                if ($ck->fetch()) { 
-                    $catError = "Already exists."; 
-                } else { 
-                    $sl = generateSlug($sn); 
-                    $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); 
-                    $ck2->execute([$sl]); 
-                    $c = 1; 
-                    while ($ck2->fetch()) { 
-                        $sl = generateSlug($sn).'-'.$c++; 
-                        $ck2->execute([$sl]); 
-                    } 
-                    $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?,?)")->execute([$sci, $sn, $sl]); 
-                    $catSuccess = "Subcategory added successfully."; 
-                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
-                    $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
-                    $allSubcategories = []; 
-                    foreach ($srs as $s) { 
-                        $allSubcategories[$s["category_id"]][] = $s; 
-                    } 
-                } 
-            } 
+        if ($ca === "add_sub") {
+            $sci = (int)($_POST["sub_category_id"] ?? 0);
+            $sn = trim($_POST["sub_name"] ?? "");
+            if ($sci < 1) {
+                $catError = "Please select a category.";
+            } elseif (empty($sn)) {
+                $catError = "Please provide a name.";
+            } else {
+                $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?");
+                $ck->execute([$sci, $sn]);
+                if ($ck->fetch()) {
+                    $catError = "Already exists.";
+                } else {
+                    $sl = generateSlug($sn);
+                    $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?");
+                    $ck2->execute([$sl]);
+                    $c = 1;
+                    while ($ck2->fetch()) {
+                        $sl = generateSlug($sn).'-'.$c++;
+                        $ck2->execute([$sl]);
+                    }
+                    $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?,?)")->execute([$sci, $sn, $sl]);
+                    $catSuccess = "Subcategory added successfully.";
+                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
+                    $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll();
+                    $allSubcategories = [];
+                    foreach ($srs as $s) {
+                        $allSubcategories[$s["category_id"]][] = $s;
+                    }
+                }
+            }
         }
-        if ($ca === "delete_sub") { 
-            $sid = (int)($_POST["sub_id"] ?? 0); 
-            $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id=?")->execute([$sid]); 
+        if ($ca === "delete_sub") {
+            $sid = (int)($_POST["sub_id"] ?? 0);
+            $pdo->prepare("DELETE FROM news_subcategories WHERE subcategory_id=?")->execute([$sid]);
             $pdo->prepare("UPDATE news SET subcategory_id=NULL WHERE subcategory_id=?")->execute([$sid]);
-            $pdo->prepare("DELETE FROM subcategories WHERE id=?")->execute([$sid]); 
-            $catSuccess = "Subcategory deleted successfully."; 
-            $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
-            $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
-            $allSubcategories = []; 
-            foreach ($srs as $s) { 
-                $allSubcategories[$s["category_id"]][] = $s; 
-            } 
+            $pdo->prepare("DELETE FROM subcategories WHERE id=?")->execute([$sid]);
+            $catSuccess = "Subcategory deleted successfully.";
+            $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
+            $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll();
+            $allSubcategories = [];
+            foreach ($srs as $s) {
+                $allSubcategories[$s["category_id"]][] = $s;
+            }
         }
-        if ($ca === "edit_cat") { 
-            $ci = (int)($_POST["cat_id"] ?? 0); 
-            $cn = trim($_POST["cat_name"] ?? ""); 
-            $cs = trim($_POST["cat_slug"] ?? ""); 
-            if ($ci < 1) { 
-                $catError = "Invalid category."; 
-            } elseif (empty($cn)) { 
-                $catError = "Please provide a name."; 
-            } else { 
-                $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?"); 
-                $ck->execute([$cn, $ci]); 
-                if ($ck->fetch()) { 
-                    $catError = "Category name already exists."; 
-                } else { 
-                    if (empty($cs)) $cs = generateSlug($cn); 
-                    $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?"); 
-                    $ck2->execute([$cs, $ci]); 
-                    $c = 1; $orig_slug = $cs; 
-                    while ($ck2->fetch()) { 
-                        $cs = $orig_slug . '-' . $c++; 
-                        $ck2->execute([$cs, $ci]); 
-                    } 
-                    $pdo->prepare("UPDATE categories SET name=?, slug=? WHERE id=?")->execute([$cn, $cs, $ci]); 
-                    $catSuccess = "Category updated successfully."; 
-                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); 
-                    $catEditData = null; 
-                } 
-            } 
+        if ($ca === "edit_cat") {
+            $ci = (int)($_POST["cat_id"] ?? 0);
+            $cn = trim($_POST["cat_name"] ?? "");
+            $cs = trim($_POST["cat_slug"] ?? "");
+            if ($ci < 1) {
+                $catError = "Invalid category.";
+            } elseif (empty($cn)) {
+                $catError = "Please provide a name.";
+            } else {
+                $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?");
+                $ck->execute([$cn, $ci]);
+                if ($ck->fetch()) {
+                    $catError = "Category name already exists.";
+                } else {
+                    if (empty($cs)) $cs = generateSlug($cn);
+                    $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?");
+                    $ck2->execute([$cs, $ci]);
+                    $c = 1; $orig_slug = $cs;
+                    while ($ck2->fetch()) {
+                        $cs = $orig_slug . '-' . $c++;
+                        $ck2->execute([$cs, $ci]);
+                    }
+                    $pdo->prepare("UPDATE categories SET name=?, slug=? WHERE id=?")->execute([$cn, $cs, $ci]);
+                    $catSuccess = "Category updated successfully.";
+                    $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
+                    $catEditData = null;
+                }
+            }
         }
-        if ($ca === "edit_sub") { 
-            $si = (int)($_POST["sub_id"] ?? 0); 
-            $sci = (int)($_POST["sub_category_id"] ?? 0); 
-            $sn = trim($_POST["sub_name"] ?? ""); 
-            $ss = trim($_POST["sub_slug"] ?? ""); 
-            if ($si < 1 || $sci < 1) { 
-                $catError = "Invalid selection."; 
-            } elseif (empty($sn)) { 
-                $catError = "Please provide a name."; 
-            } else { 
-                $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=? AND id != ?"); 
-                $ck->execute([$sci, $sn, $si]); 
-                if ($ck->fetch()) { 
-                    $catError = "Subcategory name already exists in this category."; 
-                } else { 
-                    if (empty($ss)) $ss = generateSlug($sn); 
-                    $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=? AND id != ?"); 
-                    $ck2->execute([$ss, $si]); 
-                    $c = 1; $orig_slug = $ss; 
-                    while ($ck2->fetch()) { 
-                        $ss = $orig_slug . '-' . $c++; 
-                        $ck2->execute([$ss, $si]); 
-                    } 
-                    $pdo->prepare("UPDATE subcategories SET category_id=?, name=?, slug=? WHERE id=?")->execute([$sci, $sn, $ss, $si]); 
-                    $catSuccess = "Subcategory updated successfully."; 
-                    $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll(); 
-                    $allSubcategories = []; 
-                    foreach ($srs as $s) { 
-                        $allSubcategories[$s["category_id"]][] = $s; 
-                    } 
-                    $subEditData = null; 
-                } 
-            } 
+        if ($ca === "edit_sub") {
+            $si = (int)($_POST["sub_id"] ?? 0);
+            $sci = (int)($_POST["sub_category_id"] ?? 0);
+            $sn = trim($_POST["sub_name"] ?? "");
+            $ss = trim($_POST["sub_slug"] ?? "");
+            if ($si < 1 || $sci < 1) {
+                $catError = "Invalid selection.";
+            } elseif (empty($sn)) {
+                $catError = "Please provide a name.";
+            } else {
+                $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=? AND id != ?");
+                $ck->execute([$sci, $sn, $si]);
+                if ($ck->fetch()) {
+                    $catError = "Subcategory name already exists in this category.";
+                } else {
+                    if (empty($ss)) $ss = generateSlug($sn);
+                    $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=? AND id != ?");
+                    $ck2->execute([$ss, $si]);
+                    $c = 1; $orig_slug = $ss;
+                    while ($ck2->fetch()) {
+                        $ss = $orig_slug . '-' . $c++;
+                        $ck2->execute([$ss, $si]);
+                    }
+                    $pdo->prepare("UPDATE subcategories SET category_id=?, name=?, slug=? WHERE id=?")->execute([$sci, $sn, $ss, $si]);
+                    $catSuccess = "Subcategory updated successfully.";
+                    $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll();
+                    $allSubcategories = [];
+                    foreach ($srs as $s) {
+                        $allSubcategories[$s["category_id"]][] = $s;
+                    }
+                    $subEditData = null;
+                }
+            }
         }
-    } 
+    }
 }
 
  $socialSuccess = ""; $socialError = "";
@@ -535,7 +572,9 @@ if ($section === "ads") {
     }
     $asql = "SELECT a.* FROM advertisements a WHERE 1=1";
     if ($adFilter === "active") $asql .= " AND a.is_active=1"; elseif ($adFilter === "inactive") $asql .= " AND a.is_active=0"; elseif ($adFilter === "image") $asql .= " AND a.ad_type='image'"; elseif ($adFilter === "code") $asql .= " AND a.ad_type='code'";
-    $asql .= " ORDER BY a.sort_order ASC, a.id DESC"; $adList = $pdo->query($asql)->fetchAll(); $adTotal = count($adList);
+    $asql .= " ORDER BY a.sort_order ASC, a.id DESC"; 
+    try { $adList = $pdo->query($asql)->fetchAll(); } catch (Exception $e) { $adList = []; }
+    $adTotal = count($adList);
 }
 
  $passSuccess = ""; $passError = "";
@@ -847,7 +886,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -855,7 +894,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -925,6 +964,45 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="form-row"><div class="form-group"><label class="form-label">Slug</label><input type="text" name="slug" class="form-input" value="<?= htmlspecialchars($fD["slug"]) ?>" placeholder="auto-slug"><div class="form-hint">Leave empty to auto-generate</div></div><div class="form-group"><label class="form-label">Author</label><input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>"></div></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Category</label><select name="category_id" class="form-select" id="catSelect"><option value="">— Select —</option><?php foreach ($categories as $c): ?><option value="<?= $c["id"] ?>" <?= ($fD["category_id"] == $c["id"]) ? 'selected' : '' ?>><?= htmlspecialchars($c["name"]) ?></option><?php endforeach; ?></select></div><div class="form-group"><label class="form-label">Subcategories</label><select name="subcategories[]" class="form-select" id="subCatSelect" multiple style="min-height:42px"><option value="">— Select Category First —</option></select><div class="form-hint">Ctrl+Click to select multiple</div></div></div>
 <div class="form-group"><label class="form-label">Tags</label><input type="text" name="tags" class="form-input" value="<?= htmlspecialchars($fD["tags"]) ?>" placeholder="tag1, tag2"></div>
+
+<!-- YouTube Video Embed Input (Outside CKEditor) -->
+<div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
+    <label class="form-label" style="color: var(--accent);"><i class="fab fa-youtube" style="color:#FF0000;"></i> Insert YouTube Video</label>
+    <div style="display:flex; gap:10px; align-items:center;">
+        <input type="text" id="ytUrlInput" class="form-input" placeholder="YouTube ভিডিও লিংক এখানে দিন (যেমন: https://youtu.be/...)" style="flex:1;">
+        <button type="button" class="btn btn-primary" onclick="insertYoutubeToEditor()">
+            <i class="fas fa-arrow-down-to-bracket"></i> Embed Video
+        </button>
+    </div>
+    <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন।</div>
+</div>
+
+<!-- Custom Image Alignment Toolbar (Outside CKEditor) -->
+<div id="imgAlignToolbar" class="form-group" style="display: none; background: var(--bg); padding: 12px 14px; border-radius: 10px; border: 2px solid var(--accent); margin-bottom: 14px; align-items: center; gap: 6px; flex-wrap: wrap;">
+    <span style="font-size: 13px; font-weight: 700; margin-right: 10px; color: var(--accent);"><i class="fas fa-image"></i> Picture Tools:</span>
+    
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('left')" title="Align Left"><i class="fas fa-align-left"></i></button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('center')" title="Align Center"><i class="fas fa-align-center"></i></button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('right')" title="Align Right"><i class="fas fa-align-right"></i></button>
+    
+    <div style="width: 1px; height: 24px; background: var(--border); margin: 0 5px;"></div>
+    
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('top')" title="Align Top"><i class="fas fa-arrow-up"></i></button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('middle')" title="Align Middle"><i class="fas fa-arrows-up-down"></i></button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('bottom')" title="Align Bottom"><i class="fas fa-arrow-down"></i></button>
+    
+    <div style="width: 1px; height: 24px; background: var(--border); margin: 0 5px;"></div>
+    
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('zoomin')" title="Zoom In"><i class="fas fa-magnifying-glass-plus"></i></button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('zoomout')" title="Zoom Out"><i class="fas fa-magnifying-glass-minus"></i></button>
+    
+    <div style="width: 1px; height: 24px; background: var(--border); margin: 0 5px;"></div>
+    
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('drag')" title="Toggle Drag Mode"><i class="fas fa-up-down-left-right"></i></button>
+    
+    <button type="button" class="btn btn-sm btn-outline" onclick="alignImg('none')" title="Clear Formatting"><i class="fas fa-xmark"></i></button>
+</div>
+
 <div class="form-group"><label class="form-label">Content <span style="color:var(--accent)">*</span></label><textarea name="content" id="editor1" rows="12" class="form-input" style="height:400px" required><?= htmlspecialchars($fD["content"]) ?></textarea></div>
 <div class="form-row" style="align-items:center"><div class="form-group" style="margin-bottom:0"><label class="form-label">Status</label><div class="radio-group"><div class="radio-item <?= $fD["status"] === 'draft' ? 'selected' : '' ?>"><input type="radio" name="status" value="draft" <?= $fD["status"] === 'draft' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Draft</label></div><div class="radio-item <?= $fD["status"] === 'published' ? 'selected' : '' ?>"><input type="radio" name="status" value="published" <?= $fD["status"] === 'published' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Published</label></div></div></div><div class="form-group" style="margin-bottom:0"><label class="form-label">Featured</label><label class="switch"><input type="checkbox" name="is_featured" value="1" <?= $fD["is_featured"] ? 'checked' : '' ?>><span class="switch-slider"></span></label></div></div>
 </div><div class="form-actions-bar"><?php if (hasPerm('manage_news')): ?><a href="?page=admin_dashboard&section=manage" class="btn btn-outline"><i class="fas fa-times"></i> Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> <?= $section === 'edit' ? 'Update' : 'Save' ?></button></div></div></form>
@@ -951,7 +1029,155 @@ if (cs && ss) {
 }
 var fi = document.getElementById('news_image'), pr = document.getElementById('newsImgPreview'), ar = document.getElementById('newsImgArea');
 if (fi) fi.onchange = function() { if (this.files && this.files[0]) { var r = new FileReader(); r.onload = function(e) { if (pr) { pr.src = e.target.result; pr.style.display = 'block'; } if (ar) ar.classList.add('has-image'); }; r.readAsDataURL(this.files[0]); } };
-if (typeof CKEDITOR !== 'undefined') CKEDITOR.replace('editor1', { height: 400, extraPlugins: 'justify,colorbutton,font', removeButtons: 'Save,NewPage,Preview,Print,Templates,PasteFromWord', toolbar: [ { name: 'document', items: ['Source','-','NewPage','DocProps','Preview','Print'] }, { name: 'clipboard', items: ['Cut','Copy','Paste','PasteText','PasteFromWord','-','Undo','Redo'] }, { name: 'editing', items: ['Find','Replace','-','SelectAll','-','SpellChecker', 'Scayt'] }, { name: 'forms', items: ['Form', 'Checkbox', 'Radio', 'TextField', 'Textarea', 'Select', 'Button', 'ImageButton', 'HiddenField'] }, '/', { name: 'basicstyles', items: ['Bold','Italic','Underline','Strike','Subscript','Superscript','-','RemoveFormat'] }, { name: 'paragraph', items: ['NumberedList','BulletedList','-','Outdent','Indent','-','Blockquote','CreateDiv','-','JustifyLeft','JustifyCenter','JustifyRight','JustifyBlock','-','BidiLtr','BidiRtl','Language'] }, { name: 'links', items: ['Link','Unlink','Anchor'] }, { name: 'insert', items: ['Image','Flash','Table','HorizontalRule','Smiley','SpecialChar','PageBreak','Iframe'] }, '/', { name: 'styles', items: ['Styles','Format','Font','FontSize'] }, { name: 'colors', items: ['TextColor','BGColor'] }, { name: 'tools', items: ['Maximize', 'ShowBlocks','-','About'] } ] });
+
+// CKEditor Initialization
+if (typeof CKEDITOR !== 'undefined') {
+    CKEDITOR.replace('editor1', { 
+        height: 400, 
+        extraPlugins: 'justify,colorbutton,font,iframe',
+        extraAllowedContent: 'iframe[*]; div[*]; p[*]; span[*]; img[*]; video[*]; source[*]',
+        removeButtons: 'Save,NewPage,Preview,Print,Templates,PasteFromWord', 
+        toolbar: [ 
+            { name: 'document', items: ['Source','-','NewPage','DocProps','Preview','Print'] }, 
+            { name: 'clipboard', items: ['Cut','Copy','Paste','PasteText','PasteFromWord','-','Undo','Redo'] }, 
+            { name: 'editing', items: ['Find','Replace','-','SelectAll','-','SpellChecker', 'Scayt'] }, 
+            { name: 'forms', items: ['Form', 'Checkbox', 'Radio', 'TextField', 'Textarea', 'Select', 'Button', 'ImageButton', 'HiddenField'] }, 
+            '/', 
+            { name: 'basicstyles', items: ['Bold','Italic','Underline','Strike','Subscript','Superscript','-','RemoveFormat'] }, 
+            { name: 'paragraph', items: ['NumberedList','BulletedList','-','Outdent','Indent','-','Blockquote','CreateDiv','-','JustifyLeft','JustifyCenter','JustifyRight','JustifyBlock','-','BidiLtr','BidiRtl','Language'] }, 
+            { name: 'links', items: ['Link','Unlink','Anchor'] }, 
+            { name: 'insert', items: ['Image','Flash','Table','HorizontalRule','Smiley','SpecialChar','PageBreak','Iframe'] }, 
+            '/', 
+            { name: 'styles', items: ['Styles','Format','Font','FontSize'] }, 
+            { name: 'colors', items: ['TextColor','BGColor'] }, 
+            { name: 'tools', items: ['Maximize', 'ShowBlocks','-','About'] } 
+        ] 
+    });
+
+    // Show/Hide Custom Image Toolbar on Selection
+    CKEDITOR.instances.editor1.on('selectionChange', function(e) {
+        var selectedElement = e.editor.getSelection().getSelectedElement();
+        var toolbar = document.getElementById('imgAlignToolbar');
+        if (selectedElement && selectedElement.is('img')) {
+            if (toolbar) toolbar.style.display = 'flex';
+        } else {
+            if (toolbar) toolbar.style.display = 'none';
+        }
+    });
+}
+
+// Function to manipulate selected image inside CKEditor
+function alignImg(type) {
+    if (typeof CKEDITOR === 'undefined' || !CKEDITOR.instances.editor1) return;
+    var editor = CKEDITOR.instances.editor1;
+    var sel = editor.getSelection();
+    var img = sel.getSelectedElement();
+    
+    // If the image is wrapped inside a link or another element, try finding it inside the selected block
+    if (!img || !img.is('img')) {
+        var ranges = sel.getRanges();
+        if (ranges.length > 0) {
+            img = ranges[0].findOne(function(node) { return node.type == CKEDITOR.NODE_ELEMENT && node.getName() == 'img'; });
+        }
+    }
+
+    if (img && img.is('img')) {
+        if (type === 'left' || type === 'right' || type === 'center') {
+            img.removeStyle('float');
+            img.removeStyle('display');
+            img.removeStyle('margin-left');
+            img.removeStyle('margin-right');
+            img.removeStyle('vertical-align');
+            
+            if (type === 'left') {
+                img.setStyle('float', 'left');
+                img.setStyle('margin-right', '15px');
+                img.setStyle('margin-bottom', '10px');
+            } else if (type === 'right') {
+                img.setStyle('float', 'right');
+                img.setStyle('margin-left', '15px');
+                img.setStyle('margin-bottom', '10px');
+            } else if (type === 'center') {
+                img.setStyle('display', 'block');
+                img.setStyle('margin-left', 'auto');
+                img.setStyle('margin-right', 'auto');
+                img.setStyle('margin-bottom', '10px');
+            }
+        } else if (type === 'top' || type === 'middle' || type === 'bottom' || type === 'none') {
+            img.removeStyle('float');
+            img.removeStyle('display');
+            img.removeStyle('margin-left');
+            img.removeStyle('margin-right');
+            
+            if (type === 'top') img.setStyle('vertical-align', 'top');
+            else if (type === 'middle') img.setStyle('vertical-align', 'middle');
+            else if (type === 'bottom') img.setStyle('vertical-align', 'bottom');
+            else if (type === 'none') {
+                img.removeStyle('vertical-align');
+            }
+        } else if (type === 'zoomin' || type === 'zoomout') {
+            var currentWidth = img.getStyle('width') || img.getAttribute('width');
+            if (!currentWidth) {
+                currentWidth = img.$.naturalWidth || img.getSize('width');
+            }
+            var numWidth = parseInt(currentWidth, 10);
+            if (!isNaN(numWidth)) {
+                if (type === 'zoomin') {
+                    numWidth = Math.round(numWidth * 1.1); // Increase by 10%
+                } else {
+                    numWidth = Math.max(50, Math.round(numWidth * 0.9)); // Decrease by 10%, min 50px
+                }
+                img.setStyle('width', numWidth + 'px');
+                img.setStyle('height', 'auto');
+                img.removeAttribute('width'); // remove attribute to enforce style
+                img.removeAttribute('height');
+            }
+        } else if (type === 'drag') {
+            // CKEditor কে জানানো হচ্ছে যে ছবিটি সিলেক্ট করা আছে এবং ড্র্যাগ-ড্রপ চালু করা হচ্ছে
+            editor.getSelection().selectElement(img);
+            img.setAttribute('draggable', 'true');
+            
+            // CKEditor এর ভেতরে স্মুথলি ড্র্যাগ-অ্যান্ড-ড্রপ করার জন্য ইভেন্ট লিসেনার যুক্ত করা হলো
+            img.once('dragstart', function(ev) {
+                if (ev.data && ev.data.$ && ev.data.$.dataTransfer) {
+                    ev.data.$.dataTransfer.setData('text/html', img.getOuterHtml());
+                    ev.data.$.dataTransfer.effectAllowed = 'move';
+                }
+                // ড্র্যাগ শুরু হলে পুরোনো ছবিটি মুছে ফেলার প্রস্তুতি
+                img.addClass('cke_draggable_img');
+            });
+            
+            alert('Drag mode enabled! এখন ছবির উপর মাউসের বাম বোতাম চেপে ধরে রেখে যেকোনো জায়গায় নিয়ে ছেড়ে দিন।');
+        }
+    } else {
+        alert('Please click on an image inside the editor first.');
+    }
+}
+
+// Function to insert YouTube video into CKEditor at cursor position
+function insertYoutubeToEditor() {
+    var url = document.getElementById('ytUrlInput').value;
+    if (!url) {
+        alert('Please enter a YouTube URL.');
+        return;
+    }
+    
+    var match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+    if (match && match[1]) {
+        var videoId = match[1];
+        var html = '<div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; margin: 15px 0;">' +
+                   '<iframe src="https://www.youtube.com/embed/' + videoId + '" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allowfullscreen></iframe>' +
+                   '</div><p>&nbsp;</p>';
+        if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances.editor1) {
+            CKEDITOR.instances.editor1.insertHtml(html);
+            document.getElementById('ytUrlInput').value = '';
+        } else {
+            alert('Editor is not loaded yet!');
+        }
+    } else {
+        alert('Invalid YouTube URL. Please enter a valid link.');
+    }
+}
 </script>
 
 <?php elseif ($section === "manage" && hasPerm('manage_news')): ?>
@@ -1241,7 +1467,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-eye"></i> Live Share Market Company List (Watchlist)</div></div><div class="panel-body" style="padding:0"><table class="data-table" id="nseWatchlist"><thead><tr><th>Company</th><th>Price</th><th>Change</th><th>High</th><th>Low</th><th>Volume</th></tr></thead><tbody><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 </div>
 <script>
-function updateNSEClock(){var now=new Date();var utc=now.getTime()+(now.getTimezoneOffset()*60000);var istDate=new Date(utc+5.5*3600000);var day=String(istDate.getDate()).padStart(2,'0');var mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var month=mn[istDate.getMonth()];var year=istDate.getFullYear();var dateStr=day+' '+month+' '+year;var hours=istDate.getHours();var ampm=hours>=12?'PM':'AM';hours=hours%12;hours=hours?hours:12;var minutes=String(istDate.getMinutes()).padStart(2,'0');var seconds=String(istDate.getSeconds()).padStart(2,'0');var timeStr=String(hours).padStart(2,'0')+':'+minutes+':'+seconds+' '+ampm;var el=document.getElementById('nseTimeDate');if(el)el.innerHTML='<i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> '+dateStr+'<br><i class="far fa-clock" style="color:#138808;margin-right:5px;"></i> '+timeStr+' (IST)';}
+function updateNSEClock(){var now=new Date();var utc=now.getTime()+(now.getTimezoneOffset()*60000);var istDate=new Date(utc+5.5*3600000);var day=String(istDate.getDate()).padStart(2,'0');var mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var month=mn[istDate.getMonth()];var year=istDate.getFullYear();var dateStr=day+' '+month+' '+year;var hours=istDate.getHours();var ampm=hours>=12?'PM':'AM';hours=hours%12;hours=hours?hours:12;var minutes=String(istDate.getMinutes()).padStart(2,'0');var seconds=String(istDate.getSeconds()).padStart(2,'0');var timeStr=String(hours).padStart(2,'0')+':'+minutes+':'+seconds+' '+ampm;var el=document.getElementById('nseTimeDate');if(el)el.innerHTML='<i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> '+dateStr+'<br><i class="far fa-clock" style="color:#138808;margin-right:5px."</i> '+timeStr+' (IST)';}
 setInterval(updateNSEClock,1000);updateNSEClock();
 var isNSELoading=false,nextRefreshTime=0,countdownInterval=null;
 function scheduleNextRefresh(delay){nextRefreshTime=Date.now()+delay;if(countdownInterval)clearInterval(countdownInterval);countdownInterval=setInterval(function(){var t=document.getElementById('nseRefreshTimer');if(!t)return;if(isNSELoading){t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';return;}var r=Math.max(0,(nextRefreshTime-Date.now())/1000);if(r>0){t.innerHTML='<i class="fas fa-clock"></i> Next auto-refresh in '+r.toFixed(1)+'s';}else{t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';}},100);}

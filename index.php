@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/config.php';
 
-// ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION ======
+// ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION (Fallback if WebSocket fails) ======
 if (isset($_GET['ajax_check_new_news'])) {
     header('Content-Type: application/json');
     $last_id = isset($_GET['last_id']) ? (int)$_GET['last_id'] : 0;
@@ -19,7 +19,7 @@ if (isset($_GET['ajax_check_new_news'])) {
     }
     exit;
 }
-// =====================================================
+// =====================================================================
 
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS password_reset_requests (
@@ -695,7 +695,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .single-content{font-size:16px;line-height:1.9;color:#333}
 .single-content p{margin-bottom:14px}
 .single-content h2,.single-content h3,.single-content h4{font-family:'Noto Serif Bengali',serif;margin:20px 0 10px;color:#1a1a1a}
-/* নিউজ কন্টেন্টের ভেতরের ছবির সাইজ ছোট এবং মাঝখানে করা হয়েছে */
 .single-content img {
     max-width: 80%;
     height: auto;
@@ -759,12 +758,11 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .video-embed { position: relative; width: 100%; padding-bottom: 56.25%; height: 0; background: #000; overflow: hidden; }
 .video-embed iframe, .video-embed video, .video-embed object, .video-embed embed { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; border: 0; }
 
-/* নিউজ কন্টেন্টের ভেতরের ভিডিও রেস্পন্সিভ ও সাইজ কমানোর জন্য নতুন CSS */
 .news-video-wrapper {
     position: relative;
     width: 100%;
-    max-width: 700px; /* ভিডিওর প্রস্থ কমানো হয়েছে */
-    margin: 20px auto; /* মাঝখানে থাকবে */
+    max-width: 700px;
+    margin: 20px auto;
     aspect-ratio: 16 / 9;
     background: #000;
     border-radius: 8px;
@@ -778,7 +776,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     height: 100% !important;
     border: 0;
 }
-/* সরাসরি যদি কোনো আইফ্রেম ক্লাস ছাড়া থাকে, তবে তাকেও কন্ট্রোল করার জন্য */
 .single-content iframe[src*="youtube.com"],
 .single-content iframe[src*="vimeo.com"] {
     max-width: 700px;
@@ -1428,7 +1425,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     </div>
 </div>
 
-<!-- HTML Fallback Popup for New News (If OS Notification Fails or is Blocked) -->
+<!-- HTML Fallback Popup for New News -->
 <div id="newNewsPopup" style="display:none;position:fixed;bottom:20px;right:20px;width:350px;max-width:90%;background:#fff;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);z-index:100000;overflow:hidden;border-top:4px solid var(--red);">
     <div style="padding:15px 20px;display:flex;align-items:center;gap:15px;">
         <div style="width:40px;height:40px;background:rgba(183,28,28,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -1509,7 +1506,7 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// ====== SYSTEM NOTIFICATION LOGIC WITH HTML FALLBACK ======
+// ====== WEBSOCKET NOTIFICATION LOGIC ======
 var latestNewsId = <?= $latestNewsId ?>;
 var allowNewsPopup = document.getElementById('allowNewsPopup');
 var newNewsPopup = document.getElementById('newNewsPopup');
@@ -1517,7 +1514,7 @@ var newNewsTitleFallback = document.getElementById('newNewsTitleFallback');
 var newNewsLinkFallback = document.getElementById('newNewsLinkFallback');
 var btnCloseNewNews = document.getElementById('btnCloseNewNews');
 var currentNewNewsId = 0;
-var newsInterval;
+var ws;
 
 // Register Service Worker
 if ('serviceWorker' in navigator) {
@@ -1570,7 +1567,6 @@ function showHtmlPopup(title, url) {
         if (newNewsLinkFallback) newNewsLinkFallback.href = url;
         newNewsPopup.style.display = 'block';
         
-        // Auto hide after 10 seconds
         setTimeout(function() {
             if (newNewsPopup) newNewsPopup.style.display = 'none';
         }, 10000);
@@ -1583,32 +1579,50 @@ if (btnCloseNewNews) {
     });
 }
 
-function checkForNewNews() {
-    fetch('?ajax_check_new_news=1&last_id=' + latestNewsId)
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'new') {
-            currentNewNewsId = data.id;
-            var url = '?page=single&id=' + currentNewNewsId;
-            
-            // Try System Notification First
-            var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
+// WebSocket Connection Function
+function connectWebSocket() {
+    var wsUrl = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.hostname + ":8080";
+    ws = new WebSocket(wsUrl);
 
-            // Fallback to HTML Popup if OS notification fails (e.g. blocked or not supported)
-            if (!systemShown) {
-                showHtmlPopup(data.title, url);
+    ws.onopen = function() {
+        console.log("WebSocket Connected!");
+        ws.send(JSON.stringify({ action: 'init', last_id: latestNewsId }));
+    };
+
+    ws.onmessage = function(event) {
+        try {
+            var data = JSON.parse(event.data);
+            if (data.status === 'new') {
+                currentNewNewsId = data.id;
+                var url = '?page=single&id=' + currentNewNewsId;
+                
+                var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
+
+                if (!systemShown) {
+                    showHtmlPopup(data.title, url);
+                }
+                
+                latestNewsId = currentNewNewsId;
             }
-            
-            // Update ID to prevent spamming
-            latestNewsId = currentNewNewsId;
+        } catch (e) {
+            console.error("Error parsing WebSocket data:", e);
         }
-    }).catch(error => console.error('Error checking for new news:', error));
+    };
+
+    ws.onclose = function() {
+        console.log("WebSocket Disconnected. Reconnecting in 5 seconds...");
+        setTimeout(connectWebSocket, 5000);
+    };
+    
+    ws.onerror = function(error) {
+        console.error("WebSocket Error:", error);
+        ws.close();
+    };
 }
 
 function startNewsCheck() {
-    if (!newsInterval) {
-        checkForNewNews();
-        newsInterval = setInterval(checkForNewNews, 30000);
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+        connectWebSocket();
     }
 }
 

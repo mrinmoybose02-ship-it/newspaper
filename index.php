@@ -699,7 +699,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     max-width: 80%;
     height: auto;
     border-radius: 8px;
-    margin: 20px auto; /* মাঝখানে থাকবে */
+    margin: 20px auto; 
     display: block;
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
@@ -761,8 +761,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .news-video-wrapper {
     position: relative;
     width: 100%;
-    max-width: 700px;
-    margin: 20px auto;
+    max-width: 700px; 
+    margin: 20px auto; 
     aspect-ratio: 16 / 9;
     background: #000;
     border-radius: 8px;
@@ -787,6 +787,26 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     border: none;
     border-radius: 8px;
 }
+
+/* Text-to-Speech (TTS) Controls CSS */
+.tts-container {
+    display: flex; align-items: center; gap: 15px; padding: 12px 15px;
+    background: #f9f9f9; border-radius: 8px; border: 1px solid var(--border); 
+    margin: 15px 0; flex-wrap: wrap;
+}
+.tts-btn {
+    background: var(--red); color: #fff; border: none; padding: 8px 15px; border-radius: 5px; 
+    cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; 
+    font-family: 'Hind Siliguri', sans-serif; font-size: 14px; transition: background 0.2s;
+}
+.tts-btn:hover { background: var(--red-dark); }
+.tts-stop-btn { background: #666; color: #fff; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; font-weight: 600; font-family: 'Hind Siliguri', sans-serif; font-size: 14px; }
+.tts-stop-btn:hover { background: #444; }
+.tts-controls { display: flex; gap: 10px; align-items: center; font-size: 14px; font-family: 'Hind Siliguri', sans-serif; color: #333; }
+.tts-voice-group { display: flex; border: 1px solid #ddd; border-radius: 5px; overflow: hidden; }
+.tts-voice-group label { padding: 6px 12px; cursor: pointer; margin: 0; font-weight: 500; transition: background 0.2s; border: none; border-radius: 0; display: flex; align-items: center; gap: 5px; }
+.tts-voice-group input { display: none; }
+.tts-voice-group label.active { background: var(--gold); color: #000; font-weight: 600; }
 
 @media(max-width:1024px){
     .kol-layout{grid-template-columns:1fr}
@@ -1042,6 +1062,24 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <span><i class="fas fa-tags"></i> <?= htmlspecialchars($singleNews['tags']) ?></span>
 <?php endif; ?>
 </div>
+
+<!-- Text-to-Speech Control Panel -->
+<div class="tts-container">
+    <button id="ttsPlayBtn" class="tts-btn">
+        <i class="fas fa-microphone"></i> <span id="ttsBtnText">শুনুন</span>
+    </button>
+    <button id="ttsStopBtn" class="tts-stop-btn" style="display:none;">
+        <i class="fas fa-stop"></i> থামান
+    </button>
+    <div class="tts-controls">
+        <span>কণ্ঠ:</span>
+        <div class="tts-voice-group">
+            <label class="active" data-gender="male"><input type="radio" name="ttsVoice" value="male" checked> <i class="fas fa-male"></i> পুরুষ</label>
+            <label data-gender="female"><input type="radio" name="ttsVoice" value="female"> <i class="fas fa-female"></i> নারী</label>
+        </div>
+    </div>
+</div>
+
 <?php if (!empty($singleNews['image'])): ?>
 <div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>"></div>
 <?php endif; ?>
@@ -1665,6 +1703,110 @@ if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
         localStorage.setItem('news_popup_allowed', 'denied');
         if (allowNewsPopup) allowNewsPopup.style.display = 'none';
+    });
+}
+
+// ====== TEXT-TO-SPEECH (TTS) LOGIC ======
+var ttsBtn = document.getElementById('ttsPlayBtn');
+var ttsStopBtn = document.getElementById('ttsStopBtn');
+var ttsBtnText = document.getElementById('ttsBtnText');
+var ttsIcon = ttsBtn ? ttsBtn.querySelector('i') : null;
+var voices = [];
+var selectedGender = 'male';
+
+if ('speechSynthesis' in window) {
+    function loadVoices() {
+        voices = window.speechSynthesis.getVoices();
+    }
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    function getBengaliVoice(gender) {
+        var bnVoices = voices.filter(v => v.lang.toLowerCase().startsWith('bn'));
+        if (bnVoices.length === 0) return null;
+
+        var genderVoice = bnVoices.find(v => v.name.toLowerCase().includes(gender));
+        if (genderVoice) return genderVoice;
+
+        // Fallback for Windows specific names
+        if (gender === 'male') {
+            var hemant = bnVoices.find(v => v.name.toLowerCase().includes('hemant'));
+            if (hemant) return hemant;
+        } else {
+            var bhavya = bnVoices.find(v => v.name.toLowerCase().includes('bhavya'));
+            if (bhavya) return bhavya;
+        }
+
+        return bnVoices[0];
+    }
+
+    if (ttsBtn) {
+        ttsBtn.addEventListener('click', function() {
+            if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+                window.speechSynthesis.pause();
+                ttsBtnText.textContent = 'চালু করুন';
+                ttsIcon.className = 'fas fa-play';
+            } else if (window.speechSynthesis.paused) {
+                window.speechSynthesis.resume();
+                ttsBtnText.textContent = 'বিরতি';
+                ttsIcon.className = 'fas fa-pause';
+            } else {
+                var articleContent = document.querySelector('.single-content');
+                if (!articleContent) return;
+
+                var textToRead = "";
+                articleContent.querySelectorAll('p, h2, h3, h4').forEach(function(el) {
+                    textToRead += el.innerText + ". ";
+                });
+
+                if (textToRead.trim() === "") return;
+
+                var utterance = new SpeechSynthesisUtterance(textToRead);
+                var voice = getBengaliVoice(selectedGender);
+                if (voice) {
+                    utterance.voice = voice;
+                    utterance.lang = voice.lang;
+                } else {
+                    utterance.lang = 'bn-IN';
+                }
+                utterance.rate = 0.9;
+
+                utterance.onend = function() {
+                    ttsBtnText.textContent = 'শুনুন';
+                    ttsIcon.className = 'fas fa-microphone';
+                    ttsStopBtn.style.display = 'none';
+                };
+
+                window.speechSynthesis.speak(utterance);
+                ttsBtnText.textContent = 'বিরতি';
+                ttsIcon.className = 'fas fa-pause';
+                ttsStopBtn.style.display = 'flex';
+            }
+        });
+    }
+
+    if (ttsStopBtn) {
+        ttsStopBtn.addEventListener('click', function() {
+            window.speechSynthesis.cancel();
+            ttsBtnText.textContent = 'শুনুন';
+            ttsIcon.className = 'fas fa-microphone';
+            ttsStopBtn.style.display = 'none';
+        });
+    }
+
+    document.querySelectorAll('.tts-voice-group label').forEach(function(label) {
+        label.addEventListener('click', function() {
+            document.querySelectorAll('.tts-voice-group label').forEach(l => l.classList.remove('active'));
+            this.classList.add('active');
+            selectedGender = this.getAttribute('data-gender');
+            
+            if (window.speechSynthesis.speaking || window.speechSynthesis.paused) {
+                window.speechSynthesis.cancel();
+                if(ttsBtn) ttsBtn.click();
+            }
+        });
     });
 }
 })();

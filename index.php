@@ -312,7 +312,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -409,7 +409,9 @@ if ($archMonth) $pagBase .= '&m=' . $archMonth;
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
 
  $bnDays = ['Sunday'=>'রবিবার','Monday'=>'সোমবার','Tuesday'=>'মঙ্গলবার','Wednesday'=>'বুধবার','Thursday'=>'বৃহস্পতিবার','Friday'=>'শুক্রবার','Saturday'=>'শনিবার'];
- $todayStr = date('d F Y') . ', ' . ($bnDays[date('l')] ?? date('l'));
+
+// Set date string in English
+ $todayStr = date('d F Y') . ', ' . date('l');
 
  $isLoggedIn = isset($_SESSION['user_id']);
  $loginLink = $isLoggedIn ? '?page=admin_dashboard' : '?page=admin_login';
@@ -437,7 +439,7 @@ try { $in = implode(",", array_fill(0, count($contactKeys), "?")); $cs = $pdo->p
  $nseStockList = [['s'=>'RELIANCE.NS','short'=>'RELIANCE'],['s'=>'TCS.NS','short'=>'TCS'],['s'=>'INFY.NS','short'=>'INFY'],['s'=>'HDFCBANK.NS','short'=>'HDFCBANK'],['s'=>'ICICIBANK.NS','short'=>'ICICIBANK'],['s'=>'SBIN.NS','short'=>'SBIN'],['s'=>'WIPRO.NS','short'=>'WIPRO'],['s'=>'BHARTIARTL.NS','short'=>'BHARTIARTL'],['s'=>'ITC.NS','short'=>'ITC'],['s'=>'LT.NS','short'=>'LT'],['s'=>'HINDUNILVR.NS','short'=>'HINDUNILVR'],['s'=>'BAJFINANCE.NS','short'=>'BAJFINANCE'],['s'=>'MARUTI.NS','short'=>'MARUTI'],['s'=>'ADANIENT.NS','short'=>'ADANIENT'],['s'=>'TATAMOTORS.NS','short'=>'TATAMOTORS'],['s'=>'SUNPHARMA.NS','short'=>'SUNPHARMA']];
  $nseCacheFile = __DIR__ . '/cache_nse_stocks.json';
  $nseData = [];
-if (file_exists($nseCacheFile) && (time() - filemtime($nseCacheFile)) < 300) { $nseCached = json_decode(file_get_contents($nseCacheFile), true); if (is_array($nseCached)) $nseData = $nseCached; }
+if (file_exists($nseCacheFile) && (time() - filemtime($nseCacheFile) < 300)) { $nseCached = json_decode(file_get_contents($nseCacheFile), true); if (is_array($nseCached)) $nseData = $nseCached; }
 if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_setopt_array($ch, [CURLOPT_URL=>"https://query1.finance.yahoo.com/v8/finance/chart/".$st['s']."?range=1d&interval=1d",CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>6,CURLOPT_SSL_VERIFYPEER=>false,CURLOPT_HTTPHEADER=>['User-Agent: Mozilla/5.0'],CURLOPT_FOLLOWLOCATION=>true]); $resp = curl_exec($ch); $hc = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch); $p=0;$c=0;$cp=0;$ok=false; if($resp&&$hc===200){$j=json_decode($resp,true);if(isset($j['chart']['result'][0]['meta'])){$m=$j['chart']['result'][0]['meta'];if(isset($m['regularMarketPrice'])){$p=round($m['regularMarketPrice'],2);$pc2=$m['chartPreviousClose']??$p;$c=round($p-$pc2,2);$cp=$pc2>0?round(($c/$pc2)*100,2):0;$ok=true;}}} $nseData[]=['short'=>$st['short'],'price'=>$p,'change'=>$c,'changePct'=>$cp,'fetched'=>$ok]; } @file_put_contents($nseCacheFile, json_encode($nseData), LOCK_EX); }
 
  $placeholderImg = "data:image/svg+xml," . urlencode("<svg xmlns='http://www.w3.org/2000/svg' width='400' height='250'><rect width='400' height='250' fill='%23e8e4de'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'>ছবি</text></svg>");
@@ -876,7 +878,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="container">
 <div class="tl">
 <span class="clock" id="liveClock"></span>
-<span class="date"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
+<span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
 <a href="#" class="kol-si si-fb" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
@@ -1522,11 +1524,33 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
 
 <script>
 (function(){
+// Live Clock & Date in English
+var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
 function updateClock(){
-    var now=new Date(),h=String(now.getHours()).padStart(2,'0'),m=String(now.getMinutes()).padStart(2,'0'),s=String(now.getSeconds()).padStart(2,'0');
-    var el=document.getElementById('liveClock');if(el)el.textContent=h+':'+m+':'+s;
+    var now = new Date();
+
+    // Clock (time) in English
+    var h = String(now.getHours()).padStart(2,'0');
+    var m = String(now.getMinutes()).padStart(2,'0');
+    var s = String(now.getSeconds()).padStart(2,'0');
+    var clockEl = document.getElementById('liveClock');
+    if(clockEl) clockEl.textContent = h + ':' + m + ':' + s;
+
+    // Date + Day in English
+    var day = dayNames[now.getDay()];
+    var month = monthNames[now.getMonth()];
+    var dateStr = String(now.getDate()).padStart(2,'0')
+                + ' ' + month + ' '
+                + now.getFullYear()
+                + ', ' + day;
+
+    var dateEl = document.getElementById('liveDate');
+    if(dateEl) dateEl.innerHTML = '<i class="far fa-calendar-alt"></i> ' + dateStr;
 }
-updateClock();setInterval(updateClock,1000);
+updateClock();
+setInterval(updateClock, 1000);
 
 var sbToggle=document.getElementById('sbToggle'),kolSidebar=document.getElementById('kolSidebar'),kolLayout=document.getElementById('kolLayout'),sbClose=document.getElementById('sbClose');
 
@@ -1824,7 +1848,7 @@ var btnAllowNo = document.getElementById('btnAllowNo');
 if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
         localStorage.setItem('news_popup_allowed', 'denied');
-        if (allowNewsPopup) allowNewsPopup.style.display = 'none';
+        if (allowNewsPopup) allowNewsPopup.style.display='none';
     });
 }
 })();

@@ -1,4 +1,6 @@
 <?php
+date_default_timezone_set('Asia/Kolkata'); // লোকাল টাইমজোন সেট করা হলো
+
 if (!isset($_SESSION["user_id"])) { header("Location: ?page=admin_login"); exit; }
 
 try {
@@ -97,12 +99,10 @@ if (!function_exists('handleUpload')) {
     }
 }
 
-// ডাটাবেসে নিউজ সেভ হওয়ার পর নিচের কোডটি রাখা হলো
 if (!function_exists('sendWebSocketNotification')) {
     function sendWebSocketNotification($news_id, $news_title) {
         $data = json_encode(['id' => $news_id, 'title' => $news_title]);
-
-        $ch = curl_init('http://localhost:8081'); // লোকালহোস্ট এবং পোর্ট 8081
+        $ch = curl_init('http://localhost:8081'); 
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
         curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -110,7 +110,6 @@ if (!function_exists('sendWebSocketNotification')) {
             'Content-Type: application/json',
             'Content-Length: ' . strlen($data)
         ]);
-
         $response = curl_exec($ch);
         curl_close($ch);
         return $response;
@@ -237,7 +236,7 @@ try { $totalAds = (int)$pdo->query("SELECT COUNT(*) FROM advertisements")->fetch
 try { $activeAds = (int)$pdo->query("SELECT COUNT(*) FROM advertisements WHERE is_active=1")->fetchColumn(); } catch (Exception $e) {}
 try { $ast = $pdo->query("SELECT COALESCE(SUM(clicks),0) as tc, COALESCE(SUM(impressions),0) as ti FROM advertisements")->fetch(); $totalClicks = (int)$ast["tc"]; $totalImpressions = (int)$ast["ti"]; } catch (Exception $e) {}
 
-try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,c.name as category_name,GROUP_CONCAT(DISTINCT sc.name SEPARATOR ', ') as subcategory_name FROM news n LEFT JOIN categories c ON n.category_id=c.id LEFT JOIN news_subcategories ns ON n.id=ns.news_id LEFT JOIN subcategories sc ON ns.subcategory_id=sc.id WHERE n.created_at >= (NOW() - INTERVAL 30 DAY) GROUP BY n.id ORDER BY n.created_at DESC LIMIT 8")->fetchAll(); } catch (Exception $e) { try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id=c.id WHERE n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY n.created_at DESC LIMIT 8")->fetchAll(); } catch (Exception $e2) { $recentNews = []; } }
+try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,n.updated_at,c.name as category_name,GROUP_CONCAT(DISTINCT sc.name SEPARATOR ', ') as subcategory_name FROM news n LEFT JOIN categories c ON n.category_id=c.id LEFT JOIN news_subcategories ns ON n.id=ns.news_id LEFT JOIN subcategories sc ON ns.subcategory_id=sc.id WHERE n.created_at >= (NOW() - INTERVAL 30 DAY) GROUP BY n.id ORDER BY COALESCE(n.updated_at, n.created_at) DESC LIMIT 8")->fetchAll(); } catch (Exception $e) { try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,n.updated_at,c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id=c.id WHERE n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY COALESCE(n.updated_at, n.created_at) DESC LIMIT 8")->fetchAll(); } catch (Exception $e2) { $recentNews = []; } }
 try { $catStats = $pdo->query("SELECT c.name, COUNT(n.id) as cnt FROM categories c LEFT JOIN news n ON c.id=n.category_id GROUP BY c.id ORDER BY cnt DESC LIMIT 10")->fetchAll(); } catch (Exception $e) { $catStats = []; }
 
  $allSubcategories = [];
@@ -251,6 +250,7 @@ if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st
  $adPositions = ["header_banner"=>["label"=>"Header Banner","icon"=>"fas fa-window-maximize","color"=>"#C41E3A"],"content_top"=>["label"=>"Top of Content","icon"=>"fas fa-arrow-up","color"=>"#1E5A8C"],"after_1st_para"=>["label"=>"After 1st Paragraph","icon"=>"fas fa-paragraph","color"=>"#6B21A8"],"after_2nd_para"=>["label"=>"After 2nd Paragraph","icon"=>"fas fa-paragraph","color"=>"#7C3AED"],"after_3rd_para"=>["label"=>"After 3rd Paragraph","icon"=>"fas fa-paragraph","color"=>"#8B5CF6"],"content_middle"=>["label"=>"Middle of Content","icon"=>"fas fa-arrows-up-down","color"=>"#D4A017"],"content_bottom"=>["label"=>"Bottom of Content","icon"=>"fas fa-arrow-down","color"=>"#2D5016"],"sidebar_top"=>["label"=>"Top of Sidebar","icon"=>"fas fa-arrow-up","color"=>"#0891B2"],"sidebar_middle"=>["label"=>"Middle of Sidebar","icon"=>"fas fa-grip-lines","color"=>"#0D9488"],"footer_banner"=>["label"=>"Footer Banner","icon"=>"fas fa-arrow-down","color"=>"#475569"],"popup"=>["label"=>"Popup","icon"=>"fas fa-external-link-alt","color"=>"#DC2626"]];
 
 try { $pdo->exec("ALTER TABLE news ADD COLUMN subcategory_id INT DEFAULT NULL AFTER category_id"); } catch(PDOException $e) {}
+try { $pdo->exec("ALTER TABLE news ADD COLUMN updated_at DATETIME DEFAULT NULL"); } catch(PDOException $e) {}
 
  $categories = [];
 try { $categories = $pdo->query("SELECT id, name FROM categories ORDER BY name ASC")->fetchAll(); } catch (Exception $e) {}
@@ -280,12 +280,11 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
             if (empty($addError)) {
                 try {
                     $firstSubId = !empty($addData["subcategories"]) ? (int)$addData["subcategories"][0] : null;
-                    $pdo->prepare("INSERT INTO news (title,slug,content,image,tags,category_id,subcategory_id,author,status,is_featured,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
-                        ->execute([$addData["title"],$addData["slug"],$addData["content"],$addData["image"],$addData["tags"],!empty($addData["category_id"])?(int)$addData["category_id"]:null,$firstSubId,$addData["author"],$addData["status"],$addData["is_featured"], date('Y-m-d H:i:s')]);
+                    $pdo->prepare("INSERT INTO news (title,slug,content,image,tags,category_id,subcategory_id,author,status,is_featured,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+                        ->execute([$addData["title"],$addData["slug"],$addData["content"],$addData["image"],$addData["tags"],!empty($addData["category_id"])?(int)$addData["category_id"]:null,$firstSubId,$addData["author"],$addData["status"],$addData["is_featured"], date('Y-m-d H:i:s'), date('Y-m-d H:i:s')]);
                     $nid = $pdo->lastInsertId();
                     saveNewsSubcategories($pdo, $nid, $addData["subcategories"]);
                     
-                    // WebSocket Notification called after successful save
                     if ($addData["status"] === "published") {
                         sendWebSocketNotification($nid, $addData["title"]);
                     }
@@ -323,7 +322,6 @@ if ($section === "edit") {
                             ->execute([$editData["title"],$editData["slug"],$editData["content"],$editData["image"],$editData["tags"],!empty($editData["category_id"])?(int)$editData["category_id"]:null,$firstSubId,$editData["author"],$editData["status"],$editData["is_featured"], date('Y-m-d H:i:s'), $eid]);
                         saveNewsSubcategories($pdo, $eid, $editData["subcategories"]);
                         
-                        // WebSocket Notification called after successful update
                         if ($editData["status"] === "published") {
                             sendWebSocketNotification($eid, $editData["title"]);
                         }
@@ -357,7 +355,7 @@ if ($section === "manage") {
     $cst = $pdo->prepare($cs); $cst->execute($mp); $totalManageResults = (int)$cst->fetchColumn(); $totalPages = max(1, ceil($totalManageResults / $perPage)); if ($currentPage > $totalPages) $currentPage = $totalPages; $offset = ($currentPage - 1) * $perPage;
     $ms = "SELECT n.*,c.name as category_name,GROUP_CONCAT(DISTINCT sc.name SEPARATOR ', ') as subcategory_name FROM news n LEFT JOIN categories c ON n.category_id=c.id LEFT JOIN news_subcategories ns ON n.id=ns.news_id LEFT JOIN subcategories sc ON ns.subcategory_id=sc.id WHERE 1=1";
     if ($manageFilter === "published") $ms .= " AND n.status='published'"; elseif ($manageFilter === "draft") $ms .= " AND n.status='draft'"; elseif ($manageFilter === "featured") $ms .= " AND n.is_featured=1";
-    if ($manageSearch) $ms .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $ms .= " GROUP BY n.id ORDER BY n.created_at DESC LIMIT $perPage OFFSET $offset"; $st = $pdo->prepare($ms); $st->execute($mp); $manageNews = $st->fetchAll();
+    if ($manageSearch) $ms .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $ms .= " GROUP BY n.id ORDER BY COALESCE(n.updated_at, n.created_at) DESC LIMIT $perPage OFFSET $offset"; $st = $pdo->prepare($ms); $st->execute($mp); $manageNews = $st->fetchAll();
 }
 
  $brkSuccess = ""; $brkError = ""; $brkList = [];
@@ -886,7 +884,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -894,7 +892,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -912,7 +910,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:22px">
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-clock-rotate-left"></i> Recent News</div><?php if (hasPerm('manage_news')): ?><a href="?page=admin_dashboard&section=manage" class="btn btn-sm btn-outline">View All</a><?php endif; ?></div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Title</th><th>Category</th><th>Status</th><th>Date</th></tr></thead><tbody>
 <?php foreach ($recentNews as $rn): ?>
-<tr><td><div class="tbl-title"><?= htmlspecialchars($rn["title"]) ?></div></td><td><?= htmlspecialchars($rn["category_name"] ?? "—") ?><?php if (!empty($rn["subcategory_name"])): ?><span class="sub-badge"><?= htmlspecialchars(mb_substr($rn["subcategory_name"],0,20)) ?></span><?php endif; ?></td><td><span class="status-badge status-<?= $rn["status"] ?>"><i class="fas fa-circle"></i> <?= $rn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= date("d M Y, h:i A", strtotime($rn["created_at"])) ?></td></tr>
+<tr><td><div class="tbl-title"><?= htmlspecialchars($rn["title"]) ?></div></td><td><?= htmlspecialchars($rn["category_name"] ?? "—") ?><?php if (!empty($rn["subcategory_name"])): ?><span class="sub-badge"><?= htmlspecialchars(mb_substr($rn["subcategory_name"],0,20)) ?></span><?php endif; ?></td><td><span class="status-badge status-<?= $rn["status"] ?>"><i class="fas fa-circle"></i> <?= $rn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= date("d M Y, h:i A", strtotime($rn["updated_at"] ?? $rn["created_at"])) ?></td></tr>
 <?php endforeach; ?>
 <?php if (empty($recentNews)): ?><tr><td colspan="4"><div class="empty-state"><i class="fas fa-inbox"></i><p>No recent news found in the last 30 days</p></div></td></tr><?php endif; ?>
 </tbody></table></div></div>
@@ -977,6 +975,18 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
     <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন।</div>
 </div>
 
+<!-- Facebook/Twitter Video Link Embed Input (Outside CKEditor) -->
+<div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
+    <label class="form-label" style="color: var(--accent);"><i class="fas fa-people-arrows"></i> Insert Facebook / Twitter Video</label>
+    <div style="display:flex; gap:10px; align-items:center;">
+        <input type="text" id="socialVideoUrlInput" class="form-input" placeholder="ভিডিও লিংক দিন (যেমন: https://facebook.com/... বা https://twitter.com/...)" style="flex:1;">
+        <button type="button" class="btn btn-primary" onclick="insertSocialVideoToEditor()">
+            <i class="fas fa-arrow-down-to-bracket"></i> Embed Video
+        </button>
+    </div>
+    <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন। (শুধু লিংক দিন, কোড দেওয়ার দরকার নেই)</div>
+</div>
+
 <!-- Custom Image Alignment Toolbar (Outside CKEditor) -->
 <div id="imgAlignToolbar" class="form-group" style="display: none; background: var(--bg); padding: 12px 14px; border-radius: 10px; border: 2px solid var(--accent); margin-bottom: 14px; align-items: center; gap: 6px; flex-wrap: wrap;">
     <span style="font-size: 13px; font-weight: 700; margin-right: 10px; color: var(--accent);"><i class="fas fa-image"></i> Picture Tools:</span>
@@ -1035,7 +1045,7 @@ if (typeof CKEDITOR !== 'undefined') {
     CKEDITOR.replace('editor1', { 
         height: 400, 
         extraPlugins: 'justify,colorbutton,font,iframe',
-        extraAllowedContent: 'iframe[*]; div[*]; p[*]; span[*]; img[*]; video[*]; source[*]',
+        extraAllowedContent: 'iframe[*]; div[*]; p[*]; span[*]; img[*]; video[*]; source[*]; blockquote[*]',
         removeButtons: 'Save,NewPage,Preview,Print,Templates,PasteFromWord', 
         toolbar: [ 
             { name: 'document', items: ['Source','-','NewPage','DocProps','Preview','Print'] }, 
@@ -1133,20 +1143,15 @@ function alignImg(type) {
                 img.removeAttribute('height');
             }
         } else if (type === 'drag') {
-            // CKEditor কে জানানো হচ্ছে যে ছবিটি সিলেক্ট করা আছে এবং ড্র্যাগ-ড্রপ চালু করা হচ্ছে
             editor.getSelection().selectElement(img);
             img.setAttribute('draggable', 'true');
-            
-            // CKEditor এর ভেতরে স্মুথলি ড্র্যাগ-অ্যান্ড-ড্রপ করার জন্য ইভেন্ট লিসেনার যুক্ত করা হলো
             img.once('dragstart', function(ev) {
                 if (ev.data && ev.data.$ && ev.data.$.dataTransfer) {
                     ev.data.$.dataTransfer.setData('text/html', img.getOuterHtml());
                     ev.data.$.dataTransfer.effectAllowed = 'move';
                 }
-                // ড্র্যাগ শুরু হলে পুরোনো ছবিটি মুছে ফেলার প্রস্তুতি
                 img.addClass('cke_draggable_img');
             });
-            
             alert('Drag mode enabled! এখন ছবির উপর মাউসের বাম বোতাম চেপে ধরে রেখে যেকোনো জায়গায় নিয়ে ছেড়ে দিন।');
         }
     } else {
@@ -1157,11 +1162,7 @@ function alignImg(type) {
 // Function to insert YouTube video into CKEditor at cursor position
 function insertYoutubeToEditor() {
     var url = document.getElementById('ytUrlInput').value;
-    if (!url) {
-        alert('Please enter a YouTube URL.');
-        return;
-    }
-    
+    if (!url) { alert('Please enter a YouTube URL.'); return; }
     var match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
     if (match && match[1]) {
         var videoId = match[1];
@@ -1171,12 +1172,44 @@ function insertYoutubeToEditor() {
         if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances.editor1) {
             CKEDITOR.instances.editor1.insertHtml(html);
             document.getElementById('ytUrlInput').value = '';
+        } else { alert('Editor is not loaded yet!'); }
+    } else { alert('Invalid YouTube URL. Please enter a valid link.'); }
+}
+
+// Function to insert Facebook/Twitter video into CKEditor at cursor position
+function insertSocialVideoToEditor() {
+    var url = document.getElementById('socialVideoUrlInput').value.trim();
+    if (!url) { alert('Please enter a Facebook or Twitter video URL.'); return; }
+    
+    var html = '';
+    var isFB = url.indexOf('facebook.com') !== -1 || url.indexOf('fb.watch') !== -1;
+    var isTwitter = url.indexOf('twitter.com') !== -1 || url.indexOf('x.com') !== -1;
+    
+    if (isFB) {
+        var encodedUrl = encodeURIComponent(url);
+        html = '<div style="position: relative; max-width: 100%; margin: 15px 0;">' +
+               '<iframe src="https://www.facebook.com/plugins/video.php?height=400&href=' + encodedUrl + '&show_text=false&width=560" style="border:none;overflow:hidden;width:100%;height:400px;max-width:560px;display:block;margin:auto;" scrolling="no" frameborder="0" allowfullscreen></iframe>' +
+               '</div><p>&nbsp;</p>';
+    } else if (isTwitter) {
+        var match = url.match(/\/status\/(\d+)/);
+        if (match && match[1]) {
+            var tweetId = match[1];
+            html = '<div style="position: relative; max-width: 100%; margin: 15px auto; text-align: center;">' +
+                   '<iframe src="https://platform.twitter.com/embed/Tweet.html?id=' + tweetId + '" style="border:none;overflow:hidden;width:100%;max-width:550px;height:400px;display:block;margin:auto;" scrolling="no" frameborder="0" allowfullscreen></iframe>' +
+                   '</div><p>&nbsp;</p>';
         } else {
-            alert('Editor is not loaded yet!');
+            alert('Invalid Twitter URL. Make sure it includes /status/ID');
+            return;
         }
     } else {
-        alert('Invalid YouTube URL. Please enter a valid link.');
+        alert('Please provide a valid Facebook or Twitter video link.');
+        return;
     }
+    
+    if (typeof CKEDITOR !== 'undefined' && CKEDITOR.instances.editor1) {
+        CKEDITOR.instances.editor1.insertHtml(html);
+        document.getElementById('socialVideoUrlInput').value = '';
+    } else { alert('Editor is not loaded yet!'); }
 }
 </script>
 
@@ -1186,9 +1219,9 @@ function insertYoutubeToEditor() {
 <div class="panel"><div class="panel-header">
 <div class="filter-tabs"><?php foreach (["all"=>"All","published"=>"Published","draft"=>"Draft","featured"=>"Featured"] as $f => $l): ?><a href="?page=admin_dashboard&section=manage&filter=<?= $f ?>" class="filter-tab <?= $manageFilter === $f ? 'active' : '' ?>"><?= $l ?></a><?php endforeach; ?></div>
 <form method="GET" style="display:flex;gap:6px"><input type="hidden" name="page" value="admin_dashboard"><input type="hidden" name="section" value="manage"><input type="hidden" name="filter" value="<?= $manageFilter ?>"><input type="text" name="sq" class="form-input" style="width:200px;padding:6px 10px;font-size:12px" placeholder="Search..." value="<?= htmlspecialchars($manageSearch) ?>"><button type="submit" class="btn btn-sm btn-outline"><i class="fas fa-search"></i></button></form>
-</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>#</th><th>Title</th><th>Category</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>
+</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>#</th><th>Title</th><th>Category</th><th>Status</th><th>Last Updated</th><th>Action</th></tr></thead><tbody>
 <?php foreach ($manageNews as $i => $mn): $rn = $offset + $i + 1; ?>
-<tr><td style="color:var(--muted);font-size:11px"><?= $rn ?></td><td><div style="display:flex;align-items:center;gap:8px"><?php if (!empty($mn["image"])): ?><img src="<?= htmlspecialchars($mn["image"]) ?>" class="img-thumb" alt=""><?php endif; ?><div class="tbl-title"><?= htmlspecialchars($mn["title"]) ?></div></div></td><td style="font-size:12px"><?= htmlspecialchars($mn["category_name"] ?? "—") ?></td><td><span class="status-badge status-<?= $mn["status"] ?>"><i class="fas fa-circle"></i> <?= $mn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= date("d M Y", strtotime($mn["created_at"])) ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=edit&id=<?= $mn["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=manage&toggle=<?= $mn["id"] ?>&ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $mn["status"] === 'published' ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=manage&delete=<?= $mn["id"] ?>&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Are you sure you want to delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
+<tr><td style="color:var(--muted);font-size:11px"><?= $rn ?></td><td><div style="display:flex;align-items:center;gap:8px"><?php if (!empty($mn["image"])): ?><img src="<?= htmlspecialchars($mn["image"]) ?>" class="img-thumb" alt=""><?php endif; ?><div class="tbl-title"><?= htmlspecialchars($mn["title"]) ?></div></div></td><td style="font-size:12px"><?= htmlspecialchars($mn["category_name"] ?? "—") ?></td><td><span class="status-badge status-<?= $mn["status"] ?>"><i class="fas fa-circle"></i> <?= $mn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= date("d M Y, h:i A", strtotime($mn["updated_at"] ?? $mn["created_at"])) ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=edit&id=<?= $mn["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=manage&toggle=<?= $mn["id"] ?>&ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $mn["status"] === 'published' ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=manage&delete=<?= $mn["id"] ?>&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Are you sure you want to delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
 <?php endforeach; ?>
 <?php if (empty($manageNews)): ?><tr><td colspan="6"><div class="empty-state"><i class="fas fa-inbox"></i><p>No news found</p></div></td></tr><?php endif; ?>
 </tbody></table></div>
@@ -1251,7 +1284,7 @@ function insertYoutubeToEditor() {
 <?php if ($adError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($adError) ?></div><?php endif; ?>
 <?php if ($adSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($adSuccess) ?></div><?php endif; ?>
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-code"></i> Advertisement Embed Codes</div></div><form method="POST"><input type="hidden" name="update_ads" value="1"><div class="panel-body"><div class="form-group"><label class="form-label">Bottom Ad Embed 1 (HTML/Scripts allowed)</label><textarea name="ad_bottom_1_embed" class="form-input" rows="5" placeholder='<iframe src="..."></iframe>'><?= htmlspecialchars($currentAds['ad_bottom_1_embed'] ?? '') ?></textarea></div><div class="form-group"><label class="form-label">Bottom Ad Embed 2 (HTML/Scripts allowed)</label><textarea name="ad_bottom_2_embed" class="form-input" rows="5" placeholder='<iframe src="..."></iframe>'><?= htmlspecialchars($currentAds['ad_bottom_2_embed'] ?? '') ?></textarea></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Embed Codes</button></div></form></div>
-<div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-<?= $adEditData ? 'pen' : 'plus-circle' ?>"></i> <?= $adEditData ? 'Edit' : 'New Advertisement' ?></div></div><form method="POST" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><?php if ($adEditData): ?><input type="hidden" name="ad_id" value="<?= $adEditData["id"] ?>"><?php endif; ?><div class="panel-body"><div class="form-row"><div class="form-group"><label class="form-label">Name *</label><input type="text" name="ad_title" class="form-input" value="<?= htmlspecialchars($adEditData["title"] ?? "") ?>" required></div><div class="form-group"><label class="form-label">Position</label><select name="ad_position" class="form-select"><?php foreach ($adPositions as $pk => $pc): ?><option value="<?= $pk ?>" <?= ($adEditData["position"] ?? "") === $pk ? 'selected' : '' ?>><?= $pc["label"] ?></option><?php endforeach; ?></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Type</label><div class="radio-group"><div class="radio-item <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="image" <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='block';document.getElementById('adCodeSec').style.display='none';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Image</label></div><div class="radio-item <?= ($adEditData["ad_type"] ?? "") === "code" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="code" <?= ($adEditData["ad_type"] ?? "") === "code" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='none';document.getElementById('adCodeSec').style.display='block';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Code</label></div></div></div><div class="form-group"><label class="form-label">Sort</label><input type="number" name="ad_sort_order" class="form-input" value="<?= $adEditData["sort_order"] ?? 0 ?>" min="0"></div></div><div id="adImgSec" style="display:<?= ($adEditData["ad_type"] ?? "image") === "image" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">Link URL</label><input type="url" name="ad_link_url" class="form-input" value="<?= htmlspecialchars($adEditData["link_url"] ?? "") ?>"></div><div class="form-group"><label class="form-label">Image</label><div class="img-upload-area <?= !empty($adEditData["image"]) ? 'has-image' : '' ?>" id="adImgArea"><input type="file" name="ad_image" id="ad_image" accept="image/jpeg,image/png,image/gif/image/webp"><?php if (!empty($adEditData["image"])): ?><img src="<?= htmlspecialchars($adEditData["image"]) ?>" class="img-preview" id="adImgPreview" alt=""><div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div><?php else: ?><div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div><div class="img-upload-text">Select image</div><div class="img-upload-hint">JPG, PNG, GIF, WebP — 5MB</div><img src="" class="img-preview" id="adImgPreview" style="display:none" alt=""><?php endif; ?></div></div></div><div id="adCodeSec" style="display:<?= ($adEditData["ad_type"] ?? "") === "code" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">HTML Code</label><textarea name="ad_code" class="form-input" rows="8"><?= htmlspecialchars($adEditData["ad_code"] ?? "") ?></textarea></div></div><div class="form-row"><div class="form-group"><label class="form-label">Start Date</label><input type="date" name="ad_start_date" class="form-input" value="<?= $adEditData["start_date"] ?? "" ?>"></div><div class="form-group"><label class="form-label">End Date</label><input type="date" name="ad_end_date" class="form-input" value="<?= $adEditData["end_date"] ?? "" ?>"></div></div><div class="form-group" style="max-width:200px"><label class="form-label">Max Impressions</label><input type="number" name="ad_max_impressions" class="form-input" value="<?= $adEditData["max_impressions"] ?? "" ?>" min="0" placeholder="Unlimited"></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-gold"><i class="fas fa-save"></i> <?= $adEditData ? 'Update' : 'Add' ?></button></div></form></div>
+<div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-<?= $adEditData ? 'pen' : 'plus-circle' ?>"></i> <?= $adEditData ? 'Edit' : 'New Advertisement' ?></div></div><form method="POST" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><?php if ($adEditData): ?><input type="hidden" name="ad_id" value="<?= $adEditData["id"] ?>"><?php endif; ?><div class="panel-body"><div class="form-row"><div class="form-group"><label class="form-label">Name *</label><input type="text" name="ad_title" class="form-input" value="<?= htmlspecialchars($adEditData["title"] ?? "") ?>" required></div><div class="form-group"><label class="form-label">Position</label><select name="ad_position" class="form-select"><?php foreach ($adPositions as $pk => $pc): ?><option value="<?= $pk ?>" <?= ($adEditData["position"] ?? "") === $pk ? 'selected' : '' ?>><?= $pc["label"] ?></option><?php endforeach; ?></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Type</label><div class="radio-group"><div class="radio-item <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="image" <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='block';document.getElementById('adCodeSec').style.display='none';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Image</label></div><div class="radio-item <?= ($adEditData["ad_type"] ?? "") === "code" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="code" <?= ($adEditData["ad_type"] ?? "") === "code" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='none';document.getElementById('adCodeSec').style.display='block';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Code</label></div></div></div><div class="form-group"><label class="form-label">Sort</label><input type="number" name="ad_sort_order" class="form-input" value="<?= $adEditData["sort_order"] ?? 0 ?>" min="0"></div></div><div id="adImgSec" style="display:<?= ($adEditData["ad_type"] ?? "image") === "image" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">Link URL</label><input type="url" name="ad_link_url" class="form-input" value="<?= htmlspecialchars($adEditData["link_url"] ?? "") ?>"></div><div class="form-group"><label class="form-label">Image</label><div class="img-upload-area <?= !empty($adEditData["image"]) ? 'has-image' : '' ?>" id="adImgArea"><input type="file" name="ad_image" id="ad_image" accept="image/jpeg,image/png/image/gif/image/webp"><?php if (!empty($adEditData["image"])): ?><img src="<?= htmlspecialchars($adEditData["image"]) ?>" class="img-preview" id="adImgPreview" alt=""><div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div><?php else: ?><div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div><div class="img-upload-text">Select image</div><div class="img-upload-hint">JPG, PNG, GIF, WebP — 5MB</div><img src="" class="img-preview" id="adImgPreview" style="display:none" alt=""><?php endif; ?></div></div></div><div id="adCodeSec" style="display:<?= ($adEditData["ad_type"] ?? "") === "code" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">HTML Code</label><textarea name="ad_code" class="form-input" rows="8"><?= htmlspecialchars($adEditData["ad_code"] ?? "") ?></textarea></div></div><div class="form-row"><div class="form-group"><label class="form-label">Start Date</label><input type="date" name="ad_start_date" class="form-input" value="<?= $adEditData["start_date"] ?? "" ?>"></div><div class="form-group"><label class="form-label">End Date</label><input type="date" name="ad_end_date" class="form-input" value="<?= $adEditData["end_date"] ?? "" ?>"></div></div><div class="form-group" style="max-width:200px"><label class="form-label">Max Impressions</label><input type="number" name="ad_max_impressions" class="form-input" value="<?= $adEditData["max_impressions"] ?? "" ?>" min="0" placeholder="Unlimited"></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-gold"><i class="fas fa-save"></i> <?= $adEditData ? 'Update' : 'Add' ?></button></div></form></div>
 <div class="panel"><div class="panel-header"><div class="filter-tabs"><?php foreach (["all"=>"All (".$adTotal.")","active"=>"Active","inactive"=>"Inactive","image"=>"Image","code"=>"Code"] as $f => $l): ?><a href="?page=admin_dashboard&section=ads&ad_filter=<?= $f ?>" class="filter-tab <?= $adFilter === $f ? 'active' : '' ?>"><?= $l ?></a><?php endforeach; ?></div></div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Name</th><th>Position</th><th>Type</th><th>Status</th><th>Clicks</th><th>Impressions</th><th>Action</th></tr></thead><tbody>
 <?php foreach ($adList as $ad): $pc = $adPositions[$ad["position"]] ?? ["label"=>$ad["position"],"color"=>"#666","icon"=>"fas fa-circle"]; ?>
 <tr><td style="font-weight:600"><?= htmlspecialchars($ad["title"]) ?></td><td><span class="ad-pos-chip" style="border-color:<?= $pc["color"] ?>;color:<?= $pc["color"] ?>"><i class="<?= $pc["icon"] ?>"></i> <?= $pc["label"] ?></span></td><td style="font-size:12px"><?= $ad["ad_type"] === 'image' ? '<i class="fas fa-image" style="color:var(--blue)"></i> Image' : '<i class="fas fa-code" style="color:var(--purple)"></i> Code' ?></td><td><span class="status-badge status-<?= $ad["is_active"] ? 'active' : 'inactive' ?>"><i class="fas fa-circle"></i> <?= $ad["is_active"] ? 'Active' : 'Inactive' ?></span></td><td style="font-weight:600"><?= number_format($ad["clicks"] ?? 0) ?></td><td style="font-weight:600"><?= number_format($ad["impressions"] ?? 0) ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=ads&ad_edit=<?= $ad["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=ads&ad_toggle=<?= $ad["id"] ?>&ad_ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&ad_filter=<?= $adFilter ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $ad["is_active"] ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=ads&ad_delete=<?= $ad["id"] ?>&ad_dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&ad_filter=<?= $adFilter ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
@@ -1471,7 +1504,7 @@ function updateNSEClock(){var now=new Date();var utc=now.getTime()+(now.getTimez
 setInterval(updateNSEClock,1000);updateNSEClock();
 var isNSELoading=false,nextRefreshTime=0,countdownInterval=null;
 function scheduleNextRefresh(delay){nextRefreshTime=Date.now()+delay;if(countdownInterval)clearInterval(countdownInterval);countdownInterval=setInterval(function(){var t=document.getElementById('nseRefreshTimer');if(!t)return;if(isNSELoading){t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';return;}var r=Math.max(0,(nextRefreshTime-Date.now())/1000);if(r>0){t.innerHTML='<i class="fas fa-clock"></i> Next auto-refresh in '+r.toFixed(1)+'s';}else{t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';}},100);}
-function loadNSE(){if(isNSELoading)return;isNSELoading=true;var t=document.getElementById('nseRefreshTimer');if(t)t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';fetch('?page=admin_dashboard&section=api_nse_data').then(function(r){return r.json();}).then(function(data){var src=data._source||'live';var sc=data.market_status==='open'?'#22c55e':'#ef4444';var st=data.market_status==='open'?'OPEN':'CLOSED';var ih='';if(data.indices&&data.indices.length>0){data.indices.forEach(function(idx){var cls=idx.change>=0?'nse-idx-up':'nse-idx-down';var ar=idx.change>=0?'&#9650;':'&#9660;';ih+='<div class="nse-idx-item"><div class="nse-idx-name">'+idx.symbol+'</div><div class="nse-idx-val '+cls+'">'+idx.last.toFixed(2)+' <span style="font-size:11px">'+ar+' '+Math.abs(idx.change).toFixed(2)+' ('+Math.abs(idx.changePercent).toFixed(2)+'%)</span></div></div>';});}document.getElementById('nseContent').innerHTML='<div class="nse-ticker-title" style="margin-bottom:10px"><i class="fas fa-signal"></i> Market Status &mdash; <span style="color:'+sc+';font-weight:700">'+st+'</span> <span style="color:#555;font-size:9px">['+src+']</span></div><div class="nse-indices">'+ih+'</div>';if(data.error)document.getElementById('nseContent').innerHTML+='<div style="color:#ef4444;font-size:12px;margin-top:8px"><i class="fas fa-exclamation-triangle"></i> '+data.error+'</div>';function ft(id,rows,cols){var tb=document.querySelector('#'+id+' tbody');if(!rows||!rows.length){var eh='<tr><td colspan="'+cols+'" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>';if(tb.innerHTML!==eh)tb.innerHTML=eh;return;}var nh=rows.map(function(r){var cls=(r.change||0)>=0?'nse-idx-up':'nse-idx-down';var sg=(r.change||0)>=0?'+':'';var sh='';if(cols===6){sh='<td style="font-weight:600"><div>'+(r.name||r.symbol)+'</div><small style="color:#888;font-weight:400">'+r.symbol+'</small></td>';}else{sh='<td style="font-weight:600">'+r.symbol+'</td>';}var h=sh+'<td style="font-weight:700">'+(r.last||0).toFixed(2)+'</td><td class="'+cls+'" style="font-weight:600">'+sg+(r.change||0).toFixed(2)+' ('+sg+(r.changePercent||0).toFixed(2)+'%)</td>';if(cols>3)h+='<td>'+(r.high||0).toFixed(2)+'</td><td>'+(r.low||0).toFixed(2)+'</td><td>'+Number(r.volume||0).toLocaleString()+'</td>';return '<tr>'+h+'</tr>';}).join('');if(tb.innerHTML!==nh)tb.innerHTML=nh;}ft('nseGainers',data.gainers,3);ft('nseLosers',data.losers,3);ft('nseWatchlist',data.watchlist,6);isNSELoading=false;scheduleNextRefresh(500);}).catch(function(err){document.getElementById('nseContent').innerHTML='<div style="color:#ef4444"><i class="fas fa-exclamation-triangle"></i> Data load failed: '+err.message+'</div>';isNSELoading=false;scheduleNextRefresh(500);});}
+function loadNSE(){if(isNSELoading)return;isNSELoading=true;var t=document.getElementById('nseRefreshTimer');if(t)t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';fetch('?page=admin_dashboard&section=api_nse_data').then(function(r){return r.json();}).then(function(data){var src=data._source||'live';var sc=data.market_status==='open'?'#22c55e':'#ef4444';var st=data.market_status==='open'?'OPEN':'CLOSED';var ih='';if(data.indices&&data.indices.length>0){data.indices.forEach(function(idx){var cls=idx.change>=0?'nse-idx-up':'nse-idx-down';var ar=idx.change>=0?'&#9650;':'&#9660;';ih+='<div class="nse-idx-item"><div class="nse-idx-name">'+idx.symbol+'</div><div class="nse-idx-val '+cls+'">'+idx.last.toFixed(2)+' <span style="font-size:11px">'+ar+' '+Math.abs(idx.change).toFixed(2)+' ('+Math.abs(idx.changePercent).toFixed(2)+'%)</span></div></div>';});}document.getElementById('nseContent').innerHTML='<div class="nse-ticker-title" style="margin-bottom:10px"><i class="fas fa-signal"></i> Market Status &mdash; <span style="color:'+sc+';font-weight:700">'+st+'</span> <span style="color:#555;font-size:9px">['+src+']</span></div><div class="nse-indices">'+ih+'</div>';if(data.error)document.getElementById('nseContent').innerHTML+='<div style="color:#ef4444;font-size:12px;margin-top:8px"><i class="fas fa-exclamation-triangle"></i> '+data.error+'</div>';function ft(id,rows,cols){var tb=document.querySelector('#'+id+' tbody');if(!rows||!rows.length){var eh='<tr><td colspan="'+cols+'" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>';if(tb.innerHTML!==eh)tb.innerHTML=eh;return;}var nh=rows.map(function(r){var cls=(r.change||0)>=0?'nse-idx-up':'nse-idx-down';var sg=(r.change||0)>=0?'+':'';var sh='';if(cols===6){sh='<td style="font-weight:600"><div>'+(r.name||r.symbol)+'</div><small style="color:#888;font-weight:400">'+r.symbol+'</small></td>';}else{sh='<td style="font-weight:600>'+r.symbol+'</td>';}var h=sh+'<td style="font-weight:700">'+(r.last||0).toFixed(2)+'</td><td class="'+cls+'" style="font-weight:600">'+sg+(r.change||0).toFixed(2)+' ('+sg+(r.changePercent||0).toFixed(2)+'%)</td>';if(cols>3)h+='<td>'+(r.high||0).toFixed(2)+'</td><td>'+(r.low||0).toFixed(2)+'</td><td>'+Number(r.volume||0).toLocaleString()+'</td>';return '<tr>'+h+'</tr>';}).join('');if(tb.innerHTML!==nh)tb.innerHTML=nh;}ft('nseGainers',data.gainers,3);ft('nseLosers',data.losers,3);ft('nseWatchlist',data.watchlist,6);isNSELoading=false;scheduleNextRefresh(500);}).catch(function(err){document.getElementById('nseContent').innerHTML='<div style="color:#ef4444"><i class="fas fa-exclamation-triangle"></i> Data load failed: '+err.message+'</div>';isNSELoading=false;scheduleNextRefresh(500);});}
 loadNSE();
 </script>
 

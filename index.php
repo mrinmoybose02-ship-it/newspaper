@@ -100,7 +100,10 @@ if (!function_exists('videoEmbedUrl')) {
         if (preg_match('#vimeo\.com/(\d+)#', $url, $m)) {
             return 'https://player.vimeo.com/video/' . $m[1];
         }
-        if (strpos($url, 'youtube.com/embed/') !== false || strpos($url, 'player.vimeo.com') !== false) return $url;
+        if (preg_match('#https?://(?:www\.)?(?:twitter|x)\.com/(?:[^/]+/status|i/web/status)/([0-9]+)#i', $url, $m)) {
+            return 'https://platform.twitter.com/embed/Tweet.html?id=' . $m[1];
+        }
+        if (strpos($url, 'youtube.com/embed/') !== false || strpos($url, 'player.vimeo.com') !== false || strpos($url, 'platform.twitter.com') !== false) return $url;
         return $url;
     }
 }
@@ -129,10 +132,13 @@ if (!function_exists('extractVideoEmbedUrl')) {
         if (preg_match('#vimeo\.com/(\d+)#', $url, $m)) {
             $url = 'https://player.vimeo.com/video/' . $m[1];
         }
+        if (preg_match('#https?://(?:www\.)?(?:twitter|x)\.com/(?:[^/]+/status|i/web/status)/([0-9]+)#i', $url, $m)) {
+            $url = 'https://platform.twitter.com/embed/Tweet.html?id=' . $m[1];
+        }
         if (strpos($url, 'http://') !== 0 && strpos($url, 'https://') !== 0) {
             if (strpos($url, '//') === 0) { $url = 'https:' . $url; } else { $url = 'https://' . $url; }
         }
-        if (strpos($url, 'youtube.com/embed/') !== false || strpos($url, 'player.vimeo.com/video/') !== false) {
+        if (strpos($url, 'youtube.com/embed/') !== false || strpos($url, 'player.vimeo.com/video/') !== false || strpos($url, 'platform.twitter.com/embed/') !== false) {
             if (strpos($url, 'autoplay=1') === false) {
                 $url .= (strpos($url, '?') !== false ? '&' : '?') . 'autoplay=1&rel=0';
             }
@@ -312,7 +318,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -790,6 +796,25 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     border-radius: 8px;
 }
 
+/* Fix: Twitter Embed White Background and No Scrollbar */
+.twitter-embed-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 550px;
+    margin: 20px auto;
+    background: #fff;
+    border: 1px solid #e1e8ed;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.twitter-embed-wrapper iframe {
+    width: 100% !important;
+    height: 500px !important; 
+    border: none;
+    display: block;
+    background: #fff;
+}
+
 .tts-container {
     display: flex;
     align-items: center;
@@ -820,27 +845,10 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     background: var(--red-dark);
     transform: scale(1.05);
 }
-.tts-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex: 1;
-}
 .tts-label {
     font-size: 14px;
     font-weight: 600;
     color: #333;
-}
-.tts-voice-select {
-    width: 100%;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 13px;
-    font-family: 'Hind Siliguri', sans-serif;
-    background: #fff;
-    cursor: pointer;
-    outline: none;
 }
 
 @media(max-width:1024px){
@@ -1096,12 +1104,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     <button id="ttsPlayBtn" class="tts-play-btn" title="খবরটি শুনুন">
         <i class="fas fa-microphone"></i>
     </button>
-    <div class="tts-controls">
-        <span class="tts-label">খবরটি শুনুন (Text-to-Speech)</span>
-        <select id="ttsVoiceSelect" class="tts-voice-select">
-            <option value="">ভয়েস লোড হচ্ছে...</option>
-        </select>
-    </div>
+    <span class="tts-label">খবরটি শুনুন (অডিও)</span>
 </div>
 
 <div class="single-meta">
@@ -1150,6 +1153,26 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     '/<iframe[^>]+src=["\'](https?:\/\/(?:www\.)?player\.vimeo\.com\/video\/([0-9]+)\S*)["\'][^>]*><\/iframe>/i',
     function($matches) {
         return '<div class="news-video-wrapper"><iframe src="https://player.vimeo.com/video/' . $matches[2] . '" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>';
+    },
+    $content
+);
+
+// 5. Replace plain Twitter/X URLs
+ $content = preg_replace_callback(
+    '~(?<!src=["\'])https?://(?:www\.)?(?:twitter|x)\.com/(?:[^/]+/status|i/web/status)/([0-9]+)(?:\S*)~i',
+    function($matches) {
+        $tweet_id = $matches[1];
+        $embed_url = 'https://platform.twitter.com/embed/Tweet.html?id=' . $tweet_id;
+        return '<div class="twitter-embed-wrapper"><iframe src="' . $embed_url . '" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
+    },
+    $content
+);
+
+// 6. Clean up existing Twitter iframes
+ $content = preg_replace_callback(
+    '/<iframe[^>]+src=["\'](https?:\/\/platform\.twitter\.com\/embed\/Tweet\.html\?[^"\']+)["\'][^>]*><\/iframe>/i',
+    function($matches) {
+        return '<div class="twitter-embed-wrapper"><iframe src="' . $matches[1] . '" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
     },
     $content
 );
@@ -1597,58 +1620,36 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// ====== TEXT TO SPEECH (TTS) LOGIC ======
+// ====== TEXT TO SPEECH (TTS) LOGIC (Only Indian Bengali Female) ======
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');
-var ttsVoiceSelect = document.getElementById('ttsVoiceSelect');
 var ttsIcon = ttsPlayBtn ? ttsPlayBtn.querySelector('i') : null;
 var isSpeaking = false;
-var availableVoices = [];
+var bnIndianFemaleVoice = null;
 
 function loadVoices() {
-    if (!('speechSynthesis' in window) || !ttsVoiceSelect) return;
-    
+    if (!('speechSynthesis' in window)) return;
     var voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) return; // Wait for onvoiceschanged
+    if (voices.length === 0) return;
 
-    // 1. Prioritize Bengali voices (bn-BD or bn-IN)
-    var bnVoices = voices.filter(function(v) {
-        return v.lang.toLowerCase().startsWith('bn');
-    });
+    // Strictly look for Indian Bengali Female voice
+    bnIndianFemaleVoice = voices.find(function(v) {
+            return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female');
+        })
+        || voices.find(function(v) { // Fallback to any Indian Bengali
+            return v.lang.toLowerCase() === 'bn-in';
+        })
+        || voices.find(function(v) { // Absolute fallback to any Bengali female
+            return v.lang.toLowerCase().startsWith('bn') && v.name.toLowerCase().includes('female');
+        })
+        || voices.find(function(v) { // Absolute fallback to any Bengali
+            return v.lang.toLowerCase().startsWith('bn');
+        });
 
-    if (bnVoices.length > 0) {
-        // Try to find a female Bengali voice, else use any Bengali voice
-        var bnFemale = bnVoices.filter(function(v) {
-            return v.name.toLowerCase().includes('female');
-        });
-        availableVoices = bnFemale.length > 0 ? bnFemale : bnVoices;
-    } else {
-        // 2. Fallback to English Female voices
-        availableVoices = voices.filter(function(v) {
-            var name = v.name.toLowerCase();
-            return name.includes('female') || name.includes('samantha') || name.includes('zira') || name.includes('google uk english female') || name.includes('google us english');
-        });
-        if (availableVoices.length === 0) {
-            availableVoices = voices; // Absolute fallback
-        }
-    }
-
-    ttsVoiceSelect.innerHTML = '';
-    if (availableVoices.length > 0) {
-        availableVoices.forEach(function(v, i) {
-            var opt = document.createElement('option');
-            opt.value = i;
-            opt.textContent = v.name + ' (' + v.lang + ')';
-            ttsVoiceSelect.appendChild(opt);
-        });
-    } else {
-        var opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'কোনো ভয়েস পাওয়া যায়নি';
-        ttsVoiceSelect.appendChild(opt);
-        if(ttsPlayBtn) {
-            ttsPlayBtn.disabled = true;
-            ttsPlayBtn.style.background = '#999';
-        }
+    if (!bnIndianFemaleVoice && ttsPlayBtn) {
+        // Disable button if no Bengali voice is found at all
+        ttsPlayBtn.disabled = true;
+        ttsPlayBtn.style.background = '#999';
+        if (ttsIcon) ttsIcon.className = 'fas fa-times';
     }
 }
 
@@ -1665,7 +1666,7 @@ if ('speechSynthesis' in window) {
 
 if (ttsPlayBtn) {
     ttsPlayBtn.addEventListener('click', function() {
-        if (!('speechSynthesis' in window) || availableVoices.length === 0) return;
+        if (!('speechSynthesis' in window) || !bnIndianFemaleVoice) return;
 
         if (isSpeaking) {
             window.speechSynthesis.cancel();
@@ -1684,15 +1685,12 @@ if (ttsPlayBtn) {
 
         var utterance = new SpeechSynthesisUtterance(textToRead);
         
-        var selectedVoiceIdx = ttsVoiceSelect.value ? parseInt(ttsVoiceSelect.value) : 0;
-        if (availableVoices.length > 0) {
-            utterance.voice = availableVoices[selectedVoiceIdx];
-            utterance.lang = availableVoices[selectedVoiceIdx].lang; // Set lang to voice's lang (bn-BD, etc.)
-        }
+        utterance.voice = bnIndianFemaleVoice;
+        utterance.lang = bnIndianFemaleVoice.lang; // Enforce lang
         
         // Settings for a more pleasant female voice
         utterance.rate = 1.0;
-        utterance.pitch = 1.1; // Slightly higher pitch for female voice
+        utterance.pitch = 1.1; // Slightly higher pitch 
 
         utterance.onend = function() {
             isSpeaking = false;
@@ -1706,7 +1704,7 @@ if (ttsPlayBtn) {
 
         window.speechSynthesis.speak(utterance);
         isSpeaking = true;
-        ttsIcon.className = 'fas fa-stop';
+        ttsIcon.className = 'fas fa-stop'; // Change icon to stop while speaking
     });
 }
 

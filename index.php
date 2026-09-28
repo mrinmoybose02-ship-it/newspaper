@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/config.php';
 
+// Set timezone to IST (Indian Standard Time)
+date_default_timezone_set('Asia/Kolkata');
+
 // ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION ======
 if (isset($_GET['ajax_check_new_news'])) {
     header('Content-Type: application/json');
@@ -224,7 +227,7 @@ try { $pdo->exec("ALTER TABLE news ADD COLUMN tags VARCHAR(500) DEFAULT '' AFTER
  $currentSub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
  $archYear = isset($_GET['y']) ? (int)$_GET['y'] : 0;
  $archMonth = isset($_GET['m']) ? (int)$_GET['m'] : 0;
- 
+
  $currentSubData = null;
 if ($currentSub) {
     $subStmt = $pdo->prepare("SELECT s.*, c.name as category_name FROM subcategories s JOIN categories c ON s.category_id = c.id WHERE s.id = ?");
@@ -368,7 +371,7 @@ if ($page === 'single') {
     if ($currentCat) { $sql .= " AND c.name = ?"; $countSql .= " AND c.name = ?"; $params[] = $currentCat; }
     if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
     if ($currentSub) { $sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $countSql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $params[] = $currentSub; }
-    
+
     if ($archYear) {
         $sql .= " AND YEAR(n.created_at) = ?"; $countSql .= " AND YEAR(n.created_at) = ?"; $params[] = $archYear;
         if ($archMonth) {
@@ -416,7 +419,6 @@ if ($archMonth) $pagBase .= '&m=' . $archMonth;
 
  $bnDays = ['Sunday'=>'রবিবার','Monday'=>'সোমবার','Tuesday'=>'মঙ্গলবার','Wednesday'=>'বুধবার','Thursday'=>'বৃহস্পতিবার','Friday'=>'শুক্রবার','Saturday'=>'শনিবার'];
 
-// Set date string in English
  $todayStr = date('d F Y') . ', ' . date('l');
 
  $isLoggedIn = isset($_SESSION['user_id']);
@@ -442,7 +444,64 @@ try { $in = implode(",", array_fill(0, count($contactKeys), "?")); $cs = $pdo->p
  $adFooterBanner = renderAdsByPos($pdo, 'footer_banner');
  $adPopup = renderAdsByPos($pdo, 'popup');
 
- $nseStockList = [['s'=>'RELIANCE.NS','short'=>'RELIANCE'],['s'=>'TCS.NS','short'=>'TCS'],['s'=>'INFY.NS','short'=>'INFY'],['s'=>'HDFCBANK.NS','short'=>'HDFCBANK'],['s'=>'ICICIBANK.NS','short'=>'ICICIBANK'],['s'=>'SBIN.NS','short'=>'SBIN'],['s'=>'WIPRO.NS','short'=>'WIPRO'],['s'=>'BHARTIARTL.NS','short'=>'BHARTIARTL'],['s'=>'ITC.NS','short'=>'ITC'],['s'=>'LT.NS','short'=>'LT'],['s'=>'HINDUNILVR.NS','short'=>'HINDUNILVR'],['s'=>'BAJFINANCE.NS','short'=>'BAJFINANCE'],['s'=>'MARUTI.NS','short'=>'MARUTI'],['s'=>'ADANIENT.NS','short'=>'ADANIENT'],['s'=>'TATAMOTORS.NS','short'=>'TATAMOTORS'],['s'=>'SUNPHARMA.NS','short'=>'SUNPHARMA']];
+// ====== NSE STOCK LIST - 55+ Companies ======
+ $nseStockList = [
+    ['s'=>'RELIANCE.NS','short'=>'RELIANCE'],
+    ['s'=>'TCS.NS','short'=>'TCS'],
+    ['s'=>'INFY.NS','short'=>'INFY'],
+    ['s'=>'HDFCBANK.NS','short'=>'HDFCBANK'],
+    ['s'=>'ICICIBANK.NS','short'=>'ICICIBANK'],
+    ['s'=>'SBIN.NS','short'=>'SBIN'],
+    ['s'=>'KOTAKBANK.NS','short'=>'KOTAKBANK'],
+    ['s'=>'AXISBANK.NS','short'=>'AXISBANK'],
+    ['s'=>'INDUSINDBK.NS','short'=>'INDUSINDBK'],
+    ['s'=>'WIPRO.NS','short'=>'WIPRO'],
+    ['s'=>'HCLTECH.NS','short'=>'HCLTECH'],
+    ['s'=>'TECHM.NS','short'=>'TECHM'],
+    ['s'=>'BHARTIARTL.NS','short'=>'BHARTIARTL'],
+    ['s'=>'ITC.NS','short'=>'ITC'],
+    ['s'=>'LT.NS','short'=>'LT'],
+    ['s'=>'HINDUNILVR.NS','short'=>'HINDUNILVR'],
+    ['s'=>'NESTLEIND.NS','short'=>'NESTLEIND'],
+    ['s'=>'BRITANNIA.NS','short'=>'BRITANNIA'],
+    ['s'=>'TATACONSUM.NS','short'=>'TATACONSUM'],
+    ['s'=>'VARUNBEVERAGES.NS','short'=>'VARUNBEV'],
+    ['s'=>'BAJFINANCE.NS','short'=>'BAJFINANCE'],
+    ['s'=>'BAJAJFINSV.NS','short'=>'BAJAJFINSV'],
+    ['s'=>'MARUTI.NS','short'=>'MARUTI'],
+    ['s'=>'M&M.NS','short'=>'M&M'],
+    ['s'=>'EICHERMOT.NS','short'=>'EICHERMOT'],
+    ['s'=>'HEROMOTOCO.NS','short'=>'HEROMOTOCO'],
+    ['s'=>'TATAMOTORS.NS','short'=>'TATAMOTORS'],
+    ['s'=>'ASHOKLEY.NS','short'=>'ASHOKLEY'],
+    ['s'=>'ADANIENT.NS','short'=>'ADANIENT'],
+    ['s'=>'ADANIPORTS.NS','short'=>'ADANIPORTS'],
+    ['s'=>'SUNPHARMA.NS','short'=>'SUNPHARMA'],
+    ['s'=>'DRREDDY.NS','short'=>'DRREDDY'],
+    ['s'=>'CIPLA.NS','short'=>'CIPLA'],
+    ['s'=>'DIVISLAB.NS','short'=>'DIVISLAB'],
+    ['s'=>'APOLLOHOSP.NS','short'=>'APOLLOHOSP'],
+    ['s'=>'ASIANPAINT.NS','short'=>'ASIANPAINT'],
+    ['s'=>'TITAN.NS','short'=>'TITAN'],
+    ['s'=>'TATASTEEL.NS','short'=>'TATASTEEL'],
+    ['s'=>'JSWSTEEL.NS','short'=>'JSWSTEEL'],
+    ['s'=>'HINDALCO.NS','short'=>'HINDALCO'],
+    ['s'=>'VEDL.NS','short'=>'VEDL'],
+    ['s'=>'NTPC.NS','short'=>'NTPC'],
+    ['s'=>'POWERGRID.NS','short'=>'POWERGRID'],
+    ['s'=>'ONGC.NS','short'=>'ONGC'],
+    ['s'=>'COALINDIA.NS','short'=>'COALINDIA'],
+    ['s'=>'GAIL.NS','short'=>'GAIL'],
+    ['s'=>'IOC.NS','short'=>'IOC'],
+    ['s'=>'GRASIM.NS','short'=>'GRASIM'],
+    ['s'=>'ULTRACEMCO.NS','short'=>'ULTRACEMCO'],
+    ['s'=>'SHREECEM.NS','short'=>'SHREECEM'],
+    ['s'=>'IRCTC.NS','short'=>'IRCTC'],
+    ['s'=>'PIDILITIND.NS','short'=>'PIDILITIND'],
+    ['s'=>'DABUR.NS','short'=>'DABUR'],
+    ['s'=>'AMBUJACEM.NS','short'=>'AMBUJACEM'],
+    ['s'=>'SAIL.NS','short'=>'SAIL']
+];
  $nseCacheFile = __DIR__ . '/cache_nse_stocks.json';
  $nseData = [];
 if (file_exists($nseCacheFile) && (time() - filemtime($nseCacheFile) < 300)) { $nseCached = json_decode(file_get_contents($nseCacheFile), true); if (is_array($nseCached)) $nseData = $nseCached; }
@@ -482,7 +541,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .kol-topbar .tl{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
 .kol-topbar .tr{display:flex;align-items:center;gap:8px}
-.kol-topbar .clock{font-family:monospace;font-size:12px;color:var(--gold);font-weight:600;letter-spacing:.5px}
+.kol-topbar .clock{font-family:monospace;font-size:12px;color:var(--gold);font-weight:600;letter-spacing:.5px;min-width:64px;display:inline-block}
 .kol-topbar .date{color:rgba(255,255,255,.85);font-size:12px;border-left:1px solid rgba(255,255,255,.2);padding-left:12px}
 .kol-topbar .date i{margin-right:4px;opacity:.7}
 .kol-si{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.2);color:#fff;font-size:10px;transition:all .2s}
@@ -707,7 +766,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     max-width: 80%;
     height: auto;
     border-radius: 8px;
-    margin: 20px auto; 
+    margin: 20px auto;
     display: block;
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
@@ -747,6 +806,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .ft-addr-item i{color:var(--gold);font-size:11px;width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:3px;background:rgba(212,149,67,.15);border-radius:3px;padding:2px}
 .ft-addr-item a{color:#888;transition:color .15s;text-decoration:none}
 .ft-addr-item a:hover{color:var(--gold)}
+
+/* ====== NSE BAR STYLES ====== */
 .nse-bar{background:#080810;color:#ccc;display:flex;align-items:stretch;height:36px;overflow:hidden;border-top:1px solid rgba(255,255,255,.04);position:relative}
 .nse-bar::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.8) 0%,transparent 6%,transparent 94%,rgba(0,0,0,.8) 100%);z-index:2;pointer-events:none}
 .nse-lbl{background:linear-gradient(135deg,#0d47a1,#1565c0);padding:0 14px;display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;z-index:3;white-space:nowrap;letter-spacing:.4px}
@@ -760,12 +821,72 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .nse-pr{font-size:12px;font-weight:600;color:#e0e0e0;font-variant-numeric:tabular-nums;min-width:55px}
 .nse-chg{font-size:9px;font-weight:700;font-variant-numeric:tabular-nums}
 .nse-up{color:#00c853}.nse-down{color:#ff1744}
+
+/* ====== NSE LIVE BADGE - Red, Blinking ====== */
+.nse-live-badge {
+    display: none;
+    background: #ff1744;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    box-shadow: 0 0 6px rgba(255, 23, 68, 0.6);
+    animation: nseLivePulse 1.5s ease-in-out infinite;
+}
+.nse-live-badge.show {
+    display: inline-block;
+}
+.nse-live-badge::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: #fff;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+    animation: nseDotBlink 1s ease-in-out infinite;
+}
+@keyframes nseLivePulse {
+    0%, 100% { 
+        opacity: 1; 
+        box-shadow: 0 0 6px rgba(255, 23, 68, 0.6); 
+    }
+    50% { 
+        opacity: 0.85; 
+        box-shadow: 0 0 12px rgba(255, 23, 68, 0.9); 
+    }
+}
+@keyframes nseDotBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.nse-closed-badge {
+    display: inline-block;
+    background: #555;
+    color: #aaa;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    text-transform: uppercase;
+}
+.nse-closed-badge.hide {
+    display: none;
+}
+
 .sb-toggle{position:fixed;bottom:20px;right:20px;width:44px;height:44px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:18px;z-index:90;box-shadow:0 4px 16px rgba(183,28,28,.4);transition:all .2s;align-items:center;justify-content:center;display:flex}
 .sb-toggle:hover{transform:scale(1.1);box-shadow:0 6px 20px rgba(183,28,28,.5)}
-
 .video-embed { position: relative; width: 100%; padding-bottom: 56.25%; height: 0; background: #000; overflow: hidden; }
 .video-embed iframe, .video-embed video, .video-embed object, .video-embed embed { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; border: 0; }
-
 .news-video-wrapper {
     position: relative;
     width: 100%;
@@ -795,8 +916,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     border: none;
     border-radius: 8px;
 }
-
-/* Fix: Twitter Embed White Background and No Scrollbar */
 .twitter-embed-wrapper {
     position: relative;
     width: 100%;
@@ -809,12 +928,11 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 }
 .twitter-embed-wrapper iframe {
     width: 100% !important;
-    height: 500px !important; 
+    height: 500px !important;
     border: none;
     display: block;
     background: #fff;
 }
-
 .tts-container {
     display: flex;
     align-items: center;
@@ -850,7 +968,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     font-weight: 600;
     color: #333;
 }
-
 @media(max-width:1024px){
     .kol-layout{grid-template-columns:1fr}
     .kol-sidebar{position:fixed;left:-280px;top:0;bottom:0;width:280px;background:var(--bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;max-height:100vh;overflow-y:auto}
@@ -885,7 +1002,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="kol-topbar">
 <div class="container">
 <div class="tl">
-<span class="clock" id="liveClock"></span>
+<span class="clock" id="liveClock"><?= date('H:i:s') ?></span>
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
@@ -950,7 +1067,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     <span class="kn-arrow"><i class="fas fa-chevron-down"></i></span>
     <div class="kn-drop" style="min-width: 180px;">
         <?php if(!empty($archiveDates)): ?>
-            <?php foreach($archiveDates as $ad): 
+            <?php foreach($archiveDates as $ad):
                 $y = $ad['y'];
                 $m = $ad['m'];
                 $mName = $bnMonths[$m] ?? '';
@@ -973,11 +1090,11 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 </div>
 </div>
 <div class="kn-panel" id="knPanel">
-<?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCnt = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; ?>
+<?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; ?>
 <div class="kn-pl-link<?= $cActive ? ' active' : '' ?><?= $cHasSubs ? ' has-psubs' : '' ?>" data-pcat="<?= htmlspecialchars($cn) ?>">
 <div class="kpi"><i class="fas <?= $cIcon ?>"></i></div>
 <span class="kpn"><?= htmlspecialchars($cn) ?></span>
-<?php if ($cPostCnt > 0): ?><span class="kpc"><?= $cPostCnt ?></span><?php endif; ?>
+<?php if ($cPostCNT > 0): ?><span class="kpc"><?= $cPostCNT ?></span><?php endif; ?>
 <?php if ($cHasSubs): ?><span class="kn-sub-tog" data-ptog="<?= htmlspecialchars($cn) ?>" title="সাব-ক্যাটাগরি"><i class="fas fa-chevron-down"></i></span><?php endif; ?>
 </div>
 <?php if ($cHasSubs): ?>
@@ -1063,7 +1180,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
         <h2 style="text-align: center; margin-bottom: 30px; font-size: 28px; color: #1a1a1a;">Latest Videos</h2>
         <?php if (!empty($videos)): ?>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px;">
-                <?php foreach ($videos as $vid): 
+                <?php foreach ($videos as $vid):
                     $videoCode = $vid['code'] ?? '';
                     if (!empty($videoCode) && stripos($videoCode, '<iframe') === false && stripos($videoCode, '<video') === false && stripos($videoCode, '<embed') === false) {
                         $embedUrl = extractVideoEmbedUrl($videoCode);
@@ -1099,12 +1216,11 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 </div>
 <h1><?= htmlspecialchars($singleNews['title']) ?></h1>
 
-<!-- Text-to-Speech (TTS) Feature -->
 <div class="tts-container">
-    <button id="ttsPlayBtn" class="tts-play-btn" title="খবরটি শুনুন">
+    <button id="ttsPlayBtn" class="tts-play-btn" title="Listen to this news">
         <i class="fas fa-microphone"></i>
     </button>
-    <span class="tts-label">খবরটি শুনুন (অডিও)</span>
+    <span class="tts-label">Listen to this news (Audio)</span>
 </div>
 
 <div class="single-meta">
@@ -1118,10 +1234,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>"></div>
 <?php endif; ?>
 <?php
-// ====== INSERT ADS AFTER PARAGRAPHS ======
  $content = $singleNews['content'];
- 
- // 1. Replace plain YouTube URLs
+
  $content = preg_replace_callback(
     '~(?<!src=["\'])https?://(?:www\.)?(?:youtube\.com/(?:watch\?v=|embed/|v/)|youtu\.be/)([a-zA-Z0-9_-]{11})(?:\S*)~i',
     function($matches) {
@@ -1130,7 +1244,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     $content
 );
 
-// 2. Clean up existing YouTube iframes to fix attributes and wrapper
  $content = preg_replace_callback(
     '/<iframe[^>]+src=["\'](https?:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com\/(?:embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})\S*)["\'][^>]*><\/iframe>/i',
     function($matches) {
@@ -1139,7 +1252,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     $content
 );
 
-// 3. Replace plain Vimeo URLs
  $content = preg_replace_callback(
     '~(?<!src=["\'])https?://(?:www\.)?vimeo\.com/([0-9]+)(?:\S*)~i',
     function($matches) {
@@ -1148,7 +1260,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     $content
 );
 
-// 4. Clean up existing Vimeo iframes
  $content = preg_replace_callback(
     '/<iframe[^>]+src=["\'](https?:\/\/(?:www\.)?player\.vimeo\.com\/video\/([0-9]+)\S*)["\'][^>]*><\/iframe>/i',
     function($matches) {
@@ -1157,7 +1268,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     $content
 );
 
-// 5. Replace plain Twitter/X URLs
  $content = preg_replace_callback(
     '~(?<!src=["\'])https?://(?:www\.)?(?:twitter|x)\.com/(?:[^/]+/status|i/web/status)/([0-9]+)(?:\S*)~i',
     function($matches) {
@@ -1168,7 +1278,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     $content
 );
 
-// 6. Clean up existing Twitter iframes
  $content = preg_replace_callback(
     '/<iframe[^>]+src=["\'](https?:\/\/platform\.twitter\.com\/embed\/Tweet\.html\?[^"\']+)["\'][^>]*><\/iframe>/i',
     function($matches) {
@@ -1321,7 +1430,7 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 </div>
 <?php endif; ?>
 
-<?php 
+<?php
  $showStandardNewsGrid = !empty($pagedGrid);
 if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showLatestNews && !$archYear && !$archMonth) {
     $showStandardNewsGrid = false;
@@ -1412,7 +1521,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <?php endif; ?>
         </div>
     </div>
-    
+
     <div class="ad-block">
         <div class="ad-label">- Sponsored -</div>
         <div class="ad-content">
@@ -1431,7 +1540,11 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 
 <?php if (!empty($nseTrackHTML)): ?>
 <div class="nse-bar">
-<div class="nse-lbl"><i class="fas fa-chart-line"></i> NSE</div>
+<div class="nse-lbl">
+    <i class="fas fa-chart-line"></i> Share Market
+    <span class="nse-live-badge" id="nseLiveBadge">LIVE</span>
+    <span class="nse-closed-badge" id="nseClosedBadge">CLOSED</span>
+</div>
 <div class="nse-scroll">
 <div class="nse-track"><?= $nseTrackHTML ?></div>
 </div>
@@ -1500,7 +1613,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 </div>
 </footer>
 
-<button class="sb-toggle" id="sbToggle" aria-label="সাইডবার টগল"><i class="fas fa-bars"></i></button>
+<button class="sb-toggle" id="sbToggle" aria-label="Sidebar Toggle"><i class="fas fa-bars"></i></button>
 
 <!-- Permission Popup -->
 <div id="allowNewsPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;align-items:center;justify-content:center;">
@@ -1508,11 +1621,11 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
         <div style="width:70px;height:70px;background:#FFF0F0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
             <i class="fas fa-bell" style="font-size:32px;color:var(--red);"></i>
         </div>
-        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">নোটিফিকেশন চালু করুন</h3>
-        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">আপনি কি সংবাদ গুলোর নোটিফিকেশন পেতে চান?</p>
+        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">Enable Notifications</h3>
+        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">Would you like to receive news notifications?</p>
         <div style="display:flex;justify-content:center;gap:15px;">
-            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
-            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">না</button>
+            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">Yes</button>
+            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">No</button>
         </div>
     </div>
 </div>
@@ -1524,12 +1637,12 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <i class="fas fa-bell" style="color:var(--red);font-size:18px;"></i>
         </div>
         <div style="flex:1;">
-            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;">নতুন সংবাদ প্রকাশিত!</h4>
+            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;">New News Published!</h4>
             <p id="newNewsTitleFallback" style="font-size:13px;color:#666;margin:0;line-height:1.4;"></p>
         </div>
         <button id="btnCloseNewNews" style="background:none;border:none;color:#999;cursor:pointer;font-size:16px;padding:5px;">&times;</button>
     </div>
-    <a id="newNewsLinkFallback" href="#" style="display:block;text-align:center;padding:10px;background:var(--red);color:#fff;text-decoration:none;font-weight:bold;font-size:13px;font-family:'Hind Siliguri',sans-serif;">এখনই পড়ুন</a>
+    <a id="newNewsLinkFallback" href="#" style="display:block;text-align:center;padding:10px;background:var(--red);color:#fff;text-decoration:none;font-weight:bold;font-size:13px;font-family:'Hind Siliguri',sans-serif;">Read Now</a>
 </div>
 
 <?php if (!empty($adPopup)): ?>
@@ -1545,43 +1658,143 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
 </script>
 <?php endif; ?>
 
+<!-- ================================================== -->
+<!-- LIVE CLOCK SCRIPT using World Time API            -->
+<!-- ================================================== -->
+<script>
+(function () {
+  function pad(n) {
+    n = String(n);
+    return n.length < 2 ? '0' + n : n;
+  }
+
+  var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  var IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  var serverOffset = 0;
+
+  function fetchApiTime() {
+    try {
+      fetch('https://timeapi.world/api/time/Asia/Kolkata')
+        .then(function(response) {
+          if (!response.ok) throw new Error('API error');
+          return response.json();
+        })
+        .then(function(data) {
+          var apiTimestamp = null;
+          if (data.unixtime) {
+            apiTimestamp = parseInt(data.unixtime, 10) * 1000;
+          }
+          else if (data.datetime) {
+            var d = new Date(data.datetime);
+            if (!isNaN(d.getTime())) {
+              apiTimestamp = d.getTime();
+            }
+          }
+          else if (data.year && data.month && data.day) {
+            var h = data.hour || data.hours || 0;
+            var m = data.minute || data.minutes || 0;
+            var s = data.second || data.seconds || 0;
+            var d2 = new Date(Date.UTC(data.year, data.month - 1, data.day, h, m, s));
+            if (!isNaN(d2.getTime())) {
+              apiTimestamp = d2.getTime();
+            }
+          }
+          if (apiTimestamp !== null && !isNaN(apiTimestamp)) {
+            serverOffset = apiTimestamp - Date.now();
+          }
+        })
+        .catch(function(e) {
+          console.warn('Time API fetch failed, using browser time with IST offset');
+        });
+    } catch (e) {
+      console.warn('Time API error:', e);
+    }
+  }
+
+  function updateClock() {
+    try {
+      var utcTimestamp = Date.now() + serverOffset;
+      var istTimestamp = utcTimestamp + IST_OFFSET_MS;
+      var istDate = new Date(istTimestamp);
+
+      var clockEl = document.getElementById('liveClock');
+      if (clockEl) {
+        clockEl.textContent = pad(istDate.getUTCHours()) + ':' + pad(istDate.getUTCMinutes()) + ':' + pad(istDate.getUTCSeconds());
+      }
+
+      var dateEl = document.getElementById('liveDate');
+      if (dateEl) {
+        var day = dayNames[istDate.getUTCDay()];
+        var month = monthNames[istDate.getUTCMonth()];
+        var dateStr = pad(istDate.getUTCDate()) + ' ' + month + ' ' + istDate.getUTCFullYear() + ', ' + day;
+        dateEl.innerHTML = '<i class="far fa-calendar-alt"></i> ' + dateStr;
+      }
+    } catch (e) {}
+  }
+
+  fetchApiTime();
+  updateClock();
+  setInterval(updateClock, 1000);
+  setInterval(fetchApiTime, 5 * 60 * 1000);
+})();
+</script>
+
+<!-- ================================================== -->
+<!-- NSE MARKET HOURS CHECK - Auto Live/Closed Badge   -->
+<!-- ================================================== -->
+<script>
+(function () {
+  function checkMarketStatus() {
+    try {
+      var now = new Date();
+      var istTimestamp = now.getTime() + (5.5 * 60 * 60 * 1000);
+      var istDate = new Date(istTimestamp);
+
+      var day = istDate.getUTCDay();
+      var hours = istDate.getUTCHours();
+      var minutes = istDate.getUTCMinutes();
+      var timeInMinutes = hours * 60 + minutes;
+
+      var isWeekday = day >= 1 && day <= 5;
+      var isMarketHours = timeInMinutes >= 555 && timeInMinutes < 990;
+      var isMarketOpen = isWeekday && isMarketHours;
+
+      var liveBadge = document.getElementById('nseLiveBadge');
+      var closedBadge = document.getElementById('nseClosedBadge');
+
+      if (liveBadge && closedBadge) {
+        if (isMarketOpen) {
+          liveBadge.classList.add('show');
+          closedBadge.classList.add('hide');
+        } else {
+          liveBadge.classList.remove('show');
+          closedBadge.classList.remove('hide');
+        }
+      }
+    } catch (e) {
+      console.warn('Market status check error:', e);
+    }
+  }
+
+  checkMarketStatus();
+  setInterval(checkMarketStatus, 60000);
+})();
+</script>
+
+<!-- ================================================== -->
+<!-- MAIN APPLICATION SCRIPT                           -->
+<!-- ================================================== -->
 <script>
 (function(){
-// Live Clock & Date in English
-var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
-function updateClock(){
-    var now = new Date();
-
-    // Clock (time) in English
-    var h = String(now.getHours()).padStart(2,'0');
-    var m = String(now.getMinutes()).padStart(2,'0');
-    var s = String(now.getSeconds()).padStart(2,'0');
-    var clockEl = document.getElementById('liveClock');
-    if(clockEl) clockEl.textContent = h + ':' + m + ':' + s;
-
-    // Date + Day in English
-    var day = dayNames[now.getDay()];
-    var month = monthNames[now.getMonth()];
-    var dateStr = String(now.getDate()).padStart(2,'0')
-                + ' ' + month + ' '
-                + now.getFullYear()
-                + ', ' + day;
-
-    var dateEl = document.getElementById('liveDate');
-    if(dateEl) dateEl.innerHTML = '<i class="far fa-calendar-alt"></i> ' + dateStr;
-}
-updateClock();
-setInterval(updateClock, 1000);
-
 var sbToggle=document.getElementById('sbToggle'),kolSidebar=document.getElementById('kolSidebar'),kolLayout=document.getElementById('kolLayout'),sbClose=document.getElementById('sbClose');
 
 function toggleSidebar(){
     kolLayout.classList.toggle('sb-hidden');
     var icon=sbToggle.querySelector('i');
-    if(kolLayout.classList.contains('sb-hidden')){icon.className='fas fa-bars';sbToggle.title='সাইডবার দেখান';}
-    else{icon.className='fas fa-times';sbToggle.title='সাইডবার লুকান';}
+    if(kolLayout.classList.contains('sb-hidden')){icon.className='fas fa-bars';sbToggle.title='Show Sidebar';}
+    else{icon.className='fas fa-times';sbToggle.title='Hide Sidebar';}
 }
 if(sbToggle)sbToggle.addEventListener('click',toggleSidebar);
 if(sbClose)sbClose.addEventListener('click',function(){if(!kolLayout.classList.contains('sb-hidden'))toggleSidebar();});
@@ -1620,7 +1833,6 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// ====== TEXT TO SPEECH (TTS) LOGIC (Only Indian Bengali Female) ======
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');
 var ttsIcon = ttsPlayBtn ? ttsPlayBtn.querySelector('i') : null;
 var isSpeaking = false;
@@ -1631,22 +1843,20 @@ function loadVoices() {
     var voices = window.speechSynthesis.getVoices();
     if (voices.length === 0) return;
 
-    // Strictly look for Indian Bengali Female voice
     bnIndianFemaleVoice = voices.find(function(v) {
             return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female');
         })
-        || voices.find(function(v) { // Fallback to any Indian Bengali
+        || voices.find(function(v) {
             return v.lang.toLowerCase() === 'bn-in';
         })
-        || voices.find(function(v) { // Absolute fallback to any Bengali female
+        || voices.find(function(v) {
             return v.lang.toLowerCase().startsWith('bn') && v.name.toLowerCase().includes('female');
         })
-        || voices.find(function(v) { // Absolute fallback to any Bengali
+        || voices.find(function(v) {
             return v.lang.toLowerCase().startsWith('bn');
         });
 
     if (!bnIndianFemaleVoice && ttsPlayBtn) {
-        // Disable button if no Bengali voice is found at all
         ttsPlayBtn.disabled = true;
         ttsPlayBtn.style.background = '#999';
         if (ttsIcon) ttsIcon.className = 'fas fa-times';
@@ -1684,19 +1894,15 @@ if (ttsPlayBtn) {
         if (!textToRead.trim()) return;
 
         var utterance = new SpeechSynthesisUtterance(textToRead);
-        
         utterance.voice = bnIndianFemaleVoice;
-        utterance.lang = bnIndianFemaleVoice.lang; // Enforce lang
-        
-        // Settings for a more pleasant female voice
+        utterance.lang = bnIndianFemaleVoice.lang;
         utterance.rate = 1.0;
-        utterance.pitch = 1.1; // Slightly higher pitch 
+        utterance.pitch = 1.1;
 
         utterance.onend = function() {
             isSpeaking = false;
             ttsIcon.className = 'fas fa-microphone';
         };
-        
         utterance.onerror = function() {
             isSpeaking = false;
             ttsIcon.className = 'fas fa-microphone';
@@ -1704,11 +1910,10 @@ if (ttsPlayBtn) {
 
         window.speechSynthesis.speak(utterance);
         isSpeaking = true;
-        ttsIcon.className = 'fas fa-stop'; // Change icon to stop while speaking
+        ttsIcon.className = 'fas fa-stop';
     });
 }
 
-// ====== AJAX NOTIFICATION LOGIC (No WebSocket) ======
 var latestNewsId = <?= $latestNewsId ?>;
 var allowNewsPopup = document.getElementById('allowNewsPopup');
 var newNewsPopup = document.getElementById('newNewsPopup');
@@ -1718,7 +1923,6 @@ var btnCloseNewNews = document.getElementById('btnCloseNewNews');
 var currentNewNewsId = 0;
 var newsInterval;
 
-// Register Service Worker
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
         navigator.serviceWorker.register('sw.js').then(function(registration) {
@@ -1729,17 +1933,15 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// Function to display Native OS Notification
 function showSystemNotification(title, body, url) {
     if (!("Notification" in window)) return false;
     if (Notification.permission === "granted") {
         var options = {
             body: body,
             icon: 'https://via.placeholder.com/150/B71C1C/FFFFFF?text=News',
-            tag: 'new-news-' + url, 
+            tag: 'new-news-' + url,
             data: { url: url }
         };
-        
         try {
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.ready.then(function(registration) {
@@ -1762,13 +1964,11 @@ function showSystemNotification(title, body, url) {
     return false;
 }
 
-// Function to show HTML Popup Fallback
 function showHtmlPopup(title, url) {
     if (newNewsPopup && newNewsPopup.style.display !== 'block') {
         if (newNewsTitleFallback) newNewsTitleFallback.textContent = title;
         if (newNewsLinkFallback) newNewsLinkFallback.href = url;
         newNewsPopup.style.display = 'block';
-        
         setTimeout(function() {
             if (newNewsPopup) newNewsPopup.style.display = 'none';
         }, 10000);
@@ -1781,24 +1981,20 @@ if (btnCloseNewNews) {
     });
 }
 
-// AJAX Check for New News (Every 30 seconds)
 function checkForNewNews() {
     fetch('?ajax_check_new_news=1&last_id=' + latestNewsId)
-    .then(response => response.json())
-    .then(data => {
+    .then(function(response){ return response.json(); })
+    .then(function(data){
         if (data.status === 'new') {
             currentNewNewsId = data.id;
             var url = '?page=single&id=' + currentNewNewsId;
-            
-            var systemShown = showSystemNotification('নতুন সংবাদ প্রকাশিত হয়েছে!', data.title, url);
-
+            var systemShown = showSystemNotification('New News Published!', data.title, url);
             if (!systemShown) {
                 showHtmlPopup(data.title, url);
             }
-            
             latestNewsId = currentNewNewsId;
         }
-    }).catch(error => console.error('Error checking for new news:', error));
+    }).catch(function(error){ console.error('Error checking for new news:', error); });
 }
 
 function startNewsCheck() {
@@ -1808,7 +2004,8 @@ function startNewsCheck() {
     }
 }
 
-var newsAllowed = localStorage.getItem('news_popup_allowed');
+var newsAllowed = null;
+try { newsAllowed = localStorage.getItem('news_popup_allowed'); } catch(e) {}
 
 if (newsAllowed === 'granted') {
     startNewsCheck();
@@ -1822,20 +2019,18 @@ var btnAllowYes = document.getElementById('btnAllowYes');
 if (btnAllowYes) {
     btnAllowYes.addEventListener('click', function() {
         if (allowNewsPopup) allowNewsPopup.style.display = 'none';
-
         if (!("Notification" in window)) {
-            localStorage.setItem('news_popup_allowed', 'granted');
+            try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
             startNewsCheck();
             return;
         }
-
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
-                localStorage.setItem('news_popup_allowed', 'granted');
+                try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
                 startNewsCheck();
-                showSystemNotification('বিজ্ঞপ্তি সফল হয়েছে!', 'আপনি এখন নতুন সংবাদের বিজ্ঞপ্তি পাবেন।', '?page=home');
+                showSystemNotification('Notifications Enabled!', 'You will now receive new news notifications.', '?page=home');
             } else {
-                localStorage.setItem('news_popup_allowed', 'granted');
+                try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
                 startNewsCheck();
             }
         });
@@ -1845,7 +2040,7 @@ if (btnAllowYes) {
 var btnAllowNo = document.getElementById('btnAllowNo');
 if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
-        localStorage.setItem('news_popup_allowed', 'denied');
+        try { localStorage.setItem('news_popup_allowed', 'denied'); } catch(e){}
         if (allowNewsPopup) allowNewsPopup.style.display='none';
     });
 }

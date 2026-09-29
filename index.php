@@ -71,7 +71,7 @@ if (!function_exists('timeAgo')) {
         $diff = $now - $ts;
         if ($diff < 60) return 'এইমাত্র';
         if ($diff < 3600) { $m = (int)($diff / 60); return str_replace($en, $bn, $m) . ' মিনিট আগে'; }
-        if ($diff < 86400) { $h = (int)($diff / 3600); return str_replace($en, $bn, $h) . ' ঘন্টা আগে'; }
+        if ($diff < 86400) { $h = (int)($diff / 3600); return str_replace($en, $bn, $h) . ' ঘণ্টা আগে'; }
         if ($diff < 2592000) { $d2 = (int)($diff / 86400); return str_replace($en, $bn, $d2) . ' দিন আগে'; }
         if ($diff < 31536000) { $mo = (int)($diff / 2592000); return str_replace($en, $bn, $mo) . ' মাস আগে'; }
         $y = (int)($diff / 31536000); return str_replace($en, $bn, $y) . ' বছর আগে';
@@ -538,10 +538,11 @@ if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_
 body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
 a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-topbar{background:var(--red);color:#fff;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(0,0,0,.2)}
-.kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-.kol-topbar .tl{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
-.kol-topbar .tr{display:flex;align-items:center;gap:8px}
-.kol-topbar .clock{font-family:monospace;font-size:12px;color:var(--gold);font-weight:600;letter-spacing:.5px;min-width:64px;display:inline-block}
+.kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;padding:0 12px 0 0}
+.kol-topbar .tl{display:flex;align-items:center;gap:10px;flex:1;min-width:0;margin-left:0;padding-left:0}
+.kol-topbar .tr{display:flex;align-items:center;gap:8px;padding-right:12px}
+.kol-topbar .clock{font-family:monospace;font-size:12px;color:var(--gold);font-weight:600;letter-spacing:.5px;min-width:100px;display:inline-flex;align-items:center;justify-content:flex-start;margin-left:12px;padding:0}
+.kol-topbar .clock iframe{display:block;vertical-align:middle;border:0;margin:0;padding:0}
 .kol-topbar .date{color:rgba(255,255,255,.85);font-size:12px;border-left:1px solid rgba(255,255,255,.2);padding-left:12px}
 .kol-topbar .date i{margin-right:4px;opacity:.7}
 .kol-si{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.2);color:#fff;font-size:10px;transition:all .2s}
@@ -1002,7 +1003,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="kol-topbar">
 <div class="container">
 <div class="tl">
-<span class="clock" id="liveClock"><?= date('H:i:s') ?></span>
+<span class="clock" id="liveClock"><iframe src="https://free.timeanddate.com/clock/iam1e84e/n54/tlin/fn2/ahl/ftb/th2" frameborder="0" width="95" height="21" style="vertical-align:middle;border:0;display:block;margin:0;padding:0;"></iframe></span>
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
@@ -1112,7 +1113,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <div class="kol-layout" id="kolLayout">
 
 <aside class="kol-sidebar" id="kolSidebar">
-<button class="sb-close" id="sbClose"><i class="fas fa-chevron-left"></i> সাইডবার লুকান</button>
+<button class="sb-close" id="sbClose"><i class="fas fa-chevron-left"></i> সাইডবার লুকাও</button>
 
 <?php if (!empty($adSidebarTop)): ?>
 <div class="sb-block" style="text-align:center;padding:10px;">
@@ -1659,7 +1660,8 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
 <?php endif; ?>
 
 <!-- ================================================== -->
-<!-- LIVE CLOCK SCRIPT using World Time API            -->
+<!-- LIVE CLOCK (iframe) + DATE UPDATE SCRIPT          -->
+<!-- iframe নিজে সময় দেখায়, JS শুধু তারিখ আপডেট করে  -->
 <!-- ================================================== -->
 <script>
 (function () {
@@ -1685,21 +1687,15 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
           var apiTimestamp = null;
           if (data.unixtime) {
             apiTimestamp = parseInt(data.unixtime, 10) * 1000;
-          }
-          else if (data.datetime) {
+          } else if (data.datetime) {
             var d = new Date(data.datetime);
-            if (!isNaN(d.getTime())) {
-              apiTimestamp = d.getTime();
-            }
-          }
-          else if (data.year && data.month && data.day) {
+            if (!isNaN(d.getTime())) apiTimestamp = d.getTime();
+          } else if (data.year && data.month && data.day) {
             var h = data.hour || data.hours || 0;
             var m = data.minute || data.minutes || 0;
             var s = data.second || data.seconds || 0;
             var d2 = new Date(Date.UTC(data.year, data.month - 1, data.day, h, m, s));
-            if (!isNaN(d2.getTime())) {
-              apiTimestamp = d2.getTime();
-            }
+            if (!isNaN(d2.getTime())) apiTimestamp = d2.getTime();
           }
           if (apiTimestamp !== null && !isNaN(apiTimestamp)) {
             serverOffset = apiTimestamp - Date.now();
@@ -1708,21 +1704,15 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
         .catch(function(e) {
           console.warn('Time API fetch failed, using browser time with IST offset');
         });
-    } catch (e) {
-      console.warn('Time API error:', e);
-    }
+    } catch (e) {}
   }
 
-  function updateClock() {
+  // iframe নিজে সময় দেখায়, তাই শুধু তারিখ আপডেট করা হয়
+  function updateDate() {
     try {
       var utcTimestamp = Date.now() + serverOffset;
       var istTimestamp = utcTimestamp + IST_OFFSET_MS;
       var istDate = new Date(istTimestamp);
-
-      var clockEl = document.getElementById('liveClock');
-      if (clockEl) {
-        clockEl.textContent = pad(istDate.getUTCHours()) + ':' + pad(istDate.getUTCMinutes()) + ':' + pad(istDate.getUTCSeconds());
-      }
 
       var dateEl = document.getElementById('liveDate');
       if (dateEl) {
@@ -1735,8 +1725,8 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
   }
 
   fetchApiTime();
-  updateClock();
-  setInterval(updateClock, 1000);
+  updateDate();
+  setInterval(updateDate, 1000);
   setInterval(fetchApiTime, 5 * 60 * 1000);
 })();
 </script>
@@ -1833,17 +1823,19 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
+// ====== FIXED TEXT-TO-SPEECH (TTS) FUNCTIONALITY ======
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');
 var ttsIcon = ttsPlayBtn ? ttsPlayBtn.querySelector('i') : null;
 var isSpeaking = false;
-var bnIndianFemaleVoice = null;
+var bnVoice = null;
 
 function loadVoices() {
     if (!('speechSynthesis' in window)) return;
     var voices = window.speechSynthesis.getVoices();
     if (voices.length === 0) return;
 
-    bnIndianFemaleVoice = voices.find(function(v) {
+    // Find the best available Bengali voice
+    bnVoice = voices.find(function(v) {
             return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female');
         })
         || voices.find(function(v) {
@@ -1855,12 +1847,6 @@ function loadVoices() {
         || voices.find(function(v) {
             return v.lang.toLowerCase().startsWith('bn');
         });
-
-    if (!bnIndianFemaleVoice && ttsPlayBtn) {
-        ttsPlayBtn.disabled = true;
-        ttsPlayBtn.style.background = '#999';
-        if (ttsIcon) ttsIcon.className = 'fas fa-times';
-    }
 }
 
 if ('speechSynthesis' in window) {
@@ -1876,41 +1862,77 @@ if ('speechSynthesis' in window) {
 
 if (ttsPlayBtn) {
     ttsPlayBtn.addEventListener('click', function() {
-        if (!('speechSynthesis' in window) || !bnIndianFemaleVoice) return;
+        if (!('speechSynthesis' in window)) return;
 
         if (isSpeaking) {
             window.speechSynthesis.cancel();
             isSpeaking = false;
-            ttsIcon.className = 'fas fa-microphone';
+            if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
             return;
         }
 
         var newsContentEl = document.querySelector('.single-content');
         var newsTitleEl = document.querySelector('.single-wrap h1');
         var textToRead = '';
+        
         if (newsTitleEl) textToRead += newsTitleEl.textContent + '. ';
-        if (newsContentEl) textToRead += newsContentEl.innerText;
+        
+        if (newsContentEl) {
+            // Only read paragraphs and headings, explicitly ignoring ads and embeds
+            var nodes = newsContentEl.querySelectorAll('p, h2, h3, h4, li');
+            nodes.forEach(function(node) {
+                if (!node.closest('.ad-wrapper') && !node.closest('.news-video-wrapper') && !node.closest('.twitter-embed-wrapper') && !node.closest('.ad-label')) {
+                    textToRead += node.textContent + '. ';
+                }
+            });
+        }
 
         if (!textToRead.trim()) return;
 
-        var utterance = new SpeechSynthesisUtterance(textToRead);
-        utterance.voice = bnIndianFemaleVoice;
-        utterance.lang = bnIndianFemaleVoice.lang;
-        utterance.rate = 1.0;
-        utterance.pitch = 1.1;
-
-        utterance.onend = function() {
-            isSpeaking = false;
-            ttsIcon.className = 'fas fa-microphone';
-        };
-        utterance.onerror = function() {
-            isSpeaking = false;
-            ttsIcon.className = 'fas fa-microphone';
-        };
-
-        window.speechSynthesis.speak(utterance);
+        // Split text into chunks to bypass Chrome's 15-second timeout bug
+        var chunks = textToRead.match(/[^.!?]+[.!?]*\s*/g) || [textToRead];
+        
         isSpeaking = true;
-        ttsIcon.className = 'fas fa-stop';
+        if (ttsIcon) ttsIcon.className = 'fas fa-stop';
+
+        var i = 0;
+        function speakNext() {
+            if (!isSpeaking) return;
+            if (i >= chunks.length) {
+                isSpeaking = false;
+                if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
+                return;
+            }
+            
+            var textChunk = chunks[i].trim();
+            if (!textChunk) {
+                i++;
+                speakNext();
+                return;
+            }
+
+            var utterance = new SpeechSynthesisUtterance(textChunk);
+            if (bnVoice) {
+                utterance.voice = bnVoice;
+                utterance.lang = bnVoice.lang;
+            } else {
+                utterance.lang = 'bn-IN'; // Fallback language code
+            }
+            utterance.rate = 1.0;
+            utterance.pitch = 1.1;
+            
+            utterance.onend = function() {
+                i++;
+                speakNext();
+            };
+            utterance.onerror = function() {
+                isSpeaking = false;
+                if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
+            };
+            
+            window.speechSynthesis.speak(utterance);
+        }
+        speakNext();
     });
 }
 

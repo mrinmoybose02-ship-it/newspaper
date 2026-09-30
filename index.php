@@ -599,8 +599,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;padding:0 12px 0 0}
 .kol-topbar .tl{display:flex;align-items:center;gap:10px;flex:1;min-width:0;margin-left:0;padding-left:0}
 .kol-topbar .tr{display:flex;align-items:center;gap:8px;padding-right:12px}
-.kol-topbar .clock{font-family:monospace;font-size:12px;color:var(--gold);font-weight:600;letter-spacing:.5px;min-width:100px;display:inline-flex;align-items:center;justify-content:flex-start;margin-left:12px;padding:0}
-.kol-topbar .clock iframe{display:block;vertical-align:middle;border:0;margin:0;padding:0}
+/* Updated Clock Style: Background is red, text is gold, padded nicely */
+.kol-topbar .clock{font-family:monospace;font-size:13px;color:var(--gold);font-weight:700;letter-spacing:.5px;min-width:90px;display:inline-flex;align-items:center;justify-content:center;margin-left:12px;padding:3px 10px;background:var(--red-dark);border:1px solid rgba(212,149,10,.3);border-radius:4px;height:24px}
 .kol-topbar .date{color:rgba(255,255,255,.85);font-size:12px;border-left:1px solid rgba(255,255,255,.2);padding-left:12px}
 .kol-topbar .date i{margin-right:4px;opacity:.7}
 .kol-si{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.2);color:#fff;font-size:10px;transition:all .2s}
@@ -1081,11 +1081,13 @@ body { top: 0 !important; }
 <body>
 <!-- Google Translate Hidden Element -->
 <div id="google_translate_element" style="display:none;"></div>
+<iframe id="google_esf" name="google_esf" src="https://googleads.g.doubleclick.net/pagead/html/r20260929/r20190131/zrt_lookup_fy2021.html" style="display: none;"></iframe>
 
 <div class="kol-topbar">
 <div class="container">
 <div class="tl">
-<span class="clock" id="liveClock"><iframe src="https://free.timeanddate.com/clock/iam1e84e/n54/tlin/fn2/ahl/ftb/th2" frameborder="0" width="95" height="21" style="vertical-align:middle;border:0;display:block;margin:0;padding:0;"></iframe></span>
+<!-- Replaced iframe with simple span for JS Clock to remove white background -->
+<span class="clock" id="liveClock">--:--:--</span>
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
@@ -1783,8 +1785,8 @@ function googleTranslateElementInit() {
 <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 
 <!-- ================================================== -->
-<!-- LIVE CLOCK (iframe) + DATE UPDATE SCRIPT          -->
-<!-- iframe নিজে সময় দেখায়, JS শুধু তারিখ আপডেট করে  -->
+<!-- LIVE CLOCK & DATE UPDATE SCRIPT                  -->
+<!-- JS Clock added to completely remove white bg      -->
 <!-- ================================================== -->
 <script>
 (function () {
@@ -1830,7 +1832,29 @@ function googleTranslateElementInit() {
     } catch (e) {}
   }
 
-  // iframe নিজে সময় দেখায়, তাই শুধু তারিখ আপডেট করা হয়
+  function updateClock() {
+    try {
+      var utcTimestamp = Date.now() + serverOffset;
+      var istTimestamp = utcTimestamp + IST_OFFSET_MS;
+      var istDate = new Date(istTimestamp);
+
+      var h = istDate.getUTCHours();
+      var m = istDate.getUTCMinutes();
+      var s = istDate.getUTCSeconds();
+      
+      // Convert to 12-hour format
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12;
+      h = h ? h : 12; // the hour '0' should be '12'
+      
+      var timeStr = pad(h) + ':' + pad(m) + ':' + pad(s) + ' ' + ampm;
+      var clockEl = document.getElementById('liveClock');
+      if (clockEl) {
+        clockEl.textContent = timeStr;
+      }
+    } catch (e) {}
+  }
+
   function updateDate() {
     try {
       var utcTimestamp = Date.now() + serverOffset;
@@ -1848,8 +1872,12 @@ function googleTranslateElementInit() {
   }
 
   fetchApiTime();
+  updateClock();
   updateDate();
-  setInterval(updateDate, 1000);
+  setInterval(function() {
+    updateClock();
+    updateDate();
+  }, 1000);
   setInterval(fetchApiTime, 5 * 60 * 1000);
 })();
 </script>

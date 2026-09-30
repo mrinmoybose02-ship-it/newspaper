@@ -4,16 +4,63 @@ require_once __DIR__ . '/config.php';
 // Set timezone to IST (Indian Standard Time)
 date_default_timezone_set('Asia/Kolkata');
 
-// ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION ======
+// Determine current language for UI display
+ $current_lang = 'বাংলা';
+if(isset($_COOKIE['googtrans'])) {
+    if(strpos($_COOKIE['googtrans'], '/bn/en') !== false) $current_lang = 'English';
+    elseif(strpos($_COOKIE['googtrans'], '/bn/hi') !== false) $current_lang = 'हिन्दी';
+}
+
+// রিয়েল-টাইম নিউজ আনার জন্য API
+if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $stmt = $pdo->prepare("SELECT id, title, slug, image FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 1");
+        $stmt->execute();
+        $latest = $stmt->fetch(PDO::FETCH_ASSOC);
+        echo json_encode($latest ?: ["error" => "no_news"]);
+    } catch (Exception $e) {
+        echo json_encode(["error" => "db_error"]);
+    }
+    exit;
+}
+
+// ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION & AUTO FETCH ======
 if (isset($_GET['ajax_check_new_news'])) {
     header('Content-Type: application/json');
     $last_id = isset($_GET['last_id']) ? (int)$_GET['last_id'] : 0;
     try {
-        $stmt = $pdo->prepare("SELECT id, title FROM news WHERE status = 'published' AND id > ? ORDER BY id DESC LIMIT 1");
+        $stmt = $pdo->prepare("SELECT n.id, n.title, n.excerpt, n.image, n.created_at, n.views, c.name as category_name, sc.name as subcategory_name 
+                               FROM news n 
+                               LEFT JOIN categories c ON n.category_id = c.id 
+                               LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id 
+                               LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id 
+                               WHERE n.status = 'published' AND n.id > ? 
+                               ORDER BY n.id ASC");
         $stmt->execute([$last_id]);
-        $newNews = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($newNews) {
-            echo json_encode(['status' => 'new', 'id' => $newNews['id'], 'title' => $newNews['title']]);
+        $newNewsList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (!empty($newNewsList)) {
+            $maxId = $last_id;
+            $placeholderImg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250'%3E%3Crect width='400' height='250' fill='%23e8e4de'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'%3E%E0%A6%9B%E0%A6%AC%E0%A6%BF%3C/text%3E%3C/svg%3E";
+            
+            foreach($newNewsList as &$n) {
+                if($n['id'] > $maxId) $maxId = (int)$n['id'];
+                $imgUrl = $placeholderImg;
+                if (!empty($n['image'])) {
+                    $img = trim($n['image']);
+                    if ($img !== '' && $img !== '0') {
+                        if (preg_match('#^https?://#i', $img) || strpos($img, '//') === 0) {
+                            $imgUrl = $img;
+                        } else {
+                            while (strpos($img, 'uploads/uploads/') === 0) { $img = substr($img, 8); }
+                            $imgUrl = (strpos($img, '/') === 0 ? '' : 'uploads/') . $img;
+                        }
+                    }
+                }
+                $n['image_url'] = $imgUrl;
+            }
+            echo json_encode(['status' => 'new', 'last_id' => $maxId, 'items' => $newNewsList]);
         } else {
             echo json_encode(['status' => 'no_new']);
         }
@@ -442,7 +489,17 @@ try { $in = implode(",", array_fill(0, count($contactKeys), "?")); $cs = $pdo->p
  $adSidebarTop = renderAdsByPos($pdo, 'sidebar_top');
  $adSidebarMiddle = renderAdsByPos($pdo, 'sidebar_middle');
  $adFooterBanner = renderAdsByPos($pdo, 'footer_banner');
- $adPopup = renderAdsByPos($pdo, 'popup');
+
+// ====== FETCH ALL POPUP ADS (popup, popup_1, popup_2, popup_3, etc.) ======
+ $popupAdsArr = [];
+try {
+    $stmtPop = $pdo->prepare("SELECT * FROM advertisements WHERE position LIKE 'popup%' AND is_active = 1 AND (start_date IS NULL OR start_date <= CURDATE()) AND (end_date IS NULL OR end_date >= CURDATE()) ORDER BY id DESC");
+    $stmtPop->execute();
+    $popupAdsArr = $stmtPop->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+ $adPopup = '';
+foreach ($popupAdsArr as $pad) { $adPopup .= renderAd($pad); }
+// =========================================================================
 
 // ====== NSE STOCK LIST - 55+ Companies ======
  $nseStockList = [
@@ -535,7 +592,8 @@ if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_
 <style>
 :root{--red:#B71C1C;--red-dark:#7F0000;--gold:#D4950A;--bg:#F4F1EB;--fg:#1A1A1A;--muted:#666;--card:#FFF;--border:#DDD5C8;--nav-bg:#1A1A1A;--sidebar-w:260px}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--fg);line-height:1.6;position:relative;top:0}
+body.top-margin { top: 0px !important; }
 a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-topbar{background:var(--red);color:#fff;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(0,0,0,.2)}
 .kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;padding:0 12px 0 0}
@@ -550,14 +608,25 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-si.si-fb:hover{background:#1877F2}.kol-si.si-tw:hover{background:#000}.kol-si.si-yt:hover{background:#FF0000}.kol-si.si-ig:hover{background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)}.kol-si.si-tg:hover{background:#0088cc}
 .kol-login{font-size:11px;color:rgba(255,255,255,.7);padding:4px 10px;border:1px solid rgba(255,255,255,.2);border-radius:3px;transition:all .2s}
 .kol-login:hover{color:#fff;background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3)}
-.breaking-bar{background:var(--red-dark);color:#fff;overflow:hidden;white-space:nowrap;height:38px;display:flex;align-items:stretch;position:relative}
+
+/* Language Switcher */
+.lang-switcher{position:relative;margin-right:8px}
+.lang-btn{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:none;transition:all .2s;font-family:inherit}
+.lang-btn:hover{background:rgba(255,255,255,.2)}
+.lang-btn i.fa-globe{font-size:11px}
+.lang-btn i.fa-chevron-down{font-size:7px;transition:transform .2s}
+.lang-btn.open i.fa-chevron-down{transform:rotate(180deg)}
+.lang-dropdown{display:none;position:absolute;top:100%;right:0;margin-top:5px;background:#fff;border-radius:5px;box-shadow:0 5px 15px rgba(0,0,0,.2);overflow:hidden;z-index:1000;min-width:100px}
+.lang-dropdown.open{display:block}
+.lang-dropdown a{display:block;padding:8px 15px;font-size:12px;color:#333;text-decoration:none;transition:background .2s}
+.lang-dropdown a:hover{background:#f0f0f0}
+
+.breaking-bar{background:var(--red-dark);color:#fff;overflow:hidden;white-space:nowrap;height:38px;display:flex;align-items:center;position:relative}
 .breaking-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:130px;background:linear-gradient(to right,var(--red-dark) 0%,var(--red-dark) 60%,rgba(127,0,0,0.6) 80%,transparent 100%);z-index:3;pointer-events:none}
 .breaking-bar::after{content:'';position:absolute;right:0;top:0;bottom:0;width:50px;background:linear-gradient(to left,var(--red-dark) 0%,transparent 100%);z-index:3;pointer-events:none}
-.breaking-label{background:var(--gold);color:#000;padding:0 16px;font-weight:700;font-size:12px;height:100%;display:flex;align-items:center;flex-shrink:0;letter-spacing:.5px;position:relative;z-index:5;box-shadow:6px 0 12px rgba(127,0,0,0.8)}
-.breaking-label i{margin-right:6px;font-size:11px}
-.breaking-track{display:inline-flex;width:max-content;animation:bts 40s linear infinite;padding-left:30px;will-change:transform;position:relative;z-index:1}
-.breaking-track span{padding:0 40px;font-size:13px;font-weight:500;white-space:nowrap}
-.breaking-track span::before{content:'\25C6';margin-right:8px;color:var(--gold);font-size:8px}
+.breaking-label{background:var(--gold);color:#000;padding:0 16px;font-weight:700;font-size:12px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.5px;position:relative;z-index:5;box-shadow:6px 0 12px rgba(127,0,0,0.8);align-self:stretch}
+.breaking-track{display:flex;align-items:center;height:100%;width:max-content;animation:bts 40s linear infinite;padding-left:30px;will-change:transform;position:relative;z-index:1}
+.breaking-track span{padding:0 40px;font-size:13px;font-weight:500;white-space:nowrap;display:flex;align-items:center;text-align:center}
 @keyframes bts{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .breaking-bar:hover .breaking-track{animation-play-state:paused}
 .kol-header{text-align:center;padding:16px 0 12px;border-bottom:3px solid var(--red);background:#fff}
@@ -969,6 +1038,17 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     font-weight: 600;
     color: #333;
 }
+
+/* ====== HIDE GOOGLE TRANSLATE TOP BAR & LOGO ====== */
+body { top: 0 !important; }
+.goog-te-banner-frame.skiptranslate { display: none !important; }
+.goog-te-gadget { font-size: 0 !important; line-height: 0 !important; height: 0 !important; overflow: hidden !important; }
+.goog-logo-link, .goog-te-balloon-frame { display: none !important; }
+.skiptranslate.goog-te-gadget { height: 0 !important; white-space: nowrap; }
+#goog-gt-tt { display: none !important; }
+.goog-tooltip { display: none !important; }
+.goog-tooltip:hover { display: none !important; }
+
 @media(max-width:1024px){
     .kol-layout{grid-template-columns:1fr}
     .kol-sidebar{position:fixed;left:-280px;top:0;bottom:0;width:280px;background:var(--bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;max-height:100vh;overflow-y:auto}
@@ -999,6 +1079,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 </style>
 </head>
 <body>
+<!-- Google Translate Hidden Element -->
+<div id="google_translate_element" style="display:none;"></div>
 
 <div class="kol-topbar">
 <div class="container">
@@ -1007,12 +1089,21 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
-<a href="#" class="kol-si si-fb" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
-<a href="#" class="kol-si si-tw" aria-label="Twitter"><i class="fab fa-x-twitter"></i></a>
-<a href="#" class="kol-si si-yt" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
-<a href="#" class="kol-si si-ig" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
-<a href="#" class="kol-si si-tg" aria-label="Telegram"><i class="fab fa-telegram-plane"></i></a>
-<a href="<?= htmlspecialchars($loginLink) ?>" class="kol-login" target="_blank" rel="noopener noreferrer"><i class="fas fa-user-shield"></i> <?= htmlspecialchars($loginLabel) ?></a>
+    <!-- Language Switcher -->
+    <div class="lang-switcher">
+        <button class="lang-btn" id="langBtn"><i class="fas fa-globe"></i> <span id="currentLangText"><?= $current_lang ?></span> <i class="fas fa-chevron-down"></i></button>
+        <div class="lang-dropdown" id="langDropdown">
+            <a href="#" data-lang="bn">বাংলা</a>
+            <a href="#" data-lang="en">English</a>
+            <a href="#" data-lang="hi">हिन्दी</a>
+        </div>
+    </div>
+    <a href="#" class="kol-si si-fb" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+    <a href="#" class="kol-si si-tw" aria-label="Twitter"><i class="fab fa-x-twitter"></i></a>
+    <a href="#" class="kol-si si-yt" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
+    <a href="#" class="kol-si si-ig" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
+    <a href="#" class="kol-si si-tg" aria-label="Telegram"><i class="fab fa-telegram-plane"></i></a>
+    <a href="<?= htmlspecialchars($loginLink) ?>" class="kol-login" target="_blank" rel="noopener noreferrer"><i class="fas fa-user-shield"></i> <?= htmlspecialchars($loginLabel) ?></a>
 </div>
 </div>
 </div>
@@ -1451,7 +1542,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     <?php else: ?>
     <h2 class="sec-title">সর্বশেষ সংবাদ</h2>
     <?php endif; ?>
-    <div class="news-grid">
+    <div class="news-grid" id="newsGridContainer">
         <?php foreach ($pagedGrid as $ni): ?>
         <a href="?page=single&id=<?= $ni['id'] ?>" class="nc">
             <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
@@ -1647,17 +1738,49 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 </div>
 
 <?php if (!empty($adPopup)): ?>
-<div id="popupAdOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99998;align-items:center;justify-content:center;">
-<div style="position:relative;max-width:400px;width:90%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3);">
-<button onclick="document.getElementById('popupAdOverlay').style.display='none'" style="position:absolute;top:8px;right:10px;z-index:10;background:rgba(0,0,0,.5);color:#fff;border:none;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;">&times;</button>
-<?= $adPopup ?>
-</div>
+<!-- FIX: Changed from display:none to opacity:0 to prevent AdSense/script blocking -->
+<div id="popupAdOverlay" style="opacity:0;pointer-events:none;visibility:hidden;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100001;align-items:center;justify-content:center;transition:opacity .3s ease;">
+    <div style="position:relative;max-width:500px;width:90%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3);">
+        <button onclick="closePopupAd()" style="position:absolute;top:8px;right:10px;z-index:10;background:rgba(0,0,0,.5);color:#fff;border:none;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;">&times;</button>
+        <?= $adPopup ?>
+    </div>
 </div>
 <script>
-setTimeout(function(){var o=document.getElementById('popupAdOverlay');if(o)o.style.display='flex';},5000);
-document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')e.target.style.display='none';});
+function closePopupAd() {
+    var o = document.getElementById('popupAdOverlay');
+    if (o) {
+        o.style.opacity = '0';
+        o.style.pointerEvents = 'none';
+        o.style.visibility = 'hidden';
+    }
+}
+setTimeout(function(){
+    var o=document.getElementById('popupAdOverlay');
+    if(o){
+        o.style.opacity='1';
+        o.style.pointerEvents='auto';
+        o.style.visibility='visible';
+        o.style.display='flex';
+    }
+},5000);
+document.addEventListener('click',function(e){
+    if(e.target.id==='popupAdOverlay') closePopupAd();
+});
 </script>
 <?php endif; ?>
+
+<!-- Google Translate Script -->
+<script type="text/javascript">
+function googleTranslateElementInit() {
+    new google.translate.TranslateElement({
+        pageLanguage: 'bn',
+        includedLanguages: 'en,hi',
+        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+        autoDisplay: false
+    }, 'google_translate_element');
+}
+</script>
+<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 
 <!-- ================================================== -->
 <!-- LIVE CLOCK (iframe) + DATE UPDATE SCRIPT          -->
@@ -1777,6 +1900,12 @@ document.addEventListener('click',function(e){if(e.target.id==='popupAdOverlay')
 <!-- MAIN APPLICATION SCRIPT                           -->
 <!-- ================================================== -->
 <script>
+function escapeHtml(text) {
+    if(!text) return '';
+    var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
 (function(){
 var sbToggle=document.getElementById('sbToggle'),kolSidebar=document.getElementById('kolSidebar'),kolLayout=document.getElementById('kolLayout'),sbClose=document.getElementById('sbClose');
 
@@ -1822,6 +1951,46 @@ document.addEventListener('click',function(e){
 });
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
+
+// Language Switcher Logic
+var langBtn = document.getElementById('langBtn');
+var langDropdown = document.getElementById('langDropdown');
+if(langBtn && langDropdown) {
+    langBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        langBtn.classList.toggle('open');
+        langDropdown.classList.toggle('open');
+    });
+    document.addEventListener('click', function(e) {
+        if(!e.target.closest('.lang-switcher')) {
+            langBtn.classList.remove('open');
+            langDropdown.classList.remove('open');
+        }
+    });
+    document.querySelectorAll('.lang-dropdown a').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            var lang = this.getAttribute('data-lang');
+            changeLanguage(lang);
+        });
+    });
+}
+
+function changeLanguage(lang) {
+    // Clear existing cookies thoroughly
+    document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+    document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + window.location.hostname;
+    
+    if(lang !== 'bn') {
+        var date = new Date();
+        date.setTime(date.getTime() + (365*24*60*60*1000));
+        var expires = "; expires=" + date.toUTCString();
+        document.cookie = "googtrans=/bn/" + lang + expires + "; path=/";
+        document.cookie = "googtrans=/bn/" + lang + expires + "; path=/; domain=" + window.location.hostname;
+    }
+    window.location.reload();
+}
 
 // ====== FIXED TEXT-TO-SPEECH (TTS) FUNCTIONALITY ======
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');
@@ -2007,14 +2176,25 @@ function checkForNewNews() {
     fetch('?ajax_check_new_news=1&last_id=' + latestNewsId)
     .then(function(response){ return response.json(); })
     .then(function(data){
-        if (data.status === 'new') {
-            currentNewNewsId = data.id;
-            var url = '?page=single&id=' + currentNewNewsId;
-            var systemShown = showSystemNotification('New News Published!', data.title, url);
-            if (!systemShown) {
-                showHtmlPopup(data.title, url);
+        if (data.status === 'new' && data.last_id > latestNewsId) {
+            latestNewsId = data.last_id;
+            var latestItem = data.items[data.items.length - 1];
+            var url = '?page=single&id=' + latestItem.id;
+            
+            var newsAllowed = null;
+            try { newsAllowed = localStorage.getItem('news_popup_allowed'); } catch(e) {}
+            
+            if (newsAllowed === 'granted') {
+                var systemShown = showSystemNotification('New News Published!', latestItem.title, url);
+                if (!systemShown) {
+                    showHtmlPopup(latestItem.title, url);
+                }
             }
-            latestNewsId = currentNewNewsId;
+            
+            // Auto refresh the page after 3 seconds to load the new news naturally
+            setTimeout(function() {
+                window.location.reload();
+            }, 3000);
         }
     }).catch(function(error){ console.error('Error checking for new news:', error); });
 }
@@ -2022,16 +2202,18 @@ function checkForNewNews() {
 function startNewsCheck() {
     if (!newsInterval) {
         checkForNewNews();
-        newsInterval = setInterval(checkForNewNews, 30000);
+        newsInterval = setInterval(checkForNewNews, 30000); // Checks every 30 seconds
     }
 }
 
 var newsAllowed = null;
 try { newsAllowed = localStorage.getItem('news_popup_allowed'); } catch(e) {}
 
-if (newsAllowed === 'granted') {
-    startNewsCheck();
-} else if (newsAllowed === null || newsAllowed === undefined) {
+// FIX: Always start checking for new news independently of notification permission
+setTimeout(startNewsCheck, 5000);
+
+// Handle notification popup request separately
+if (newsAllowed === null || newsAllowed === undefined) {
     setTimeout(function() {
         if (allowNewsPopup) allowNewsPopup.style.display = 'flex';
     }, 2000);
@@ -2043,17 +2225,14 @@ if (btnAllowYes) {
         if (allowNewsPopup) allowNewsPopup.style.display = 'none';
         if (!("Notification" in window)) {
             try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
-            startNewsCheck();
             return;
         }
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
                 try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
-                startNewsCheck();
                 showSystemNotification('Notifications Enabled!', 'You will now receive new news notifications.', '?page=home');
             } else {
-                try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
-                startNewsCheck();
+                try { localStorage.setItem('news_popup_allowed', 'denied'); } catch(e){}
             }
         });
     });

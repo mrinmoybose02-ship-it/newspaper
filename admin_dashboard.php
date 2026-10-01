@@ -141,7 +141,6 @@ if ($section === "api_nse_data") {
         $c = json_decode(file_get_contents($cf), true); 
         if ($c) { 
             $c['_source'] = 'cache'; 
-            // Ensure arrays are sequential when loaded from cache
             foreach (['gainers', 'losers', 'indices', 'watchlist'] as $key) {
                 if (isset($c[$key]) && is_array($c[$key])) {
                     $c[$key] = array_values($c[$key]);
@@ -171,7 +170,6 @@ if ($section === "api_nse_data") {
     $data['last_updated'] = $nw->format('d M Y, h:i:s A'); $data['fetched_at'] = time();
     if (file_exists($cf)) { $cachedData = json_decode(file_get_contents($cf), true); if ($cachedData) { if (empty($data['gainers']) && !empty($cachedData['gainers'])) $data['gainers'] = $cachedData['gainers']; if (empty($data['losers']) && !empty($cachedData['losers'])) $data['losers'] = $cachedData['losers']; if (empty($data['indices']) && !empty($cachedData['indices'])) $data['indices'] = $cachedData['indices']; if (empty($data['watchlist']) && !empty($cachedData['watchlist'])) $data['watchlist'] = $cachedData['watchlist']; } }
     
-    // Reset array keys to ensure sequential numeric indices for JSON arrays
     $data['gainers'] = array_values($data['gainers']);
     $data['losers'] = array_values($data['losers']);
     $data['indices'] = array_values($data['indices']);
@@ -468,8 +466,8 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
             $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll();
             $allSubcategories = [];
             foreach ($srs as $s) {
-                $allSubcategories[$s["category_id"]][] = $s;
-            }
+                        $allSubcategories[$s["category_id"]][] = $s;
+                    }
         }
         if ($ca === "edit_cat") {
             $ci = (int)($_POST["cat_id"] ?? 0);
@@ -483,7 +481,7 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
                 $ck = $pdo->prepare("SELECT id FROM categories WHERE name=? AND id != ?");
                 $ck->execute([$cn, $ci]);
                 if ($ck->fetch()) {
-                    $catError = "Category name already exists."; // FIXED MISSING SEMICOLON HERE
+                    $catError = "Category name already exists.";
                 } else {
                     if (empty($cs)) $cs = generateSlug($cn);
                     $ck2 = $pdo->prepare("SELECT id FROM categories WHERE slug=? AND id != ?");
@@ -763,6 +761,11 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .img-upload-text{font-size:13px;color:var(--muted);font-weight:500}
 .img-upload-hint{font-size:10.5px;color:var(--muted);margin-top:4px}
 .img-preview{max-width:100%;max-height:180px;border-radius:8px;margin-top:8px;object-fit:contain;display:block;margin-left:auto;margin-right:auto}
+.tags-input-container{border:2px solid var(--border);border-radius:8px;padding:6px 8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--bg);transition:all .25s;cursor:text;min-height:42px}
+.tags-input-container:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);background:var(--card)}
+.tag-chip{background:rgba(107,33,168,.1);color:var(--purple);padding:4px 10px;border-radius:16px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+.tag-chip i{cursor:pointer;font-size:10px;opacity:.7}.tag-chip i:hover{opacity:1}
+.tag-input-field{border:none;background:none;outline:none;font-size:13.5px;color:var(--fg);flex:1;min-width:120px;padding:5px 0;font-family:inherit}
 .radio-group{display:flex;gap:12px;flex-wrap:wrap}
 .radio-item{display:flex;align-items:center;gap:7px;cursor:pointer;padding:7px 16px;border:2px solid var(--border);border-radius:8px;transition:all .2s}
 .radio-item:hover{border-color:var(--accent)}.radio-item.selected{border-color:var(--accent);background:var(--accent-light)}
@@ -980,7 +983,14 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="form-group"><label class="form-label">Title <span style="color:var(--accent)">*</span></label><input type="text" name="title" class="form-input" value="<?= htmlspecialchars($fD["title"]) ?>" placeholder="News title" required></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Slug</label><input type="text" name="slug" class="form-input" value="<?= htmlspecialchars($fD["slug"]) ?>" placeholder="auto-slug"><div class="form-hint">Leave empty to auto-generate</div></div><div class="form-group"><label class="form-label">Author</label><input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>"></div></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Category</label><select name="category_id" class="form-select" id="catSelect"><option value="">— Select —</option><?php foreach ($categories as $c): ?><option value="<?= $c["id"] ?>" <?= ($fD["category_id"] == $c["id"]) ? 'selected' : '' ?>><?= htmlspecialchars($c["name"]) ?></option><?php endforeach; ?></select></div><div class="form-group"><label class="form-label">Subcategories</label><select name="subcategories[]" class="form-select" id="subCatSelect" multiple style="min-height:42px"><option value="">— Select Category First —</option></select><div class="form-hint">Ctrl+Click to select multiple</div></div></div>
-<div class="form-group"><label class="form-label">Tags</label><input type="text" name="tags" class="form-input" value="<?= htmlspecialchars($fD["tags"]) ?>" placeholder="tag1, tag2"></div>
+<div class="form-group">
+    <label class="form-label">Tags <small style="color:var(--muted);font-weight:400">(Press Enter or comma to add)</small></label>
+    <div class="tags-input-container" id="tagsContainer" onclick="document.getElementById('tagInput').focus()">
+        <span id="tagsDisplay" style="display:contents"></span>
+        <input type="text" id="tagInput" class="tag-input-field" placeholder="Add a tag...">
+    </div>
+    <input type="hidden" name="tags" id="tagsHiddenInput" value="<?= htmlspecialchars($fD["tags"]) ?>">
+</div>
 
 <!-- YouTube Video Embed Input (Outside CKEditor) -->
 <div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
@@ -1058,6 +1068,69 @@ if (cs && ss) {
 }
 var fi = document.getElementById('news_image'), pr = document.getElementById('newsImgPreview'), ar = document.getElementById('newsImgArea');
 if (fi) fi.onchange = function() { if (this.files && this.files[0]) { var r = new FileReader(); r.onload = function(e) { if (pr) { pr.src = e.target.result; pr.style.display = 'block'; } if (ar) ar.classList.add('has-image'); }; r.readAsDataURL(this.files[0]); } };
+
+// Modern Tags Input Script
+function initTagInput() {
+    var container = document.getElementById('tagsContainer');
+    var display = document.getElementById('tagsDisplay');
+    var input = document.getElementById('tagInput');
+    var hiddenInput = document.getElementById('tagsHiddenInput');
+    if (!container) return;
+
+    function renderTags() {
+        var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
+        display.innerHTML = '';
+        tags.forEach(function(tag) {
+            var chip = document.createElement('span');
+            chip.className = 'tag-chip';
+            chip.innerHTML = tag + ' <i class="fas fa-times"></i>';
+            chip.querySelector('i').onclick = function() {
+                removeTag(tag);
+            };
+            display.appendChild(chip);
+        });
+    }
+
+    function addTag(tag) {
+        tag = tag.trim().replace(/,/g, '');
+        if (tag === '') return;
+        var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
+        if (!tags.includes(tag)) {
+            tags.push(tag);
+            hiddenInput.value = tags.join(', ');
+        }
+        renderTags();
+        input.value = '';
+    }
+
+    function removeTag(tag) {
+        var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
+        tags = tags.filter(function(t) { return t !== tag; });
+        hiddenInput.value = tags.join(', ');
+        renderTags();
+    }
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            addTag(input.value);
+        } else if (e.key === 'Backspace' && input.value === '') {
+            var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
+            if (tags.length > 0) {
+                tags.pop();
+                hiddenInput.value = tags.join(', ');
+                renderTags();
+            }
+        }
+    });
+
+    input.addEventListener('blur', function() {
+        if (input.value.trim() !== '') addTag(input.value);
+    });
+
+    renderTags();
+}
+initTagInput();
 
 // CKEditor Initialization
 if (typeof CKEDITOR !== 'undefined') {

@@ -137,18 +137,7 @@ if ($section === "api_nse_data") {
     $cd = __DIR__ . '/../cache'; if (!is_dir($cd)) @mkdir($cd, 0755, true);
     $cf = $cd.'/nse_market.json'; $ck = $cd.'/nse_cookies.txt';
     $ct = 5;
-    if (file_exists($cf) && (time() - filemtime($cf)) < $ct) { 
-        $c = json_decode(file_get_contents($cf), true); 
-        if ($c) { 
-            $c['_source'] = 'cache'; 
-            foreach (['gainers', 'losers', 'indices', 'watchlist'] as $key) {
-                if (isset($c[$key]) && is_array($c[$key])) {
-                    $c[$key] = array_values($c[$key]);
-                }
-            }
-            echo json_encode($c, JSON_INVALID_UTF8_SUBSTITUTE); exit; 
-        } 
-    }
+    if (file_exists($cf) && (time() - filemtime($cf)) < $ct) { $c = json_decode(file_get_contents($cf), true); if ($c) { $c['_source'] = 'cache'; echo json_encode($c); exit; } }
     $data = ['indices'=>[],'gainers'=>[],'losers'=>[],'watchlist'=>[],'market_status'=>'closed','last_updated'=>'','error'=>''];
     $ti = ['NIFTY 50','NIFTY BANK','NIFTY IT','NIFTY PHARMA','NIFTY NEXT 50','NIFTY MIDCAP 50','NIFTY AUTO','NIFTY METAL','NIFTY FMCG','NIFTY MEDIA','NIFTY REALTY','NIFTY ENERGY','NIFTY FIN SERVICE','NIFTY PSU BANK'];
     $ws = ['RELIANCE','TCS','INFY','HDFCBANK','ICICIBANK','HINDUNILVR','ITC','SBIN','BHARTIARTL','KOTAKBANK','LT','AXISBANK','BAJFINANCE','ASIANPAINT','MARUTI','TATAMOTORS','WIPRO','HCLTECH','SUNPHARMA','TITAN','ULTRACEMCO','NESTLEIND','POWERGRID','NTPC','ONGC','ADANIENT','ADANIPORTS','COALINDIA','JSWSTEEL','TATASTEEL'];
@@ -165,18 +154,35 @@ if ($section === "api_nse_data") {
     if ($sr) { $sj = json_decode($sr, true); if (isset($sj['data']) && is_array($sj['data'])) { foreach ($sj['data'] as $s) { if (!isset($s['companyName']) || empty($s['companyName']) || $s['symbol'] === 'NIFTY 50' || $s['symbol'] === 'NIFTY BANK') continue; $l = floatval($s['lastPrice'] ?? 0); $p = floatval($s['previousClose'] ?? 0); $c = isset($s['change']) ? floatval($s['change']) : round($l - $p, 2); $cp = isset($s['pChange']) ? floatval($s['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $as[] = ['symbol'=>$s['symbol']??'','name'=>$s['companyName']??'','last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($s['dayHigh']??0),'low'=>floatval($s['dayLow']??0),'open'=>floatval($s['open']??0),'previousClose'=>$p,'volume'=>intval($s['totalTradedVolume']??0),'value'=>round(floatval($s['totalTradedValue']??0)/10000000,2)]; } usort($as, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($as, 0, 10); $data['losers'] = array_slice(array_reverse($as), 0, 10); } }
     foreach ($ws as $sym) { $fd = null; foreach ($as as $st) { if ($st['symbol'] === $sym) { $fd = $st; break; } } if ($fd) { $data['watchlist'][] = $fd; continue; } usleep(200000); $qr = nse_curl('https://www.nseindia.com/api/quote-equity?symbol='.urlencode($sym), $ck, $ua, $api_headers); if ($qr) { $qj = json_decode($qr, true); if (isset($qj['priceInfo'])) { $pi = $qj['priceInfo']; $l = floatval($pi['lastPrice'] ?? 0); $p = floatval($pi['previousClose'] ?? 0); $c = isset($pi['change']) ? floatval($pi['change']) : round($l - $p, 2); $cp = isset($pi['pChange']) ? floatval($pi['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $data['watchlist'][] = ['symbol'=>$sym,'name'=>$qj['info']['companyName']??$sym,'last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($pi['intraDayHighLow']['max']??0),'low'=>floatval($pi['intraDayHighLow']['min']??0),'open'=>floatval($pi['open']??0),'previousClose'=>$p,'volume'=>intval($pi['totalTradedVolume']??0),'value'=>0]; } } }
     if (empty($as) && !empty($data['watchlist'])) { $tempAs = $data['watchlist']; usort($tempAs, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($tempAs, 0, 10); $data['losers'] = array_slice(array_reverse($tempAs), 0, 10); }
-    $nw = new DateTime('now', new DateTimeZone('Asia/Kolkata')); $h = (int)$nw->format('G'); $mi = (int)$nw->format('i'); $d = (int)$nw->format('N'); $tv = $h * 60 + $mi;
-    $data['market_status'] = ($d >= 1 && $d <= 5 && $tv >= 555 && $tv <= 930) ? 'open' : 'closed';
+    
+    // NSE Market Status Logic with Indian Holidays (2024-2028)
+    $nw = new DateTime('now', new DateTimeZone('Asia/Kolkata')); 
+    $h = (int)$nw->format('G'); $mi = (int)$nw->format('i'); $d = (int)$nw->format('N'); $tv = $h * 60 + $mi;
+    
+    $nseHolidays = [
+        // 2024
+        '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25',
+        // 2025
+        '2025-02-26', '2025-03-14', '2025-03-31', '2025-04-10', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-08-27', '2025-10-02', '2025-10-21', '2025-10-31', '2025-11-05', '2025-11-26', '2025-12-25',
+        // 2026
+        '2026-01-26', '2026-02-15', '2026-03-04', '2026-03-20', '2026-03-30', '2026-04-02', '2026-04-03', '2026-05-01', '2026-09-14', '2026-09-21', '2026-10-02', '2026-10-10', '2026-10-29', '2026-11-04', '2026-11-15', '2026-12-25',
+        // 2027
+        '2027-01-26', '2027-02-04', '2027-03-24', '2027-03-30', '2027-04-01', '2027-04-23', '2027-04-26', '2027-05-01', '2027-09-04', '2027-10-02', '2027-10-19', '2027-10-25', '2027-11-07', '2027-11-12', '2027-12-25',
+        // 2028
+        '2028-01-26', '2028-02-22', '2028-03-12', '2028-03-30', '2028-04-08', '2028-04-14', '2028-05-01', '2028-08-15', '2028-09-22', '2028-10-02', '2028-10-08', '2028-10-19', '2028-11-11', '2028-12-25'
+    ];
+    
+    $currentDateStr = $nw->format('Y-m-d');
+    $isHoliday = in_array($currentDateStr, $nseHolidays);
+    
+    // 555 mins = 9:15 AM, 930 mins = 3:30 PM
+    $isTradingHours = ($d >= 1 && $d <= 5 && $tv >= 555 && $tv <= 930 && !$isHoliday);
+    $data['market_status'] = $isTradingHours ? 'open' : 'closed';
+    
     $data['last_updated'] = $nw->format('d M Y, h:i:s A'); $data['fetched_at'] = time();
     if (file_exists($cf)) { $cachedData = json_decode(file_get_contents($cf), true); if ($cachedData) { if (empty($data['gainers']) && !empty($cachedData['gainers'])) $data['gainers'] = $cachedData['gainers']; if (empty($data['losers']) && !empty($cachedData['losers'])) $data['losers'] = $cachedData['losers']; if (empty($data['indices']) && !empty($cachedData['indices'])) $data['indices'] = $cachedData['indices']; if (empty($data['watchlist']) && !empty($cachedData['watchlist'])) $data['watchlist'] = $cachedData['watchlist']; } }
-    
-    $data['gainers'] = array_values($data['gainers']);
-    $data['losers'] = array_values($data['losers']);
-    $data['indices'] = array_values($data['indices']);
-    $data['watchlist'] = array_values($data['watchlist']);
-
-    if (!empty($data['gainers']) || !empty($data['losers']) || !empty($data['indices']) || !empty($data['watchlist'])) { @file_put_contents($cf, json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE), LOCK_EX); } else { $data['error'] = 'Failed to fetch data from NSE. Please try again later.'; }
-    echo json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE); exit;
+    if (!empty($data['gainers']) || !empty($data['losers']) || !empty($data['indices']) || !empty($data['watchlist'])) { @file_put_contents($cf, json_encode($data), LOCK_EX); } else { $data['error'] = 'Failed to fetch data from NSE. Please try again later.'; }
+    echo json_encode($data); exit;
 }
 
 if (!isset($_SESSION['user_id'])) { header('Location: ?page=admin_login'); exit; }
@@ -466,8 +472,8 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
             $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll();
             $allSubcategories = [];
             foreach ($srs as $s) {
-                        $allSubcategories[$s["category_id"]][] = $s;
-                    }
+                $allSubcategories[$s["category_id"]][] = $s;
+            }
         }
         if ($ca === "edit_cat") {
             $ci = (int)($_POST["cat_id"] ?? 0);
@@ -761,11 +767,6 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .img-upload-text{font-size:13px;color:var(--muted);font-weight:500}
 .img-upload-hint{font-size:10.5px;color:var(--muted);margin-top:4px}
 .img-preview{max-width:100%;max-height:180px;border-radius:8px;margin-top:8px;object-fit:contain;display:block;margin-left:auto;margin-right:auto}
-.tags-input-container{border:2px solid var(--border);border-radius:8px;padding:6px 8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--bg);transition:all .25s;cursor:text;min-height:42px}
-.tags-input-container:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);background:var(--card)}
-.tag-chip{background:rgba(107,33,168,.1);color:var(--purple);padding:4px 10px;border-radius:16px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
-.tag-chip i{cursor:pointer;font-size:10px;opacity:.7}.tag-chip i:hover{opacity:1}
-.tag-input-field{border:none;background:none;outline:none;font-size:13.5px;color:var(--fg);flex:1;min-width:120px;padding:5px 0;font-family:inherit}
 .radio-group{display:flex;gap:12px;flex-wrap:wrap}
 .radio-item{display:flex;align-items:center;gap:7px;cursor:pointer;padding:7px 16px;border:2px solid var(--border);border-radius:8px;transition:all .2s}
 .radio-item:hover{border-color:var(--accent)}.radio-item.selected{border-color:var(--accent);background:var(--accent-light)}
@@ -842,6 +843,29 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .nse-india-theme .data-table th{background:#f8f9fa;color:#000080;padding:10px 12px;font-size:11px;font-weight:700;text-align:left;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid #138807;}
 .nse-india-theme .data-table td{padding:10px 12px;font-size:13px;border-bottom:1px solid #eee;color:#333;vertical-align:middle;}
 .nse-india-theme .data-table tr:hover td{background:#fff9f2;}
+/* NSE Market Status Animation */
+.nse-status-live {
+    color: #22c55e;
+    font-weight: 700;
+    animation: blinkText 1s infinite;
+}
+.nse-status-closed {
+    color: #ef4444;
+    font-weight: 700;
+}
+.nse-signal-anim {
+    display: inline-block;
+    animation: signalMove 1s infinite ease-in-out;
+}
+@keyframes blinkText {
+    0% { opacity: 1; }
+    50% { opacity: 0.2; }
+    100% { opacity: 1; }
+}
+@keyframes signalMove {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
 </style>
 </head>
 <body>
@@ -906,7 +930,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -914,7 +938,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -968,7 +992,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>">
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-image"></i> Feature Image</div></div><div class="panel-body">
 <div class="img-upload-area <?= !empty($fD["image"]) ? 'has-image' : '' ?>" id="newsImgArea">
-<input type="file" name="news_image" id="news_image" accept="image/jpeg,image/png,image/gif/image/webp">
+<input type="file" name="news_image" id="news_image" accept="image/jpeg,image/png,image/gif,image/webp">
 <?php if (!empty($fD["image"])): ?>
 <img src="<?= htmlspecialchars($fD["image"]) ?>" class="img-preview" id="newsImgPreview" alt="">
 <div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists — selecting a new file will replace it</div>
@@ -983,14 +1007,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="form-group"><label class="form-label">Title <span style="color:var(--accent)">*</span></label><input type="text" name="title" class="form-input" value="<?= htmlspecialchars($fD["title"]) ?>" placeholder="News title" required></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Slug</label><input type="text" name="slug" class="form-input" value="<?= htmlspecialchars($fD["slug"]) ?>" placeholder="auto-slug"><div class="form-hint">Leave empty to auto-generate</div></div><div class="form-group"><label class="form-label">Author</label><input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>"></div></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Category</label><select name="category_id" class="form-select" id="catSelect"><option value="">— Select —</option><?php foreach ($categories as $c): ?><option value="<?= $c["id"] ?>" <?= ($fD["category_id"] == $c["id"]) ? 'selected' : '' ?>><?= htmlspecialchars($c["name"]) ?></option><?php endforeach; ?></select></div><div class="form-group"><label class="form-label">Subcategories</label><select name="subcategories[]" class="form-select" id="subCatSelect" multiple style="min-height:42px"><option value="">— Select Category First —</option></select><div class="form-hint">Ctrl+Click to select multiple</div></div></div>
-<div class="form-group">
-    <label class="form-label">Tags <small style="color:var(--muted);font-weight:400">(Press Enter or comma to add)</small></label>
-    <div class="tags-input-container" id="tagsContainer" onclick="document.getElementById('tagInput').focus()">
-        <span id="tagsDisplay" style="display:contents"></span>
-        <input type="text" id="tagInput" class="tag-input-field" placeholder="Add a tag...">
-    </div>
-    <input type="hidden" name="tags" id="tagsHiddenInput" value="<?= htmlspecialchars($fD["tags"]) ?>">
-</div>
+<div class="form-group"><label class="form-label">Tags</label><input type="text" name="tags" class="form-input" value="<?= htmlspecialchars($fD["tags"]) ?>" placeholder="tag1, tag2"></div>
 
 <!-- YouTube Video Embed Input (Outside CKEditor) -->
 <div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
@@ -1013,7 +1030,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
             <i class="fas fa-arrow-down-to-bracket"></i> Embed Video
         </button>
     </div>
-    <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন। (শুধু লিংক দিন, কোড দেওয়ার দরকার নেই)</div>
+    <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন। (শুধু লিংক দিন, কোড দেওয়ার দরকার নেই)</div>
 </div>
 
 <!-- Custom Image Alignment Toolbar (Outside CKEditor) -->
@@ -1068,69 +1085,6 @@ if (cs && ss) {
 }
 var fi = document.getElementById('news_image'), pr = document.getElementById('newsImgPreview'), ar = document.getElementById('newsImgArea');
 if (fi) fi.onchange = function() { if (this.files && this.files[0]) { var r = new FileReader(); r.onload = function(e) { if (pr) { pr.src = e.target.result; pr.style.display = 'block'; } if (ar) ar.classList.add('has-image'); }; r.readAsDataURL(this.files[0]); } };
-
-// Modern Tags Input Script
-function initTagInput() {
-    var container = document.getElementById('tagsContainer');
-    var display = document.getElementById('tagsDisplay');
-    var input = document.getElementById('tagInput');
-    var hiddenInput = document.getElementById('tagsHiddenInput');
-    if (!container) return;
-
-    function renderTags() {
-        var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
-        display.innerHTML = '';
-        tags.forEach(function(tag) {
-            var chip = document.createElement('span');
-            chip.className = 'tag-chip';
-            chip.innerHTML = tag + ' <i class="fas fa-times"></i>';
-            chip.querySelector('i').onclick = function() {
-                removeTag(tag);
-            };
-            display.appendChild(chip);
-        });
-    }
-
-    function addTag(tag) {
-        tag = tag.trim().replace(/,/g, '');
-        if (tag === '') return;
-        var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
-        if (!tags.includes(tag)) {
-            tags.push(tag);
-            hiddenInput.value = tags.join(', ');
-        }
-        renderTags();
-        input.value = '';
-    }
-
-    function removeTag(tag) {
-        var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
-        tags = tags.filter(function(t) { return t !== tag; });
-        hiddenInput.value = tags.join(', ');
-        renderTags();
-    }
-
-    input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            addTag(input.value);
-        } else if (e.key === 'Backspace' && input.value === '') {
-            var tags = hiddenInput.value.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; });
-            if (tags.length > 0) {
-                tags.pop();
-                hiddenInput.value = tags.join(', ');
-                renderTags();
-            }
-        }
-    });
-
-    input.addEventListener('blur', function() {
-        if (input.value.trim() !== '') addTag(input.value);
-    });
-
-    renderTags();
-}
-initTagInput();
 
 // CKEditor Initialization
 if (typeof CKEDITOR !== 'undefined') {
@@ -1573,19 +1527,11 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 
 <?php elseif ($section === "nse_market" && hasPerm('nse_market')): ?>
-<style>
-    @keyframes nseBlink { 0% { opacity: 1; } 50% { opacity: 0.2; } 100% { opacity: 1; } }
-    .nse-live-blink { color: #22c55e; font-weight: 800; animation: nseBlink 1s infinite; letter-spacing: 1px; }
-    .nse-closed { color: #ef4444; font-weight: 700; letter-spacing: 1px; margin-right: 10px; }
-</style>
 <div class="nse-india-theme">
     <div class="admin-topbar"><h1><i class="fas fa-chart-line" style="color:#FF9933"></i> NSE India — Live Market</h1></div>
     <div class="nse-ticker" id="nseTicker">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.2);flex-wrap:wrap;gap:10px;">
-            <div class="nse-ticker-title" style="margin-bottom:0">
-                <span id="nseNetworkSignal" style="margin-right:8px;"><i class="fas fa-signal" style="color:#888;"></i> <span style="color:#888;font-size:10px;font-weight:600;">Checking...</span></span>
-                NSE Market Status
-            </div>
+            <div class="nse-ticker-title" style="margin-bottom:0"><i class="fas fa-signal"></i> NSE Market Status</div>
             <div style="display:flex;gap:15px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
                 <div id="nseTimeDate" style="font-size:13px;color:#fff;font-weight:600;line-height:1.4;text-align:right;background:rgba(255,255,255,0.1);padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);"><i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> -- --- ----<br><i class="far fa-clock" style="color:#138808;margin-right:5px;"></i> --:--:-- (IST)</div>
                 <div id="nseRefreshTimer" style="font-size:11px;color:#138808;font-weight:600;min-width:140px;text-align:right;"><i class="fas fa-hourglass-half"></i> Waiting...</div>
@@ -1600,118 +1546,11 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-eye"></i> Live Share Market Company List (Watchlist)</div></div><div class="panel-body" style="padding:0"><table class="data-table" id="nseWatchlist"><thead><tr><th>Company</th><th>Price</th><th>Change</th><th>High</th><th>Low</th><th>Volume</th></tr></thead><tbody><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody></table></div></div>
 </div>
 <script>
-function updateNSEClock(){
-    var now=new Date();
-    var utc=now.getTime()+(now.getTimezoneOffset()*60000);
-    var istDate=new Date(utc+5.5*3600000);
-    var day=String(istDate.getDate()).padStart(2,'0');
-    var mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    var month=mn[istDate.getMonth()];
-    var year=istDate.getFullYear();
-    var dateStr=day+' '+month+' '+year;
-    var hours=istDate.getHours();
-    var ampm=hours>=12?'PM':'AM';
-    hours=hours%12;hours=hours?hours:12;
-    var minutes=String(istDate.getMinutes()).padStart(2,'0');
-    var seconds=String(istDate.getSeconds()).padStart(2,'0');
-    var timeStr=String(hours).padStart(2,'0')+':'+minutes+':'+seconds+' '+ampm;
-    var el=document.getElementById('nseTimeDate');
-    if(el)el.innerHTML='<i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> '+dateStr+'<br><i class="far fa-clock" style="color:#138808;margin-right:5px;"></i> '+timeStr+' (IST)';
-}
+function updateNSEClock(){var now=new Date();var utc=now.getTime()+(now.getTimezoneOffset()*60000);var istDate=new Date(utc+5.5*3600000);var day=String(istDate.getDate()).padStart(2,'0');var mn=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];var month=mn[istDate.getMonth()];var year=istDate.getFullYear();var dateStr=day+' '+month+' '+year;var hours=istDate.getHours();var ampm=hours>=12?'PM':'AM';hours=hours%12;hours=hours?hours:12;var minutes=String(istDate.getMinutes()).padStart(2,'0');var seconds=String(istDate.getSeconds()).padStart(2,'0');var timeStr=String(hours).padStart(2,'0')+':'+minutes+':'+seconds+' '+ampm;var el=document.getElementById('nseTimeDate');if(el)el.innerHTML='<i class="far fa-calendar-alt" style="color:#FF9933;margin-right:5px;"></i> '+dateStr+'<br><i class="far fa-clock" style="color:#138808;margin-right:5px."</i> '+timeStr+' (IST)';}
 setInterval(updateNSEClock,1000);updateNSEClock();
-
 var isNSELoading=false,nextRefreshTime=0,countdownInterval=null;
-function scheduleNextRefresh(delay){
-    nextRefreshTime=Date.now()+delay;
-    if(countdownInterval)clearInterval(countdownInterval);
-    countdownInterval=setInterval(function(){
-        var t=document.getElementById('nseRefreshTimer');
-        if(!t)return;
-        if(isNSELoading){t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';return;}
-        var r=Math.max(0,(nextRefreshTime-Date.now())/1000);
-        if(r>0){t.innerHTML='<i class="fas fa-clock"></i> Next auto-refresh in '+r.toFixed(1)+'s';}
-        else{t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';}
-    },100);
-}
-
-function setNetworkSignal(status) {
-    var el = document.getElementById('nseNetworkSignal');
-    if (!el) return;
-    if (status === 'good') {
-        el.innerHTML = '<i class="fas fa-signal" style="color:#22c55e;"></i> <i class="fas fa-arrow-up" style="color:#22c55e;font-size:10px;"></i> <span style="color:#22c55e;font-size:10px;font-weight:600;">Good</span>';
-    } else if (status === 'bad') {
-        el.innerHTML = '<i class="fas fa-signal" style="color:#ef4444;"></i> <i class="fas fa-arrow-down" style="color:#ef4444;font-size:10px;"></i> <span style="color:#ef4444;font-size:10px;font-weight:600;">Bad</span>';
-    } else {
-        el.innerHTML = '<i class="fas fa-signal" style="color:#888;"></i> <span style="color:#888;font-size:10px;font-weight:600;">Checking...</span>';
-    }
-}
-
-function loadNSE(){
-    if(isNSELoading)return;
-    isNSELoading=true;
-    setNetworkSignal('checking');
-    var t=document.getElementById('nseRefreshTimer');
-    if(t)t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';
-    fetch('?page=admin_dashboard&section=api_nse_data')
-    .then(function(r){return r.json();})
-    .then(function(data){
-        var st_html = data.market_status === 'open' 
-            ? '<span class="nse-live-blink"><i class="fas fa-circle" style="font-size:8px;vertical-align:middle;margin-right:5px;"></i> LIVE</span>' 
-            : '<span class="nse-closed"><i class="fas fa-circle" style="font-size:8px;vertical-align:middle;margin-right:5px;"></i> CLOSED</span>';
-        var ih='';
-        if(data.indices && Array.isArray(data.indices) && data.indices.length>0){
-            data.indices.forEach(function(idx){
-                var cls=idx.change>=0?'nse-idx-up':'nse-idx-down';
-                var ar=idx.change>=0?'&#9650;':'&#9660;';
-                ih+='<div class="nse-idx-item"><div class="nse-idx-name">'+idx.symbol+'</div><div class="nse-idx-val '+cls+'">'+idx.last.toFixed(2)+' <span style="font-size:11px">'+ar+' '+Math.abs(idx.change).toFixed(2)+' ('+Math.abs(idx.changePercent).toFixed(2)+'%)</span></div></div>';
-            });
-        }
-        document.getElementById('nseContent').innerHTML='<div class="nse-ticker-title" style="margin-bottom:10px"><i class="fas fa-broadcast-tower"></i> Market Status &mdash; '+st_html+'</div><div class="nse-indices">'+ih+'</div>';
-        
-        if(data.error) {
-            document.getElementById('nseContent').innerHTML+='<div style="color:#ef4444;font-size:12px;margin-top:8px"><i class="fas fa-exclamation-triangle"></i> '+data.error+'</div>';
-            setNetworkSignal('bad');
-        } else {
-            setNetworkSignal('good');
-        }
-
-        function ft(id,rows,cols){
-            var tb=document.querySelector('#'+id+' tbody');
-            if(!tb) return;
-            if(!Array.isArray(rows) || rows.length===0){
-                var eh='<tr><td colspan="'+cols+'" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>';
-                if(tb.innerHTML!==eh)tb.innerHTML=eh;return;
-            }
-            var nh=rows.map(function(r){
-                var cls=(r.change||0)>=0?'nse-idx-up':'nse-idx-down';
-                var sg=(r.change||0)>=0?'+':'';
-                var sh='';
-                if(cols===6){
-                    sh='<td style="font-weight:600"><div>'+(r.name||r.symbol)+'</div><small style="color:#888;font-weight:400">'+r.symbol+'</small></td>';
-                } else {
-                    sh='<td style="font-weight:600">'+r.symbol+'</td>';
-                }
-                var h=sh+'<td style="font-weight:700">'+(r.last||0).toFixed(2)+'</td><td class="'+cls+'" style="font-weight:600">'+sg+(r.change||0).toFixed(2)+' ('+sg+(r.changePercent||0).toFixed(2)+'%)</td>';
-                if(cols>3) {
-                    h+='<td>'+(r.high||0).toFixed(2)+'</td><td>'+(r.low||0).toFixed(2)+'</td><td>'+Number(r.volume||0).toLocaleString()+'</td>';
-                }
-                return '<tr>'+h+'</tr>';
-            }).join('');
-            if(tb.innerHTML!==nh)tb.innerHTML=nh;
-        }
-        ft('nseGainers', data.gainers || [], 3);
-        ft('nseLosers', data.losers || [], 3);
-        ft('nseWatchlist', data.watchlist || [], 6);
-        isNSELoading=false;
-        scheduleNextRefresh(30000); // 30 seconds to prevent server overload
-    })
-    .catch(function(err){
-        document.getElementById('nseContent').innerHTML='<div style="color:#ef4444"><i class="fas fa-exclamation-triangle"></i> Data load failed: '+err.message+'</div>';
-        setNetworkSignal('bad');
-        isNSELoading=false;
-        scheduleNextRefresh(30000);
-    });
-}
+function scheduleNextRefresh(delay){nextRefreshTime=Date.now()+delay;if(countdownInterval)clearInterval(countdownInterval);countdownInterval=setInterval(function(){var t=document.getElementById('nseRefreshTimer');if(!t)return;if(isNSELoading){t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';return;}var r=Math.max(0,(nextRefreshTime-Date.now())/1000);if(r>0){t.innerHTML='<i class="fas fa-clock"></i> Next auto-refresh in '+r.toFixed(1)+'s';}else{t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Refreshing...';}},100);}
+function loadNSE(){if(isNSELoading)return;isNSELoading=true;var t=document.getElementById('nseRefreshTimer');if(t)t.innerHTML='<i class="fas fa-sync-alt fa-spin"></i> Fetching data from NSE...';fetch('?page=admin_dashboard&section=api_nse_data').then(function(r){return r.json();}).then(function(data){var src=data._source||'live';var sc=data.market_status==='open'?'#22c55e':'#ef4444';var st=data.market_status==='open'?'<span class="nse-status-live">LIVE</span>':'<span class="nse-status-closed">CLOSED</span>';var signalIcon=data.market_status==='open'?'<i class="fas fa-signal nse-signal-anim"></i>':'<i class="fas fa-signal"></i>';var ih='';if(data.indices&&data.indices.length>0){data.indices.forEach(function(idx){var cls=idx.change>=0?'nse-idx-up':'nse-idx-down';var ar=idx.change>=0?'&#9650;':'&#9660;';ih+='<div class="nse-idx-item"><div class="nse-idx-name">'+idx.symbol+'</div><div class="nse-idx-val '+cls+'">'+idx.last.toFixed(2)+' <span style="font-size:11px">'+ar+' '+Math.abs(idx.change).toFixed(2)+' ('+Math.abs(idx.changePercent).toFixed(2)+'%)</span></div></div>';});}document.getElementById('nseContent').innerHTML='<div class="nse-ticker-title" style="margin-bottom:10px">'+signalIcon+' Market Status &mdash; '+st+' <span style="color:#555;font-size:9px">['+src+']</span></div><div class="nse-indices">'+ih+'</div>';if(data.error)document.getElementById('nseContent').innerHTML+='<div style="color:#ef4444;font-size:12px;margin-top:8px"><i class="fas fa-exclamation-triangle"></i> '+data.error+'</div>';function ft(id,rows,cols){var tb=document.querySelector('#'+id+' tbody');if(!rows||!rows.length){var eh='<tr><td colspan="'+cols+'" style="text-align:center;color:var(--muted);padding:20px">No data</td></tr>';if(tb.innerHTML!==eh)tb.innerHTML=eh;return;}var nh=rows.map(function(r){var cls=(r.change||0)>=0?'nse-idx-up':'nse-idx-down';var sg=(r.change||0)>=0?'+':'';var sh='';if(cols===6){sh='<td style="font-weight:600"><div>'+(r.name||r.symbol)+'</div><small style="color:#888;font-weight:400">'+r.symbol+'</small></td>';}else{sh='<td style="font-weight:600>'+r.symbol+'</td>';}var h=sh+'<td style="font-weight:700">'+(r.last||0).toFixed(2)+'</td><td class="'+cls+'" style="font-weight:600">'+sg+(r.change||0).toFixed(2)+' ('+sg+(r.changePercent||0).toFixed(2)+'%)</td>';if(cols>3)h+='<td>'+(r.high||0).toFixed(2)+'</td><td>'+(r.low||0).toFixed(2)+'</td><td>'+Number(r.volume||0).toLocaleString()+'</td>';return '<tr>'+h+'</tr>';}).join('');if(tb.innerHTML!==nh)tb.innerHTML=nh;}ft('nseGainers',data.gainers,3);ft('nseLosers',data.losers,3);ft('nseWatchlist',data.watchlist,6);isNSELoading=false;scheduleNextRefresh(500);}).catch(function(err){document.getElementById('nseContent').innerHTML='<div style="color:#ef4444"><i class="fas fa-exclamation-triangle"></i> Data load failed: '+err.message+'</div>';isNSELoading=false;scheduleNextRefresh(500);});}
 loadNSE();
 </script>
 

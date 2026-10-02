@@ -599,7 +599,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;padding:0 12px 0 0}
 .kol-topbar .tl{display:flex;align-items:center;gap:10px;flex:1;min-width:0;margin-left:0;padding-left:0}
 .kol-topbar .tr{display:flex;align-items:center;gap:8px;padding-right:12px}
-/* Updated Clock Style: Background is red, text is gold, padded nicely */
 .kol-topbar .clock{font-family:monospace;font-size:13px;color:var(--gold);font-weight:700;letter-spacing:.5px;min-width:90px;display:inline-flex;align-items:center;justify-content:center;margin-left:12px;padding:3px 10px;background:var(--red-dark);border:1px solid rgba(212,149,10,.3);border-radius:4px;height:24px}
 .kol-topbar .date{color:rgba(255,255,255,.85);font-size:12px;border-left:1px solid rgba(255,255,255,.2);padding-left:12px}
 .kol-topbar .date i{margin-right:4px;opacity:.7}
@@ -609,7 +608,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-login{font-size:11px;color:rgba(255,255,255,.7);padding:4px 10px;border:1px solid rgba(255,255,255,.2);border-radius:3px;transition:all .2s}
 .kol-login:hover{color:#fff;background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3)}
 
-/* Language Switcher */
 .lang-switcher{position:relative;margin-right:8px}
 .lang-btn{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:none;transition:all .2s;font-family:inherit}
 .lang-btn:hover{background:rgba(255,255,255,.2)}
@@ -877,7 +875,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .ft-addr-item a{color:#888;transition:color .15s;text-decoration:none}
 .ft-addr-item a:hover{color:var(--gold)}
 
-/* ====== NSE BAR STYLES ====== */
 .nse-bar{background:#080810;color:#ccc;display:flex;align-items:stretch;height:36px;overflow:hidden;border-top:1px solid rgba(255,255,255,.04);position:relative}
 .nse-bar::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.8) 0%,transparent 6%,transparent 94%,rgba(0,0,0,.8) 100%);z-index:2;pointer-events:none}
 .nse-lbl{background:linear-gradient(135deg,#0d47a1,#1565c0);padding:0 14px;display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;z-index:3;white-space:nowrap;letter-spacing:.4px}
@@ -892,7 +889,6 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .nse-chg{font-size:9px;font-weight:700;font-variant-numeric:tabular-nums}
 .nse-up{color:#00c853}.nse-down{color:#ff1744}
 
-/* ====== NSE LIVE BADGE - Red, Blinking ====== */
 .nse-live-badge {
     display: none;
     background: #ff1744;
@@ -923,14 +919,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     animation: nseDotBlink 1s ease-in-out infinite;
 }
 @keyframes nseLivePulse {
-    0%, 100% { 
-        opacity: 1; 
-        box-shadow: 0 0 6px rgba(255, 23, 68, 0.6); 
-    }
-    50% { 
-        opacity: 0.85; 
-        box-shadow: 0 0 12px rgba(255, 23, 68, 0.9); 
-    }
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(255, 23, 68, 0.6); }
+    50% { opacity: 0.85; box-shadow: 0 0 12px rgba(255, 23, 68, 0.9); }
 }
 @keyframes nseDotBlink {
     0%, 100% { opacity: 1; }
@@ -1049,6 +1039,7 @@ body { top: 0 !important; }
 .goog-tooltip { display: none !important; }
 .goog-tooltip:hover { display: none !important; }
 
+/* ====== RESPONSIVE DESIGN FOR SMARTPHONS ====== */
 @media(max-width:1024px){
     .kol-layout{grid-template-columns:1fr}
     .kol-sidebar{position:fixed;left:-280px;top:0;bottom:0;width:280px;background:var(--bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;max-height:100vh;overflow-y:auto}
@@ -1061,9 +1052,13 @@ body { top: 0 !important; }
     .news-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:640px){
+    .kol-topbar .container{flex-direction:column;gap:5px;align-items:center}
+    .kol-topbar .tl, .kol-topbar .tr{width:100%;justify-content:center;flex-wrap:wrap;padding:0}
+    .kol-topbar .clock{margin-left:0}
     .kol-topbar .date{display:none}
-    .kn-search input{width:90px}
-    .kn-search input:focus{width:120px}
+    .kol-si.si-ig, .kol-si.si-tg { display: none; } 
+    .kn-search input{width:70px}
+    .kn-search input:focus{width:100px}
     .kn-panel{min-width:280px;max-width:calc(100vw - 24px);right:0}
     .vid-main{min-height:220px}
     .vid-grid{grid-template-columns:1fr}
@@ -1076,6 +1071,18 @@ body { top: 0 !important; }
     .single-wrap{padding:16px}
     .single-wrap h1{font-size:20px}
 }
+@media(max-width:480px){
+    .kol-header h1{font-size:26px;letter-spacing:1px}
+    .kol-header .tagline{letter-spacing:2px}
+    .cat-panel-row{grid-template-columns:1fr}
+    .ad-bottom-sec .ad-block{min-width:100%}
+    .sb-toggle{bottom:15px;right:15px;width:40px;height:40px;font-size:16px}
+    .kol-nav .container{padding:0 5px}
+    .kn-link{padding:12px 10px;font-size:12px}
+    .sec-title{font-size:18px}
+    .vid-info h3{font-size:16px}
+    .vid-info{padding:12px 15px}
+}
 </style>
 </head>
 <body>
@@ -1086,7 +1093,6 @@ body { top: 0 !important; }
 <div class="kol-topbar">
 <div class="container">
 <div class="tl">
-<!-- Replaced iframe with simple span for JS Clock to remove white background -->
 <span class="clock" id="liveClock">--:--:--</span>
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
@@ -1884,6 +1890,7 @@ function googleTranslateElementInit() {
 
 <!-- ================================================== -->
 <!-- NSE MARKET HOURS CHECK - Auto Live/Closed Badge   -->
+<!-- UPDATED: Included Indian Stock Market Holidays    -->
 <!-- ================================================== -->
 <script>
 (function () {
@@ -1898,9 +1905,92 @@ function googleTranslateElementInit() {
       var minutes = istDate.getUTCMinutes();
       var timeInMinutes = hours * 60 + minutes;
 
+      var year = istDate.getUTCFullYear();
+      var month = istDate.getUTCMonth() + 1; // 1-12
+      var date = istDate.getUTCDate();
+
+      // Format current date to YYYY-MM-DD
+      var dateStr = year + '-' + (month < 10 ? '0' + month : month) + '-' + (date < 10 ? '0' + date : date);
+
+      // List of NSE/BSE Trading Holidays (2024 to 2028)
+      var marketHolidays = [
+        // 2024 Holidays
+        "2024-01-26", // Republic Day
+        "2024-03-25", // Holi
+        "2024-03-29", // Good Friday
+        "2024-04-11", // Eid al-Fitr
+        "2024-04-17", // Ram Navami
+        "2024-04-23", // Mahavir Jayanti
+        "2024-05-01", // Maharashtra Day
+        "2024-05-23", // Buddha Purnima
+        "2024-06-17", // Bakrid
+        "2024-07-17", // Muharram
+        "2024-08-15", // Independence Day
+        "2024-10-02", // Gandhi Jayanti
+        "2024-11-01", // Diwali
+        "2024-11-15", // Guru Nanak Jayanti
+        "2024-12-25", // Christmas
+        
+        // 2025 Holidays
+        "2025-02-26", // Mahashivratri
+        "2025-03-14", // Holi
+        "2025-03-31", // Eid al-Fitr
+        "2025-04-10", // Mahavir Jayanti
+        "2025-04-14", // Dr. Ambedkar Jayanti/Ram Navami
+        "2025-04-18", // Good Friday
+        "2025-05-01", // Maharashtra Day
+        "2025-08-15", // Independence Day
+        "2025-08-16", // Muharram
+        "2025-10-02", // Gandhi Jayanti
+        "2025-10-21", // Diwali
+        "2025-11-05", // Bhai Dooj
+        "2025-12-25", // Christmas
+        
+        // 2026 Holidays
+        "2026-01-26", // Republic Day
+        "2026-02-16", // Mahashivratri
+        "2026-03-04", // Holi
+        "2026-03-26", // Good Friday (Approx)
+        "2026-04-02", // Ram Navami
+        "2026-04-10", // Mahavir Jayanti
+        "2026-05-01", // Maharashtra Day
+        "2026-08-15", // Independence Day
+        "2026-10-02", // Gandhi Jayanti
+        "2026-11-10", // Diwali
+        "2026-12-25", // Christmas
+        
+        // 2027 Holidays
+        "2027-01-26", // Republic Day
+        "2027-03-24", // Holi
+        "2027-03-26", // Good Friday
+        "2027-05-01", // Maharashtra Day
+        "2027-08-15", // Independence Day
+        "2027-10-02", // Gandhi Jayanti
+        "2027-10-30", // Diwali
+        "2027-12-25", // Christmas
+        
+        // 2028 Holidays
+        "2028-01-26", // Republic Day
+        "2028-03-13", // Holi
+        "2028-03-31", // Good Friday
+        "2028-05-01", // Maharashtra Day
+        "2028-08-15", // Independence Day
+        "2028-10-02", // Gandhi Jayanti
+        "2028-10-18", // Diwali
+        "2028-12-25"  // Christmas
+      ];
+
+      // Check if today is a holiday
+      var isHoliday = marketHolidays.indexOf(dateStr) !== -1;
+
       var isWeekday = day >= 1 && day <= 5;
-      var isMarketHours = timeInMinutes >= 555 && timeInMinutes < 990;
-      var isMarketOpen = isWeekday && isMarketHours;
+      
+      // Market hours: 9:15 AM to 3:30 PM
+      // 9 * 60 + 15 = 555
+      // 15 * 60 + 30 = 930
+      var isMarketHours = timeInMinutes >= 555 && timeInMinutes < 930; 
+      
+      var isMarketOpen = isWeekday && isMarketHours && !isHoliday;
 
       var liveBadge = document.getElementById('nseLiveBadge');
       var closedBadge = document.getElementById('nseClosedBadge');
@@ -2006,18 +2096,28 @@ if(langBtn && langDropdown) {
 }
 
 function changeLanguage(lang) {
-    // Clear existing cookies thoroughly
+    // Clear existing cookie thoroughly
     document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
-    document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + window.location.hostname;
     
-    if(lang !== 'bn') {
+    if (lang !== 'bn') {
         var date = new Date();
         date.setTime(date.getTime() + (365*24*60*60*1000));
         var expires = "; expires=" + date.toUTCString();
-        document.cookie = "googtrans=/bn/" + lang + expires + "; path=/";
-        document.cookie = "googtrans=/bn/" + lang + expires + "; path=/; domain=" + window.location.hostname;
+        var cookieValue = "/bn/" + lang;
+        
+        // Set cookie for current domain
+        document.cookie = "googtrans=" + cookieValue + expires + "; path=/";
+        
+        // Set cookie for root domain (e.g., .example.com) if applicable
+        var parts = window.location.hostname.split('.');
+        if (parts.length > 2) {
+            var rootDomain = parts.slice(-2).join('.');
+            document.cookie = "googtrans=" + cookieValue + expires + "; path=/; domain=." + rootDomain;
+        }
     }
-    window.location.reload();
+    
+    // Force reload from server, bypassing cache
+    window.location.reload(true); 
 }
 
 // ====== FIXED TEXT-TO-SPEECH (TTS) FUNCTIONALITY ======
@@ -2031,7 +2131,6 @@ function loadVoices() {
     var voices = window.speechSynthesis.getVoices();
     if (voices.length === 0) return;
 
-    // Find the best available Bengali voice
     bnVoice = voices.find(function(v) {
             return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female');
         })
@@ -2075,7 +2174,6 @@ if (ttsPlayBtn) {
         if (newsTitleEl) textToRead += newsTitleEl.textContent + '. ';
         
         if (newsContentEl) {
-            // Only read paragraphs and headings, explicitly ignoring ads and embeds
             var nodes = newsContentEl.querySelectorAll('p, h2, h3, h4, li');
             nodes.forEach(function(node) {
                 if (!node.closest('.ad-wrapper') && !node.closest('.news-video-wrapper') && !node.closest('.twitter-embed-wrapper') && !node.closest('.ad-label')) {
@@ -2086,7 +2184,6 @@ if (ttsPlayBtn) {
 
         if (!textToRead.trim()) return;
 
-        // Split text into chunks to bypass Chrome's 15-second timeout bug
         var chunks = textToRead.match(/[^.!?]+[.!?]*\s*/g) || [textToRead];
         
         isSpeaking = true;
@@ -2113,7 +2210,7 @@ if (ttsPlayBtn) {
                 utterance.voice = bnVoice;
                 utterance.lang = bnVoice.lang;
             } else {
-                utterance.lang = 'bn-IN'; // Fallback language code
+                utterance.lang = 'bn-IN';
             }
             utterance.rate = 1.0;
             utterance.pitch = 1.1;
@@ -2219,7 +2316,6 @@ function checkForNewNews() {
                 }
             }
             
-            // Auto refresh the page after 3 seconds to load the new news naturally
             setTimeout(function() {
                 window.location.reload();
             }, 3000);
@@ -2230,17 +2326,15 @@ function checkForNewNews() {
 function startNewsCheck() {
     if (!newsInterval) {
         checkForNewNews();
-        newsInterval = setInterval(checkForNewNews, 30000); // Checks every 30 seconds
+        newsInterval = setInterval(checkForNewNews, 30000); 
     }
 }
 
 var newsAllowed = null;
 try { newsAllowed = localStorage.getItem('news_popup_allowed'); } catch(e) {}
 
-// FIX: Always start checking for new news independently of notification permission
 setTimeout(startNewsCheck, 5000);
 
-// Handle notification popup request separately
 if (newsAllowed === null || newsAllowed === undefined) {
     setTimeout(function() {
         if (allowNewsPopup) allowNewsPopup.style.display = 'flex';

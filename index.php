@@ -479,13 +479,6 @@ try { $in = implode(",", array_fill(0, count($contactKeys), "?")); $cs = $pdo->p
  $adKeys = ['ad_bottom_1_embed', 'ad_bottom_2_embed'];
  $adVals = loadSettings($pdo, $adKeys);
 
-// Fetch Festival Logo Settings
- $festivalKeys = ['festival_logo_img', 'festival_logo_text'];
- $festivalVals = loadSettings($pdo, $festivalKeys);
- $festivalLogoImg = $festivalVals['festival_logo_img'] ?? '';
- $festivalLogoText = $festivalVals['festival_logo_text'] ?? '';
- $hasFestivalLogo = !empty($festivalLogoImg) || !empty($festivalLogoText);
-
  $adHeaderBanner = renderAdsByPos($pdo, 'header_banner');
  $adContentTop = renderAdsByPos($pdo, 'content_top');
  $adAfter1st = renderAdsByPos($pdo, 'after_1st_para');
@@ -578,6 +571,19 @@ if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_
  $breakingTrackHTML = !empty($breakingItems) ? implode('', $breakingItems) . implode('', $breakingItems) : '';
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
+
+// Festival Logo ডেটাবেস থেকে আনার কোড
+ $festival_logo_img = '';
+ $festival_logo_text = '';
+try {
+    $stmt_fest = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ('festival_logo_img', 'festival_logo_text')");
+    $stmt_fest->execute();
+    $fest_settings = $stmt_fest->fetchAll(PDO::FETCH_KEY_PAIR);
+    $festival_logo_img = $fest_settings['festival_logo_img'] ?? '';
+    $festival_logo_text = $fest_settings['festival_logo_text'] ?? '';
+} catch (Exception $e) {
+    // ডেটাবেস এরর হলে সাইলেন্টলি ইগনোর করবে
+}
 ?>
 <!DOCTYPE html>
 <html lang="bn" dir="ltr">
@@ -1161,21 +1167,21 @@ body { top: 0 !important; }
 
 <header class="kol-header">
     <div class="container">
-        <?php if ($hasFestivalLogo): ?>
+        <?php if (!empty($festival_logo_img) || !empty($festival_logo_text)): ?>
         <!-- Pendulum Hanging Logo (Shows only if data exists from admin) -->
         <div class="logo-pendulum">
             <div class="pendulum-string"></div>
             <div class="logo-box">
-                <?php if (!empty($festivalLogoImg)): ?>
-                    <img src="<?= htmlspecialchars($festivalLogoImg) ?>" alt="Bengali Festival Wish" class="festival-logo-img">
-                <?php elseif (!empty($festivalLogoText)): ?>
-                    <div class="festival-logo-text"><?= htmlspecialchars($festivalLogoText) ?></div>
+                <?php if (!empty($festival_logo_img)): ?>
+                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="Festival Wish" class="festival-logo-img">
+                <?php elseif (!empty($festival_logo_text)): ?>
+                    <div class="festival-logo-text"><?= htmlspecialchars($festival_logo_text) ?></div>
                 <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
         
-        <div class="header-content <?= $hasFestivalLogo ? 'has-logo' : 'no-logo' ?>">
+        <div class="header-content <?php echo (!empty($festival_logo_img) || !empty($festival_logo_text)) ? 'has-logo' : 'no-logo'; ?>">
             <h1>সংবাদ সংকলন</h1>
             <div class="tagline">Truthy &amp; Trusted News Portal</div>
         </div>
@@ -1425,7 +1431,7 @@ body { top: 0 !important; }
     function($matches) {
         $tweet_id = $matches[1];
         $embed_url = 'https://platform.twitter.com/embed/Tweet.html?id=' . $tweet_id;
-        return '<div class="twitter-embed-wrapper"><iframe src="' . $embed_url + '" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
+        return '<div class="twitter-embed-wrapper"><iframe src="' . $embed_url . '" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
     },
     $content
 );

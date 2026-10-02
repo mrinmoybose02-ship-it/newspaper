@@ -986,7 +986,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -994,7 +994,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -1450,6 +1450,9 @@ if (tagPillsContainer) {
 <script>
 var afi = document.getElementById('ad_image'), apr = document.getElementById('adImgPreview'), aar = document.getElementById('adImgArea');
 if (afi) afi.onchange = function() { if (this.files && this.files[0]) { var r = new FileReader(); r.onload = function(e) { if (apr) { apr.src = e.target.result; apr.style.display = 'block'; } if (aar) aar.classList.add('has-image'); }; r.readAsDataURL(this.files[0]); } };
+
+var fli = document.getElementById('festival_logo_file'), flpr = document.getElementById('festLogoImgPreview'), flar = document.getElementById('festLogoImgArea');
+if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = new FileReader(); r.onload = function(e) { if (flpr) { flpr.src = e.target.result; flpr.style.display = 'block'; } if (flar) flar.classList.add('has-image'); }; r.readAsDataURL(this.files[0]); } };
 </script>
 
 <!-- Festival Logo Settings Section Start -->
@@ -1466,6 +1469,18 @@ if (afi) afi.onchange = function() { if (this.files && this.files[0]) { var r = 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_festival_logo'])) {
             $festival_logo_img = trim($_POST['festival_logo_img'] ?? '');
             $festival_logo_text = trim($_POST['festival_logo_text'] ?? '');
+            
+            // Handle file upload
+            if (isset($_FILES['festival_logo_file']) && $_FILES['festival_logo_file']['error'] === UPLOAD_ERR_OK) {
+                $ur = handleUpload('festival_logo_file');
+                if ($ur !== null) {
+                    if (isset($ur["error"])) {
+                        echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Upload Error: " . $ur["error"] . "</div>";
+                    } else {
+                        $festival_logo_img = $ur["path"];
+                    }
+                }
+            }
             
             try {
                 saveSettings($pdo, [
@@ -1486,13 +1501,29 @@ if (afi) afi.onchange = function() { if (this.files && this.files[0]) { var r = 
         $current_logo_text = $festivalVals['festival_logo_text'] ?? '';
         ?>
 
-        <form method="POST" action="">
+        <form method="POST" action="" enctype="multipart/form-data">
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label class="form-label" for="festival_logo_file">Upload Festival Logo Image:</label>
+                <div class="img-upload-area <?= !empty($current_logo_img) ? 'has-image' : '' ?>" id="festLogoImgArea" style="max-width: 300px; padding: 15px;">
+                    <input type="file" name="festival_logo_file" id="festival_logo_file" accept="image/jpeg,image/png,image/gif,image/webp" style="position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 2;">
+                    <?php if (!empty($current_logo_img)): ?>
+                        <img src="<?= htmlspecialchars($current_logo_img) ?>" class="img-preview" id="festLogoImgPreview" alt="" style="max-height: 100px;">
+                        <div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div>
+                    <?php else: ?>
+                        <div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>
+                        <div class="img-upload-text">Click to select image</div>
+                        <div class="img-upload-hint">JPG, PNG, GIF, WebP — 5MB</div>
+                        <img src="" class="img-preview" id="festLogoImgPreview" style="display:none" alt="">
+                    <?php endif; ?>
+                </div>
+                <small class="form-hint">ছবি আপলোড করলে নিচের URL ফিল্ডটি অটোমেটিক আপডেট হবে। অথবা আপনি নিজেও URL দিতে পারেন।</small>
+            </div>
+
             <div class="form-group" style="margin-bottom: 15px;">
                 <label class="form-label" for="festival_logo_img">Festival Logo Image URL:</label>
                 <input type="text" class="form-input" id="festival_logo_img" name="festival_logo_img" 
                        value="<?php echo htmlspecialchars($current_logo_img); ?>" 
                        placeholder="https://example.com/festival-logo.png">
-                <small class="form-hint">ছবির লিংক দিন অথবা অ্যাডমিন প্যানেল থেকে আপলোড করে লিংক হিয়ার বসান।</small>
             </div>
 
             <div class="form-group" style="margin-bottom: 15px;">

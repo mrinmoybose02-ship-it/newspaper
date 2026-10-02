@@ -160,22 +160,15 @@ if ($section === "api_nse_data") {
     $h = (int)$nw->format('G'); $mi = (int)$nw->format('i'); $d = (int)$nw->format('N'); $tv = $h * 60 + $mi;
     
     $nseHolidays = [
-        // 2024
         '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25',
-        // 2025
         '2025-02-26', '2025-03-14', '2025-03-31', '2025-04-10', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-08-27', '2025-10-02', '2025-10-21', '2025-10-31', '2025-11-05', '2025-11-26', '2025-12-25',
-        // 2026
         '2026-01-26', '2026-02-15', '2026-03-04', '2026-03-20', '2026-03-30', '2026-04-02', '2026-04-03', '2026-05-01', '2026-09-14', '2026-09-21', '2026-10-02', '2026-10-10', '2026-10-29', '2026-11-04', '2026-11-15', '2026-12-25',
-        // 2027
         '2027-01-26', '2027-02-04', '2027-03-24', '2027-03-30', '2027-04-01', '2027-04-23', '2027-04-26', '2027-05-01', '2027-09-04', '2027-10-02', '2027-10-19', '2027-10-25', '2027-11-07', '2027-11-12', '2027-12-25',
-        // 2028
         '2028-01-26', '2028-02-22', '2028-03-12', '2028-03-30', '2028-04-08', '2028-04-14', '2028-05-01', '2028-08-15', '2028-09-22', '2028-10-02', '2028-10-08', '2028-10-19', '2028-11-11', '2028-12-25'
     ];
     
     $currentDateStr = $nw->format('Y-m-d');
     $isHoliday = in_array($currentDateStr, $nseHolidays);
-    
-    // 555 mins = 9:15 AM, 930 mins = 3:30 PM
     $isTradingHours = ($d >= 1 && $d <= 5 && $tv >= 555 && $tv <= 930 && !$isHoliday);
     $data['market_status'] = $isTradingHours ? 'open' : 'closed';
     
@@ -560,7 +553,7 @@ if ($section === "ads") {
     if (isset($_GET["ad_delete"]) && isset($_GET["ad_dtoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_dtoken"])) { $di = (int)$_GET["ad_delete"]; $dr = $pdo->prepare("SELECT image FROM advertisements WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__.'/'.$dw["image"])) @unlink(__DIR__.'/'.$dw["image"]); $pdo->prepare("DELETE FROM advertisements WHERE id=?")->execute([$di]); $adSuccess = "Deleted successfully."; } }
     if (isset($_GET["ad_toggle"]) && isset($_GET["ad_ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_ttoken"])) { $pdo->prepare("UPDATE advertisements SET is_active=IF(is_active=1,0,1) WHERE id=?")->execute([(int)$_GET["ad_toggle"]]); $adSuccess = "Status changed successfully."; } }
     if (isset($_GET["ad_edit"])) { $er = $pdo->prepare("SELECT * FROM advertisements WHERE id=?"); $er->execute([(int)$_GET["ad_edit"]]); $er = $er->fetch(); if ($er) { $adEditData = $er; } }
-    if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['user_action'])) {
+    if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['user_action']) && !isset($_POST['save_festival_logo'])) {
         if (!verifyCSRF()) { $adError = "Token mismatch."; }
         else {
             $at = trim($_POST["ad_title"] ?? ""); $ap = $_POST["ad_position"] ?? "content_middle"; $aty = $_POST["ad_type"] ?? "image"; $al = trim($_POST["ad_link_url"] ?? ""); $acd = $_POST["ad_code"] ?? ""; $aso = (int)($_POST["ad_sort_order"] ?? 0); $asd = !empty($_POST["ad_start_date"]) ? $_POST["ad_start_date"] : null; $aed = !empty($_POST["ad_end_date"]) ? $_POST["ad_end_date"] : null; $ami = !empty($_POST["ad_max_impressions"]) ? (int)$_POST["ad_max_impressions"] : null;
@@ -866,6 +859,69 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-4px); }
 }
+/* Modern Tag Input Styles */
+.tags-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    min-height: 48px;
+    align-items: center;
+    transition: all 0.25s;
+    cursor: text;
+}
+.tags-wrapper:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
+    background: var(--card);
+}
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+    color: #fff;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 2px 5px rgba(196,30,58,.3);
+    animation: tagPop 0.3s ease;
+}
+@keyframes tagPop {
+    from { transform: scale(0.8); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+.tag-pill .remove-tag {
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+}
+.tag-pill .remove-tag:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+.tag-input-field {
+    border: none;
+    background: transparent;
+    outline: none;
+    flex: 1;
+    min-width: 120px;
+    font-size: 13.5px;
+    color: var(--fg);
+    padding: 5px 0;
+    font-family: inherit;
+}
+.tag-input-field::placeholder {
+    color: var(--muted);
+    font-weight: 400;
+}
 </style>
 </head>
 <body>
@@ -930,7 +986,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -938,7 +994,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -1007,7 +1063,14 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="form-group"><label class="form-label">Title <span style="color:var(--accent)">*</span></label><input type="text" name="title" class="form-input" value="<?= htmlspecialchars($fD["title"]) ?>" placeholder="News title" required></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Slug</label><input type="text" name="slug" class="form-input" value="<?= htmlspecialchars($fD["slug"]) ?>" placeholder="auto-slug"><div class="form-hint">Leave empty to auto-generate</div></div><div class="form-group"><label class="form-label">Author</label><input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>"></div></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Category</label><select name="category_id" class="form-select" id="catSelect"><option value="">— Select —</option><?php foreach ($categories as $c): ?><option value="<?= $c["id"] ?>" <?= ($fD["category_id"] == $c["id"]) ? 'selected' : '' ?>><?= htmlspecialchars($c["name"]) ?></option><?php endforeach; ?></select></div><div class="form-group"><label class="form-label">Subcategories</label><select name="subcategories[]" class="form-select" id="subCatSelect" multiple style="min-height:42px"><option value="">— Select Category First —</option></select><div class="form-hint">Ctrl+Click to select multiple</div></div></div>
-<div class="form-group"><label class="form-label">Tags</label><input type="text" name="tags" class="form-input" value="<?= htmlspecialchars($fD["tags"]) ?>" placeholder="tag1, tag2"></div>
+<div class="form-group">
+    <label class="form-label">Tags <span style="font-size:10px; color:var(--muted); font-weight:400">(Type and press Enter)</span></label>
+    <div class="tags-wrapper" id="tagsWrapper" onclick="document.getElementById('tagInputField').focus()">
+        <span id="tagPillsContainer"></span>
+        <input type="text" id="tagInputField" class="tag-input-field" placeholder="Add a tag and press Enter...">
+        <input type="hidden" name="tags" id="hiddenTagsInput" value="<?= htmlspecialchars($fD["tags"]) ?>">
+    </div>
+</div>
 
 <!-- YouTube Video Embed Input (Outside CKEditor) -->
 <div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
@@ -1257,6 +1320,53 @@ function insertSocialVideoToEditor() {
         document.getElementById('socialVideoUrlInput').value = '';
     } else { alert('Editor is not loaded yet!'); }
 }
+
+// Modern Tag Input Logic
+var tagsArray = <?= json_encode(array_filter(array_map('trim', explode(',', $fD["tags"] ?? '')))) ?>;
+var tagPillsContainer = document.getElementById('tagPillsContainer');
+var tagInputField = document.getElementById('tagInputField');
+var hiddenTagsInput = document.getElementById('hiddenTagsInput');
+
+function renderTagPills() {
+    if (!tagPillsContainer) return;
+    tagPillsContainer.innerHTML = '';
+    tagsArray.forEach(function(tag, index) {
+        var pill = document.createElement('span');
+        pill.className = 'tag-pill';
+        pill.innerHTML = '<span>'+tag+'</span> <i class="fas fa-times remove-tag" onclick="removeTag('+index+')"></i>';
+        tagPillsContainer.appendChild(pill);
+    });
+    if (hiddenTagsInput) hiddenTagsInput.value = tagsArray.join(', ');
+}
+
+window.removeTag = function(index) {
+    tagsArray.splice(index, 1);
+    renderTagPills();
+}
+
+window.handleTagKeydown = function(event) {
+    if (event.key === 'Enter' || event.key === ',') {
+        event.preventDefault();
+        var val = tagInputField.value.trim().replace(/,/g, '');
+        if (val && !tagsArray.includes(val)) {
+            tagsArray.push(val);
+            renderTagPills();
+            tagInputField.value = '';
+        } else if (val && tagsArray.includes(val)) {
+            tagInputField.value = '';
+        }
+    } else if (event.key === 'Backspace' && tagInputField.value === '') {
+        tagsArray.pop();
+        renderTagPills();
+    }
+}
+
+if (tagInputField) {
+    tagInputField.addEventListener('keydown', handleTagKeydown);
+}
+if (tagPillsContainer) {
+    renderTagPills();
+}
 </script>
 
 <?php elseif ($section === "manage" && hasPerm('manage_news')): ?>
@@ -1341,6 +1451,65 @@ function insertSocialVideoToEditor() {
 var afi = document.getElementById('ad_image'), apr = document.getElementById('adImgPreview'), aar = document.getElementById('adImgArea');
 if (afi) afi.onchange = function() { if (this.files && this.files[0]) { var r = new FileReader(); r.onload = function(e) { if (apr) { apr.src = e.target.result; apr.style.display = 'block'; } if (aar) aar.classList.add('has-image'); }; r.readAsDataURL(this.files[0]); } };
 </script>
+
+<!-- Festival Logo Settings Section Start -->
+<div class="panel" style="border-color: var(--purple);">
+    <div class="panel-header" style="background: var(--purple); border-bottom: 2px solid var(--accent-dark);">
+        <div class="panel-title" style="color: #fff;"><i class="fas fa-image"></i> Festival Pendulum Logo Settings</div>
+    </div>
+    <div class="panel-body">
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 15px;">
+            এই সেকশন থেকে লোগো বা টেক্সট অ্যাড করলে ওয়েবসাইটের হেডারে পেন্ডুলাম লোগোটি দেখাবে। এখানে কিছু না দিলে লোগোটি হাইড থাকবে।
+        </p>
+        <?php
+        // Handle form submission
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_festival_logo'])) {
+            $festival_logo_img = trim($_POST['festival_logo_img'] ?? '');
+            $festival_logo_text = trim($_POST['festival_logo_text'] ?? '');
+            
+            try {
+                saveSettings($pdo, [
+                    'festival_logo_img' => $festival_logo_img,
+                    'festival_logo_text' => $festival_logo_text
+                ]);
+                echo "<div class='alert alert-success' style='margin-bottom: 15px;'><i class='fas fa-check-circle'></i> Festival Logo settings saved successfully!</div>";
+                $current_logo_img = $festival_logo_img;
+                $current_logo_text = $festival_logo_text;
+            } catch (Exception $e) {
+                echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Error saving settings: " . $e->getMessage() . "</div>";
+            }
+        }
+
+        // Fetch current settings from database
+        $festivalVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
+        $current_logo_img = $festivalVals['festival_logo_img'] ?? '';
+        $current_logo_text = $festivalVals['festival_logo_text'] ?? '';
+        ?>
+
+        <form method="POST" action="">
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label class="form-label" for="festival_logo_img">Festival Logo Image URL:</label>
+                <input type="text" class="form-input" id="festival_logo_img" name="festival_logo_img" 
+                       value="<?php echo htmlspecialchars($current_logo_img); ?>" 
+                       placeholder="https://example.com/festival-logo.png">
+                <small class="form-hint">ছবির লিংক দিন অথবা অ্যাডমিন প্যানেল থেকে আপলোড করে লিংক হিয়ার বসান।</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label class="form-label" for="festival_logo_text">Festival Logo Text (Optional):</label>
+                <input type="text" class="form-input" id="festival_logo_text" name="festival_logo_text" 
+                       value="<?php echo htmlspecialchars($current_logo_text); ?>" 
+                       placeholder="শুভেচ্ছা">
+                <small class="form-hint">যদি ছবির বদলে কোনো টেক্সট দেখাতে চান, তবে এখানে লিখুন (ছবির URL ফাঁকা রাখলে এটি কাজ করবে)।</small>
+            </div>
+
+            <button type="submit" name="save_festival_logo" class="btn btn-primary">
+                <i class="fas fa-save"></i> Save Festival Logo
+            </button>
+        </form>
+    </div>
+</div>
+<!-- Festival Logo Settings Section End -->
 
 <?php elseif ($section === "videos" && hasPerm('videos')): ?>
 <div class="admin-topbar"><h1><i class="fas fa-video" style="color:var(--purple)"></i> Videos Management</h1></div>

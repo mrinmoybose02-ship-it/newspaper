@@ -479,6 +479,13 @@ try { $in = implode(",", array_fill(0, count($contactKeys), "?")); $cs = $pdo->p
  $adKeys = ['ad_bottom_1_embed', 'ad_bottom_2_embed'];
  $adVals = loadSettings($pdo, $adKeys);
 
+// Fetch Festival Logo Settings
+ $festivalKeys = ['festival_logo_img', 'festival_logo_text'];
+ $festivalVals = loadSettings($pdo, $festivalKeys);
+ $festivalLogoImg = $festivalVals['festival_logo_img'] ?? '';
+ $festivalLogoText = $festivalVals['festival_logo_text'] ?? '';
+ $hasFestivalLogo = !empty($festivalLogoImg) || !empty($festivalLogoText);
+
  $adHeaderBanner = renderAdsByPos($pdo, 'header_banner');
  $adContentTop = renderAdsByPos($pdo, 'content_top');
  $adAfter1st = renderAdsByPos($pdo, 'after_1st_para');
@@ -627,9 +634,28 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .breaking-track span{padding:0 40px;font-size:13px;font-weight:500;white-space:nowrap;display:flex;align-items:center;text-align:center}
 @keyframes bts{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .breaking-bar:hover .breaking-track{animation-play-state:paused}
-.kol-header{text-align:center;padding:16px 0 12px;border-bottom:3px solid var(--red);background:#fff}
+
+/* ====== HEADER WITH DYNAMIC PENDULUM LOGO ====== */
+.kol-header{text-align:center;padding:30px 0 15px;border-bottom:3px solid var(--red);background:#fff;position:relative;overflow:visible}
+.kol-header .container{position:relative;display:flex;align-items:center;justify-content:center;min-height:120px}
+.header-content{position:relative;z-index:1;text-align:center;flex:1}
+.header-content.has-logo{padding-left:200px /* Pushes text right to prevent overlap */}
+.header-content.no-logo{padding-left:0}
 .kol-header h1{font-family:'Noto Serif Bengali',serif;font-weight:900;font-size:clamp(28px,5vw,48px);color:var(--red);letter-spacing:3px;line-height:1.1}
 .kol-header .tagline{font-size:12px;color:var(--muted);letter-spacing:4px;text-transform:uppercase;margin-top:2px}
+
+.logo-pendulum{position:absolute;top:-15px;left:20px;display:flex;flex-direction:column;align-items:center;transform-origin:top center;animation:swing 3s ease-in-out infinite alternate;z-index:10}
+.pendulum-string{width:2px;height:20px;background:#777;margin-bottom:-2px}
+.logo-box{width:170px;height:120px;background:#fff;border:4px solid var(--red);box-shadow:0 5px 15px rgba(0,0,0,.2);overflow:hidden;border-radius:8px;display:flex;justify-content:center;align-items:center}
+.festival-logo-img{width:100%;height:100%;object-fit:cover}
+.festival-logo-text{font-family:'Noto Serif Bengali',serif;color:var(--red);font-weight:700;font-size:16px;text-align:center;padding:5px}
+
+@keyframes swing {
+    0% { transform: rotate(-12deg); }
+    100% { transform: rotate(12deg); }
+}
+/* ================================================== */
+
 .kol-nav{background:var(--nav-bg);position:sticky;top:0;z-index:100;border-bottom:2px solid var(--red)}
 .kol-nav .container{display:flex;align-items:stretch;overflow-x:auto;scrollbar-width:none}
 .kol-nav .container::-webkit-scrollbar{display:none}
@@ -1051,6 +1077,13 @@ body { top: 0 !important; }
     .feat-main{min-height:280px}
     .news-grid{grid-template-columns:repeat(2,1fr)}
 }
+@media(max-width:768px){
+    .kol-header .container{flex-direction:column;justify-content:flex-start;padding-top:100px}
+    .header-content.has-logo, .header-content.no-logo { padding-left: 0; }
+    .logo-pendulum{position:relative;top:auto;left:auto;margin:0 auto 15px auto}
+    .logo-box{width:140px;height:100px}
+    .pendulum-string{height:15px}
+}
 @media(max-width:640px){
     .kol-topbar .container{flex-direction:column;gap:5px;align-items:center}
     .kol-topbar .tl, .kol-topbar .tr{width:100%;justify-content:center;flex-wrap:wrap;padding:0}
@@ -1072,6 +1105,9 @@ body { top: 0 !important; }
     .single-wrap h1{font-size:20px}
 }
 @media(max-width:480px){
+    .kol-header{padding-top:15px}
+    .kol-header .container{padding-top:85px}
+    .logo-box{width:110px;height:80px;border-width:3px}
     .kol-header h1{font-size:26px;letter-spacing:1px}
     .kol-header .tagline{letter-spacing:2px}
     .cat-panel-row{grid-template-columns:1fr}
@@ -1124,10 +1160,26 @@ body { top: 0 !important; }
 <?php endif; ?>
 
 <header class="kol-header">
-<div class="container">
-<h1>সংবাদ সংকলন</h1>
-<div class="tagline">Truthy &amp; Trusted News Portal</div>
-</div>
+    <div class="container">
+        <?php if ($hasFestivalLogo): ?>
+        <!-- Pendulum Hanging Logo (Shows only if data exists from admin) -->
+        <div class="logo-pendulum">
+            <div class="pendulum-string"></div>
+            <div class="logo-box">
+                <?php if (!empty($festivalLogoImg)): ?>
+                    <img src="<?= htmlspecialchars($festivalLogoImg) ?>" alt="Bengali Festival Wish" class="festival-logo-img">
+                <?php elseif (!empty($festivalLogoText)): ?>
+                    <div class="festival-logo-text"><?= htmlspecialchars($festivalLogoText) ?></div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+        
+        <div class="header-content <?= $hasFestivalLogo ? 'has-logo' : 'no-logo' ?>">
+            <h1>সংবাদ সংকলন</h1>
+            <div class="tagline">Truthy &amp; Trusted News Portal</div>
+        </div>
+    </div>
 </header>
 
 <?php if (!empty($adHeaderBanner)) echo $adHeaderBanner; ?>
@@ -1373,7 +1425,7 @@ body { top: 0 !important; }
     function($matches) {
         $tweet_id = $matches[1];
         $embed_url = 'https://platform.twitter.com/embed/Tweet.html?id=' . $tweet_id;
-        return '<div class="twitter-embed-wrapper"><iframe src="' . $embed_url . '" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
+        return '<div class="twitter-embed-wrapper"><iframe src="' . $embed_url + '" frameborder="0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
     },
     $content
 );
@@ -1915,69 +1967,27 @@ function googleTranslateElementInit() {
       // List of NSE/BSE Trading Holidays (2024 to 2028)
       var marketHolidays = [
         // 2024 Holidays
-        "2024-01-26", // Republic Day
-        "2024-03-25", // Holi
-        "2024-03-29", // Good Friday
-        "2024-04-11", // Eid al-Fitr
-        "2024-04-17", // Ram Navami
-        "2024-04-23", // Mahavir Jayanti
-        "2024-05-01", // Maharashtra Day
-        "2024-05-23", // Buddha Purnima
-        "2024-06-17", // Bakrid
-        "2024-07-17", // Muharram
-        "2024-08-15", // Independence Day
-        "2024-10-02", // Gandhi Jayanti
-        "2024-11-01", // Diwali
-        "2024-11-15", // Guru Nanak Jayanti
-        "2024-12-25", // Christmas
+        "2024-01-26", "2024-03-25", "2024-03-29", "2024-04-11", "2024-04-17",
+        "2024-04-23", "2024-05-01", "2024-05-23", "2024-06-17", "2024-07-17",
+        "2024-08-15", "2024-10-02", "2024-11-01", "2024-11-15", "2024-12-25",
         
         // 2025 Holidays
-        "2025-02-26", // Mahashivratri
-        "2025-03-14", // Holi
-        "2025-03-31", // Eid al-Fitr
-        "2025-04-10", // Mahavir Jayanti
-        "2025-04-14", // Dr. Ambedkar Jayanti/Ram Navami
-        "2025-04-18", // Good Friday
-        "2025-05-01", // Maharashtra Day
-        "2025-08-15", // Independence Day
-        "2025-08-16", // Muharram
-        "2025-10-02", // Gandhi Jayanti
-        "2025-10-21", // Diwali
-        "2025-11-05", // Bhai Dooj
-        "2025-12-25", // Christmas
+        "2025-02-26", "2025-03-14", "2025-03-31", "2025-04-10", "2025-04-14",
+        "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-16", "2025-10-02",
+        "2025-10-21", "2025-11-05", "2025-12-25",
         
         // 2026 Holidays
-        "2026-01-26", // Republic Day
-        "2026-02-16", // Mahashivratri
-        "2026-03-04", // Holi
-        "2026-03-26", // Good Friday (Approx)
-        "2026-04-02", // Ram Navami
-        "2026-04-10", // Mahavir Jayanti
-        "2026-05-01", // Maharashtra Day
-        "2026-08-15", // Independence Day
-        "2026-10-02", // Gandhi Jayanti
-        "2026-11-10", // Diwali
-        "2026-12-25", // Christmas
+        "2026-01-26", "2026-02-16", "2026-03-04", "2026-03-26", "2026-04-02",
+        "2026-04-10", "2026-05-01", "2026-08-15", "2026-10-02", "2026-11-10",
+        "2026-12-25",
         
         // 2027 Holidays
-        "2027-01-26", // Republic Day
-        "2027-03-24", // Holi
-        "2027-03-26", // Good Friday
-        "2027-05-01", // Maharashtra Day
-        "2027-08-15", // Independence Day
-        "2027-10-02", // Gandhi Jayanti
-        "2027-10-30", // Diwali
-        "2027-12-25", // Christmas
+        "2027-01-26", "2027-03-24", "2027-03-26", "2027-05-01", "2027-08-15",
+        "2027-10-02", "2027-10-30", "2027-12-25",
         
         // 2028 Holidays
-        "2028-01-26", // Republic Day
-        "2028-03-13", // Holi
-        "2028-03-31", // Good Friday
-        "2028-05-01", // Maharashtra Day
-        "2028-08-15", // Independence Day
-        "2028-10-02", // Gandhi Jayanti
-        "2028-10-18", // Diwali
-        "2028-12-25"  // Christmas
+        "2028-01-26", "2028-03-13", "2028-03-31", "2028-05-01", "2028-08-15",
+        "2028-10-02", "2028-10-18", "2028-12-25"
       ];
 
       // Check if today is a holiday
@@ -2096,7 +2106,6 @@ if(langBtn && langDropdown) {
 }
 
 function changeLanguage(lang) {
-    // Clear existing cookie thoroughly
     document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
     
     if (lang !== 'bn') {
@@ -2105,10 +2114,8 @@ function changeLanguage(lang) {
         var expires = "; expires=" + date.toUTCString();
         var cookieValue = "/bn/" + lang;
         
-        // Set cookie for current domain
         document.cookie = "googtrans=" + cookieValue + expires + "; path=/";
         
-        // Set cookie for root domain (e.g., .example.com) if applicable
         var parts = window.location.hostname.split('.');
         if (parts.length > 2) {
             var rootDomain = parts.slice(-2).join('.');
@@ -2116,7 +2123,6 @@ function changeLanguage(lang) {
         }
     }
     
-    // Force reload from server, bypassing cache
     window.location.reload(true); 
 }
 
@@ -2131,18 +2137,10 @@ function loadVoices() {
     var voices = window.speechSynthesis.getVoices();
     if (voices.length === 0) return;
 
-    bnVoice = voices.find(function(v) {
-            return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female');
-        })
-        || voices.find(function(v) {
-            return v.lang.toLowerCase() === 'bn-in';
-        })
-        || voices.find(function(v) {
-            return v.lang.toLowerCase().startsWith('bn') && v.name.toLowerCase().includes('female');
-        })
-        || voices.find(function(v) {
-            return v.lang.toLowerCase().startsWith('bn');
-        });
+    bnVoice = voices.find(function(v) { return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female'); })
+        || voices.find(function(v) { return v.lang.toLowerCase() === 'bn-in'; })
+        || voices.find(function(v) { return v.lang.toLowerCase().startsWith('bn') && v.name.toLowerCase().includes('female'); })
+        || voices.find(function(v) { return v.lang.toLowerCase().startsWith('bn'); });
 }
 
 if ('speechSynthesis' in window) {

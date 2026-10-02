@@ -986,7 +986,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -994,7 +994,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>

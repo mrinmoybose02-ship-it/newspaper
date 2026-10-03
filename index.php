@@ -6,10 +6,6 @@ date_default_timezone_set('Asia/Kolkata');
 
 // Determine current language for UI display
  $current_lang = 'বাংলা';
-if(isset($_COOKIE['googtrans'])) {
-    if(strpos($_COOKIE['googtrans'], '/bn/en') !== false) $current_lang = 'English';
-    elseif(strpos($_COOKIE['googtrans'], '/bn/hi') !== false) $current_lang = 'हिन्दी';
-}
 
 // রিয়েল-টাইম নিউজ আনার জন্য API
 if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
@@ -445,7 +441,7 @@ if ($page === 'single') {
     $stmt = $pdo->prepare($gridSql . " LIMIT " . NEWS_PER_PAGE . " OFFSET " . $offset); $stmt->execute($params);
     $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
     if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth) {
-        $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE . " OFFSET 0"); $stmt->execute($params);
+        $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE + " OFFSET 0"); $stmt->execute($params);
         $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
         $stmt = $pdo->prepare($countSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
         $totalPages = max(1, ceil($totalGrid / NEWS_PER_PAGE));
@@ -1045,7 +1041,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     border-radius: 50%;
     cursor: pointer;
     display: flex;
-    align-items: center;
+    align-items:center;
     justify-content: center;
     font-size: 18px;
     transition: all 0.2s;
@@ -1139,13 +1135,11 @@ body { top: 0 !important; }
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
-    <!-- Language Switcher -->
+    <!-- Language Switcher (Bengali Only) -->
     <div class="lang-switcher">
-        <button class="lang-btn" id="langBtn"><i class="fas fa-globe"></i> <span id="currentLangText"><?= $current_lang ?></span> <i class="fas fa-chevron-down"></i></button>
-        <div class="lang-dropdown" id="langDropdown">
+        <button class="lang-btn" id="langBtn"><i class="fas fa-globe"></i> <span id="currentLangText"><?= $current_lang ?></span></button>
+        <div class="lang-dropdown" id="langDropdown" style="display:none;">
             <a href="#" data-lang="bn">বাংলা</a>
-            <a href="#" data-lang="en">English</a>
-            <a href="#" data-lang="hi">हिन्दी</a>
         </div>
     </div>
     <a href="#" class="kol-si si-fb" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
@@ -1840,7 +1834,7 @@ document.addEventListener('click',function(e){
 function googleTranslateElementInit() {
     new google.translate.TranslateElement({
         pageLanguage: 'bn',
-        includedLanguages: 'en,hi',
+        includedLanguages: 'bn',
         layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
         autoDisplay: false
     }, 'google_translate_element');
@@ -2086,50 +2080,13 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// Language Switcher Logic
+// Language Switcher Logic (Bengali Only - effectively disabled dropdown)
 var langBtn = document.getElementById('langBtn');
-var langDropdown = document.getElementById('langDropdown');
-if(langBtn && langDropdown) {
+if(langBtn) {
     langBtn.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        langBtn.classList.toggle('open');
-        langDropdown.classList.toggle('open');
     });
-    document.addEventListener('click', function(e) {
-        if(!e.target.closest('.lang-switcher')) {
-            langBtn.classList.remove('open');
-            langDropdown.classList.remove('open');
-        }
-    });
-    document.querySelectorAll('.lang-dropdown a').forEach(function(link) {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            var lang = this.getAttribute('data-lang');
-            changeLanguage(lang);
-        });
-    });
-}
-
-function changeLanguage(lang) {
-    document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
-    
-    if (lang !== 'bn') {
-        var date = new Date();
-        date.setTime(date.getTime() + (365*24*60*60*1000));
-        var expires = "; expires=" + date.toUTCString();
-        var cookieValue = "/bn/" + lang;
-        
-        document.cookie = "googtrans=" + cookieValue + expires + "; path=/";
-        
-        var parts = window.location.hostname.split('.');
-        if (parts.length > 2) {
-            var rootDomain = parts.slice(-2).join('.');
-            document.cookie = "googtrans=" + cookieValue + expires + "; path=/; domain=." + rootDomain;
-        }
-    }
-    
-    window.location.reload(true); 
 }
 
 // ====== FIXED TEXT-TO-SPEECH (TTS) FUNCTIONALITY ======

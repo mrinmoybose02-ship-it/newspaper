@@ -4,6 +4,13 @@ require_once __DIR__ . '/config.php';
 // Set timezone to IST (Indian Standard Time)
 date_default_timezone_set('Asia/Kolkata');
 
+// Determine current language for UI display
+ $current_lang = 'বাংলা';
+if(isset($_COOKIE['googtrans'])) {
+    if(strpos($_COOKIE['googtrans'], '/bn/en') !== false) $current_lang = 'English';
+    elseif(strpos($_COOKIE['googtrans'], '/bn/hi') !== false) $current_lang = 'हिन्दी';
+}
+
 // রিয়েল-টাইম নিউজ আনার জন্য API
 if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
     header('Content-Type: application/json; charset=utf-8');
@@ -138,7 +145,7 @@ if (!function_exists('videoEmbedUrl')) {
     function videoEmbedUrl($url) {
         if (empty($url)) return '';
         if (preg_match('#(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})#', $url, $m)) {
-            return 'https://www.youtube.com/embed/' . $m[1] + '?rel=0&modestbranding=1';
+            return 'https://www.youtube.com/embed/' . $m[1] . '?rel=0&modestbranding=1';
         }
         if (preg_match('#vimeo\.com/(\d+)#', $url, $m)) {
             return 'https://player.vimeo.com/video/' . $m[1];
@@ -614,6 +621,17 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-login{font-size:11px;color:rgba(255,255,255,.7);padding:4px 10px;border:1px solid rgba(255,255,255,.2);border-radius:3px;transition:all .2s}
 .kol-login:hover{color:#fff;background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3)}
 
+.lang-switcher{position:relative;margin-right:8px}
+.lang-btn{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:none;transition:all .2s;font-family:inherit}
+.lang-btn:hover{background:rgba(255,255,255,.2)}
+.lang-btn i.fa-globe{font-size:11px}
+.lang-btn i.fa-chevron-down{font-size:7px;transition:transform .2s}
+.lang-btn.open i.fa-chevron-down{transform:rotate(180deg)}
+.lang-dropdown{display:none;position:absolute;top:100%;right:0;margin-top:5px;background:#fff;border-radius:5px;box-shadow:0 5px 15px rgba(0,0,0,.2);overflow:hidden;z-index:1000;min-width:100px}
+.lang-dropdown.open{display:block}
+.lang-dropdown a{display:block;padding:8px 15px;font-size:12px;color:#333;text-decoration:none;transition:background .2s}
+.lang-dropdown a:hover{background:#f0f0f0}
+
 .breaking-bar{background:var(--red-dark);color:#fff;overflow:hidden;white-space:nowrap;height:38px;display:flex;align-items:center;position:relative}
 .breaking-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:130px;background:linear-gradient(to right,var(--red-dark) 0%,var(--red-dark) 60%,rgba(127,0,0,0.6) 80%,transparent 100%);z-index:3;pointer-events:none}
 .breaking-bar::after{content:'';position:absolute;right:0;top:0;bottom:0;width:50px;background:linear-gradient(to left,var(--red-dark) 0%,transparent 100%);z-index:3;pointer-events:none}
@@ -627,7 +645,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-header{text-align:center;padding:30px 0 15px;border-bottom:3px solid var(--red);background:#fff;position:relative;overflow:visible}
 .kol-header .container{position:relative;display:flex;align-items:center;justify-content:center;min-height:120px}
 .header-content{position:relative;z-index:1;text-align:center;flex:1}
-.header-content.has-logo{padding-left:200px}
+.header-content.has-logo{padding-left:200px /* Pushes text right to prevent overlap */}
 .header-content.no-logo{padding-left:0}
 .kol-header h1{font-family:'Noto Serif Bengali',serif;font-weight:900;font-size:clamp(28px,5vw,48px);color:var(--red);letter-spacing:3px;line-height:1.1}
 .kol-header .tagline{font-size:12px;color:var(--muted);letter-spacing:4px;text-transform:uppercase;margin-top:2px}
@@ -1043,6 +1061,16 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     color: #333;
 }
 
+/* ====== HIDE GOOGLE TRANSLATE TOP BAR & LOGO ====== */
+body { top: 0 !important; }
+.goog-te-banner-frame.skiptranslate { display: none !important; }
+.goog-te-gadget { font-size: 0 !important; line-height: 0 !important; height: 0 !important; overflow: hidden !important; }
+.goog-logo-link, .goog-te-balloon-frame { display: none !important; }
+.skiptranslate.goog-te-gadget { height: 0 !important; white-space: nowrap; }
+#goog-gt-tt { display: none !important; }
+.goog-tooltip { display: none !important; }
+.goog-tooltip:hover { display: none !important; }
+
 /* ====== RESPONSIVE DESIGN FOR SMARTPHONS ====== */
 @media(max-width:1024px){
     .kol-layout{grid-template-columns:1fr}
@@ -1100,6 +1128,9 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 </style>
 </head>
 <body>
+<!-- Google Translate Hidden Element -->
+<div id="google_translate_element" style="display:none;"></div>
+<iframe id="google_esf" name="google_esf" src="https://googleads.g.doubleclick.net/pagead/html/r20260929/r20190131/zrt_lookup_fy2021.html" style="display: none;"></iframe>
 
 <div class="kol-topbar">
 <div class="container">
@@ -1108,6 +1139,15 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
 </div>
 <div class="tr">
+    <!-- Language Switcher -->
+    <div class="lang-switcher">
+        <button class="lang-btn" id="langBtn"><i class="fas fa-globe"></i> <span id="currentLangText"><?= $current_lang ?></span> <i class="fas fa-chevron-down"></i></button>
+        <div class="lang-dropdown" id="langDropdown">
+            <a href="#" data-lang="bn">বাংলা</a>
+            <a href="#" data-lang="en">English</a>
+            <a href="#" data-lang="hi">हिन्दी</a>
+        </div>
+    </div>
     <a href="#" class="kol-si si-fb" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
     <a href="#" class="kol-si si-tw" aria-label="Twitter"><i class="fab fa-x-twitter"></i></a>
     <a href="#" class="kol-si si-yt" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
@@ -1795,8 +1835,22 @@ document.addEventListener('click',function(e){
 </script>
 <?php endif; ?>
 
+<!-- Google Translate Script -->
+<script type="text/javascript">
+function googleTranslateElementInit() {
+    new google.translate.TranslateElement({
+        pageLanguage: 'bn',
+        includedLanguages: 'en,hi',
+        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+        autoDisplay: false
+    }, 'google_translate_element');
+}
+</script>
+<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
 <!-- ================================================== -->
 <!-- LIVE CLOCK & DATE UPDATE SCRIPT                  -->
+<!-- JS Clock added to completely remove white bg      -->
 <!-- ================================================== -->
 <script>
 (function () {
@@ -1894,6 +1948,7 @@ document.addEventListener('click',function(e){
 
 <!-- ================================================== -->
 <!-- NSE MARKET HOURS CHECK - Auto Live/Closed Badge   -->
+<!-- UPDATED: Included Indian Stock Market Holidays    -->
 <!-- ================================================== -->
 <script>
 (function () {
@@ -2030,6 +2085,52 @@ document.addEventListener('click',function(e){
 });
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
+
+// Language Switcher Logic
+var langBtn = document.getElementById('langBtn');
+var langDropdown = document.getElementById('langDropdown');
+if(langBtn && langDropdown) {
+    langBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        langBtn.classList.toggle('open');
+        langDropdown.classList.toggle('open');
+    });
+    document.addEventListener('click', function(e) {
+        if(!e.target.closest('.lang-switcher')) {
+            langBtn.classList.remove('open');
+            langDropdown.classList.remove('open');
+        }
+    });
+    document.querySelectorAll('.lang-dropdown a').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            var lang = this.getAttribute('data-lang');
+            changeLanguage(lang);
+        });
+    });
+}
+
+function changeLanguage(lang) {
+    document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+    
+    if (lang !== 'bn') {
+        var date = new Date();
+        date.setTime(date.getTime() + (365*24*60*60*1000));
+        var expires = "; expires=" + date.toUTCString();
+        var cookieValue = "/bn/" + lang;
+        
+        document.cookie = "googtrans=" + cookieValue + expires + "; path=/";
+        
+        var parts = window.location.hostname.split('.');
+        if (parts.length > 2) {
+            var rootDomain = parts.slice(-2).join('.');
+            document.cookie = "googtrans=" + cookieValue + expires + "; path=/; domain=." + rootDomain;
+        }
+    }
+    
+    window.location.reload(true); 
+}
 
 // ====== FIXED TEXT-TO-SPEECH (TTS) FUNCTIONALITY ======
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');

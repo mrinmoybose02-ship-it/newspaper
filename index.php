@@ -293,7 +293,9 @@ try {
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
  $allNewsData = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll()));
- $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll());
+
+// Breaking News: Valid for 30 days only
+ $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY created_at DESC")->fetchAll());
 
  $latestNewsId = !empty($allNewsData[0]['id']) ? (int)$allNewsData[0]['id'] : 0;
 
@@ -441,7 +443,7 @@ if ($page === 'single') {
     $stmt = $pdo->prepare($gridSql . " LIMIT " . NEWS_PER_PAGE . " OFFSET " . $offset); $stmt->execute($params);
     $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
     if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth) {
-        $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE + " OFFSET 0"); $stmt->execute($params);
+        $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE . " OFFSET 0"); $stmt->execute($params);
         $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
         $stmt = $pdo->prepare($countSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
         $totalPages = max(1, ceil($totalGrid / NEWS_PER_PAGE));
@@ -1363,7 +1365,7 @@ body { top: 0 !important; }
 <div style="margin-bottom:10px;">
 <a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars($singleNews['category']) ?></a>
 <?php if (!empty($singleNews['subcategory'])): ?>
-<a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)$singleNews['subcategory_id'] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
+<a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)[$singleNews['subcategory_id']] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
 <?php endif; ?>
 </div>
 <h1><?= htmlspecialchars($singleNews['title']) ?></h1>

@@ -11,11 +11,19 @@ try {
     $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `is_approved` TINYINT(1) NOT NULL DEFAULT 1");
     $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `permissions` TEXT NULL DEFAULT '{}'");
     $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `role` VARCHAR(50) NULL DEFAULT 'viewer'");
+    
+    // Security: Ensure username is Unique in Database level to prevent duplicate IDs
+    try {
+        $pdo->exec("ALTER TABLE `users` ADD UNIQUE INDEX `unique_username` (`username`)");
+    } catch (PDOException $e) {
+        // Ignore if index already exists
+    }
 } catch (PDOException $e) {
     // Ignore if they already exist
 }
 
- $msg = ''; $msgType = '';
+ $msg = ''; 
+ $msgType = '';
 
 /* POST হ্যান্ডেল */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -28,13 +36,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $fullName = trim($_POST['new_full_name'] ?? '') ?: 'অ্যাডমিন';
         
         if (empty($username) || empty($rawPass)) { 
-            $msg = 'সব ফিল্ড পূরণ করুন'; $msgType = 'error'; 
+            $msg = 'সব ফিল্ড পূরণ করুন'; 
+            $msgType = 'error'; 
         } else {
-            $chk = $pdo->prepare("SELECT id FROM users WHERE username = ?"); 
+            // Case-Insensitive Check: "Admin" and "admin" will be treated as same
+            $chk = $pdo->prepare("SELECT id FROM users WHERE LOWER(username) = LOWER(?)"); 
             $chk->execute([$username]);
             
             if ($chk->fetch()) { 
-                $msg = "'{$username}' ইতোমধ্যে আছে"; $msgType = 'error'; 
+                $msg = "'{$username}' ইউজারনেমটি ইতোমধ্যে ব্যবহৃত হয়েছে!"; 
+                $msgType = 'error'; 
             } else {
                 // Define role permissions map
                 $rolePermsMap = [
@@ -56,16 +67,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Security: Hash the plain password before saving
                 $password = password_hash($rawPass, PASSWORD_DEFAULT);
 
-                // Save BOTH permissions (as JSON) AND role name
-                $pdo->prepare("INSERT INTO users (username, password, full_name, is_approved, permissions, role) VALUES (?, ?, ?, 0, ?, ?)")->execute([
-                    $username, 
-                    $password, 
-                    $fullName, 
-                    $permJson,        
-                    $selectedRole     
-                ]);
+                try {
+                    // Save BOTH permissions (as JSON) AND role name
+                    $stmt = $pdo->prepare("INSERT INTO users (username, password, full_name, is_approved, permissions, role) VALUES (?, ?, ?, 0, ?, ?)");
+                    $stmt->execute([
+                        $username, 
+                        $password, 
+                        $fullName, 
+                        $permJson,        
+                        $selectedRole     
+                    ]);
 
-                $msg = "নতুন ইউজার '{$username}' তৈরি হয়েছে! অনুমোদনের অপেক্ষায়।"; $msgType = 'success';
+                    $msg = "নতুন ইউজার '{$username}' তৈরি হয়েছে! অনুমোদনের অপেক্ষায়।"; 
+                    $msgType = 'success';
+                    
+                } catch (PDOException $e) {
+                    // Catch Database Level Duplicate Entry Error (SQLSTATE 23000)
+                    if ($e->getCode() == 23000 || strpos($e->getMessage(), 'Duplicate entry') !== false) {
+                        $msg = "এই ইউজারনেমটি ইতোমধ্যে ব্যবহৃত হচ্ছে! অন্য একটি ইউজারনেম বেছে নিন।";
+                    } else {
+                        $msg = "ডাটাবেস ত্রুটি: " . $e->getMessage();
+                    }
+                    $msgType = 'error';
+                }
             }
         }
     }

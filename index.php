@@ -11,7 +11,7 @@ date_default_timezone_set('Asia/Kolkata');
 if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
     header('Content-Type: application/json; charset=utf-8');
     try {
-        $stmt = $pdo->prepare("SELECT id, title, slug, image FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 1");
+        $stmt = $pdo->prepare("SELECT id, title, slug, image FROM news WHERE status='published' AND created_at <= NOW() ORDER BY created_at DESC LIMIT 1");
         $stmt->execute();
         $latest = $stmt->fetch(PDO::FETCH_ASSOC);
         echo json_encode($latest ?: ["error" => "no_news"]);
@@ -31,7 +31,7 @@ if (isset($_GET['ajax_check_new_news'])) {
                                LEFT JOIN categories c ON n.category_id = c.id 
                                LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id 
                                LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id 
-                               WHERE n.status = 'published' AND n.id > ? 
+                               WHERE n.status = 'published' AND n.id > ? AND n.created_at <= NOW() 
                                ORDER BY n.id ASC");
         $stmt->execute([$last_id]);
         $newNewsList = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -116,7 +116,7 @@ if (!function_exists('timeAgo')) {
         if ($diff < 3600) { $m = (int)($diff / 60); return str_replace($en, $bn, $m) . ' মিনিট আগে'; }
         if ($diff < 86400) { $h = (int)($diff / 3600); return str_replace($en, $bn, $h) . ' ঘণ্টা আগে'; }
         if ($diff < 2592000) { $d2 = (int)($diff / 86400); return str_replace($en, $bn, $d2) . ' দিন আগে'; }
-        if ($diff < 31536000) { $mo = (int)($diff / 2592000); return str_replace($en, $bn, $mo) . ' মাস আগে'; }
+        if ($diff < 31536000) { $mo = (int)($diff / 2592000); return str_replace($en, $bn, $mo) + ' মাস আগে'; }
         $y = (int)($diff / 31536000); return str_replace($en, $bn, $y) . ' বছর আগে';
     }
 }
@@ -210,7 +210,7 @@ if (!function_exists('renderAd')) {
         $html .= '<div class="ad-label">- Sponsored -</div>';
         if ($ad['ad_type'] === 'image' && !empty($ad['image'])) {
             $link = !empty($ad['link_url']) ? $ad['link_url'] : '#';
-            $html .= '<a href="' . htmlspecialchars($link) . '" target="_blank" rel="nofollow sponsored">';
+            $html += '<a href="' . htmlspecialchars($link) . '" target="_blank" rel="nofollow sponsored">';
             $html .= '<img src="' . htmlspecialchars($ad['image']) . '" alt="' . htmlspecialchars($ad['title']) . '" style="max-width:100%;height:auto;border-radius:8px;" loading="lazy">';
             $html .= '</a>';
         } elseif ($ad['ad_type'] === 'code' && !empty($ad['ad_code'])) {
@@ -249,7 +249,7 @@ if (in_array($page, $otherAdminPages)) {
 
 try { $pdo->exec("DELETE t1 FROM categories t1 INNER JOIN categories t2 WHERE t1.name = t2.name AND t1.id > t2.id"); } catch(PDOException $e) {}
 
- $defaultCategories = ['প্রধান খবর','জাতীয়','রাজনীতি','আন্তর্জাতিক','অর্থনীতি','খেলাধুলা','বিনোদন','শিক্ষা','প্রযুক্তি','স্বাস্থ্য','বিশেষ সংবাদ','লাইফস্টাইল','ধর্ম','সংস্কৃতি','মতামত','ক্রাইম','কৃষি','ভ্রমণ','চাকরি'];
+ $defaultCategories = ['প্রধান খবর','জাতীয়','রাজনীতি','আন্তর্জাতিক','অর্থনীতি','খেলাধুলা','বিনোদন','শিক্ষা','প্রযুক্তি','স্বাস্থ্য','বিশেষ সংবাদ','লাইফস্টাইল','ধর্ম','সংস্কৃতি','মতামত','ক্রাইম','কৃষি','ভ্রমণ','চাকরি','আর্কাইভ'];
  $existingCats = $pdo->query("SELECT name FROM categories GROUP BY name ORDER BY MIN(id) ASC")->fetchAll(PDO::FETCH_COLUMN);
 foreach ($defaultCategories as $cat) {
     if (!in_array($cat, $existingCats)) {
@@ -265,6 +265,18 @@ try { $pdo->exec("ALTER TABLE news ADD COLUMN tags VARCHAR(500) DEFAULT '' AFTER
  $pdo->exec("CREATE TABLE IF NOT EXISTS subcategories (id INT AUTO_INCREMENT PRIMARY KEY,category_id INT NOT NULL,name VARCHAR(255) NOT NULL,slug VARCHAR(255) NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,INDEX idx_category (category_id),INDEX idx_slug (slug)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
  $pdo->exec("CREATE TABLE IF NOT EXISTS news_subcategories (news_id INT NOT NULL,subcategory_id INT NOT NULL,PRIMARY KEY (news_id, subcategory_id),INDEX idx_sub (subcategory_id),INDEX idx_news (news_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+// ====== AUTO-MOVE OLD NEWS TO ARCHIVE CATEGORY ======
+try {
+    $stmtArchCat = $pdo->prepare("SELECT id FROM categories WHERE name = 'আর্কাইভ' LIMIT 1");
+    $stmtArchCat->execute();
+    $archiveCatId = $stmtArchCat->fetchColumn();
+    if ($archiveCatId) {
+        $stmtMove = $pdo->prepare("UPDATE news SET category_id = ? WHERE created_at < (NOW() - INTERVAL 30 DAY) AND created_at <= NOW() AND status = 'published' AND category_id != ?");
+        $stmtMove->execute([$archiveCatId, $archiveCatId]);
+    }
+} catch (Exception $e) {}
+// =====================================================
+
  $currentCat = $_GET['cat'] ?? '';
  $searchQuery = trim($_GET['q'] ?? '');
  $currentSub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
@@ -278,12 +290,17 @@ if ($currentSub) {
     if ($currentSubData) { $currentCat = $currentSubData['category_name']; } else { $currentSub = 0; }
 }
 
+// Date Limit Logic: 30 days limit, bypassed ONLY for Archive Category. NEVER show future-dated news.
  $show_all_news = isset($_COOKIE['show_all_news']) && $_COOKIE['show_all_news'] === 'yes';
- $dateLimitSQL = $show_all_news ? "" : " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+ $is_archive_cat = ($currentCat === 'আর্কাইভ');
+ $futureLimit = " AND n.created_at <= NOW()";
+ $pastLimit = ($show_all_news || $is_archive_cat) ? "" : " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+ $dateLimitSQL = $futureLimit . $pastLimit;
 
+// Archive Dropdown: Show only months that have data within the allowed limits
  $archiveDates = [];
 try {
-    $archStmt = $pdo->query("SELECT YEAR(created_at) as y, MONTH(created_at) as m FROM news WHERE status = 'published' GROUP BY y, m ORDER BY y DESC, m DESC");
+    $archStmt = $pdo->query("SELECT YEAR(created_at) as y, MONTH(created_at) as m FROM news WHERE status = 'published'{$dateLimitSQL} GROUP BY y, m ORDER BY y DESC, m DESC");
     $archiveDates = $archStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
  $bnMonths = [1=>'জানুয়ারি', 2=>'ফেব্রুয়ারি', 3=>'মার্চ', 4=>'এপ্রিল', 5=>'মে', 6=>'জুন', 7=>'জুলাই', 8=>'আগস্ট', 9=>'সেপ্টেম্বর', 10=>'অক্টোবর', 11=>'নভেম্বর', 12=>'ডিসেম্বর'];
@@ -294,8 +311,8 @@ foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $ca
 
  $allNewsData = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll()));
 
-// Breaking News: Valid for 30 days only
- $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY created_at DESC")->fetchAll());
+// Breaking News: Valid for 30 days only, no future dates
+ $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= (NOW() - INTERVAL 30 DAY) AND created_at <= NOW() ORDER BY created_at DESC")->fetchAll());
 
  $latestNewsId = !empty($allNewsData[0]['id']) ? (int)$allNewsData[0]['id'] : 0;
 
@@ -389,7 +406,7 @@ try {
  $homeVideos = array_slice($videos, 0, 6);
 
 if ($page === 'single') {
-    $stmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id = ? AND n.status = 'published'");
+    $stmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id = ? AND n.status = 'published' AND n.created_at <= NOW()");
     $stmt->execute([(int)($_GET['id'] ?? 0)]);
     if ($row = $stmt->fetch()) {
         $row = safeMapNewsKeys($row);
@@ -417,15 +434,15 @@ if ($page === 'single') {
     if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
     if ($currentSub) { $sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $countSql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $params[] = $currentSub; }
 
+    // Apply Year/Month filter, then ALWAYS apply the date limits (no future, 30 days past unless archive)
     if ($archYear) {
         $sql .= " AND YEAR(n.created_at) = ?"; $countSql .= " AND YEAR(n.created_at) = ?"; $params[] = $archYear;
         if ($archMonth) {
             $sql .= " AND MONTH(n.created_at) = ?"; $countSql .= " AND MONTH(n.created_at) = ?"; $params[] = $archMonth;
         }
-    } else {
-        $sql .= $dateLimitSQL;
-        $countSql .= $dateLimitSQL;
     }
+    $sql .= $dateLimitSQL;
+    $countSql .= $dateLimitSQL;
 
     $gridSql = $sql . " ORDER BY n.created_at DESC";
     $gridCountSql = $countSql;
@@ -460,7 +477,7 @@ if ($archYear) $pagBase .= '&y=' . $archYear;
 if ($archMonth) $pagBase .= '&m=' . $archMonth;
  $paginationHTML = renderPagination($currentPage, $totalPages, $pagBase);
 
- $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
+ $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase','আর্কাইভ'=>'fa-clock-rotate-left'];
 
  $bnDays = ['Sunday'=>'রবিবার','Monday'=>'সোমবার','Tuesday'=>'মঙ্গলবার','Wednesday'=>'বুধবার','Thursday'=>'বৃহস্পতিবার','Friday'=>'শুক্রবার','Saturday'=>'শনিবার'];
 
@@ -925,7 +942,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     color: #fff;
     font-size: 9px;
     font-weight: 800;
-    padding: 2px 6px;
+    padding: 2px 6px,
     border-radius: 3px;
     margin-left: 6px;
     letter-spacing: 0.5px;
@@ -1365,7 +1382,7 @@ body { top: 0 !important; }
 <div style="margin-bottom:10px;">
 <a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars($singleNews['category']) ?></a>
 <?php if (!empty($singleNews['subcategory'])): ?>
-<a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)[$singleNews['subcategory_id']] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
+<a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)$singleNews['subcategory_id'] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
 <?php endif; ?>
 </div>
 <h1><?= htmlspecialchars($singleNews['title']) ?></h1>

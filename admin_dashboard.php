@@ -252,7 +252,8 @@ try { $totalAds = (int)$pdo->query("SELECT COUNT(*) FROM advertisements")->fetch
 try { $activeAds = (int)$pdo->query("SELECT COUNT(*) FROM advertisements WHERE is_active=1")->fetchColumn(); } catch (Exception $e) {}
 try { $ast = $pdo->query("SELECT COALESCE(SUM(clicks),0) as tc, COALESCE(SUM(impressions),0) as ti FROM advertisements")->fetch(); $totalClicks = (int)$ast["tc"]; $totalImpressions = (int)$ast["ti"]; } catch (Exception $e) {}
 
-try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,n.updated_at,c.name as category_name,GROUP_CONCAT(DISTINCT sc.name SEPARATOR ', ') as subcategory_name FROM news n LEFT JOIN categories c ON n.category_id=c.id LEFT JOIN news_subcategories ns ON n.id=ns.news_id LEFT JOIN subcategories sc ON ns.subcategory_id=sc.id WHERE n.created_at >= (NOW() - INTERVAL 30 DAY) GROUP BY n.id ORDER BY COALESCE(n.updated_at, n.created_at) DESC LIMIT 8")->fetchAll(); } catch (Exception $e) { try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,n.updated_at,c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id=c.id WHERE n.created_at >= (NOW() - INTERVAL 30 DAY) ORDER BY COALESCE(n.updated_at, n.created_at) DESC LIMIT 8")->fetchAll(); } catch (Exception $e2) { $recentNews = []; } }
+// Removed the 30-day restriction from Recent News query
+try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,n.updated_at,c.name as category_name,GROUP_CONCAT(DISTINCT sc.name SEPARATOR ', ') as subcategory_name FROM news n LEFT JOIN categories c ON n.category_id=c.id LEFT JOIN news_subcategories ns ON n.id=ns.news_id LEFT JOIN subcategories sc ON ns.subcategory_id=sc.id GROUP BY n.id ORDER BY n.created_at DESC LIMIT 8")->fetchAll(); } catch (Exception $e) { try { $recentNews = $pdo->query("SELECT n.id,n.title,n.status,n.is_featured,n.created_at,n.updated_at,c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id=c.id ORDER BY n.created_at DESC LIMIT 8")->fetchAll(); } catch (Exception $e2) { $recentNews = []; } }
 try { $catStats = $pdo->query("SELECT c.name, COUNT(n.id) as cnt FROM categories c LEFT JOIN news n ON c.id=n.category_id GROUP BY c.id ORDER BY cnt DESC LIMIT 10")->fetchAll(); } catch (Exception $e) { $catStats = []; }
 
  $allSubcategories = [];
@@ -986,7 +987,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -994,7 +995,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -1462,13 +1463,14 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
     </div>
     <div class="panel-body">
         <p style="font-size: 13px; color: var(--muted); margin-bottom: 15px;">
-            এই সেকশন থেকে লোগো বা টেক্সট অ্যাড করলে ওয়েবসাইটের হেডারে পেন্ডুলাম লোগোটি দেখাবে। এখানে কিছু না দিলে লোগোটি হাইড থাকবে।
+            এখানে লোগো এবং তারিখ সেট করুন। নির্দিষ্ট তারিখে (রাত ১২টা) লোগোটি স্বয়ংক্রিয়ভাবে ওয়েবসাইটে অ্যাক্টিভেট হবে। তারিখ ফাঁকা রাখলে লোগো সব সময় দেখাবে।
         </p>
         <?php
         // Handle form submission
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_festival_logo'])) {
             $festival_logo_img = trim($_POST['festival_logo_img'] ?? '');
             $festival_logo_text = trim($_POST['festival_logo_text'] ?? '');
+            $festival_logo_date = trim($_POST['festival_logo_date'] ?? '');
             
             // Handle file upload
             if (isset($_FILES['festival_logo_file']) && $_FILES['festival_logo_file']['error'] === UPLOAD_ERR_OK) {
@@ -1485,20 +1487,23 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
             try {
                 saveSettings($pdo, [
                     'festival_logo_img' => $festival_logo_img,
-                    'festival_logo_text' => $festival_logo_text
+                    'festival_logo_text' => $festival_logo_text,
+                    'festival_logo_date' => $festival_logo_date
                 ]);
                 echo "<div class='alert alert-success' style='margin-bottom: 15px;'><i class='fas fa-check-circle'></i> Festival Logo settings saved successfully!</div>";
                 $current_logo_img = $festival_logo_img;
                 $current_logo_text = $festival_logo_text;
+                $current_logo_date = $festival_logo_date;
             } catch (Exception $e) {
                 echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Error saving settings: " . $e->getMessage() . "</div>";
             }
         }
 
         // Fetch current settings from database
-        $festivalVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
+        $festivalVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text', 'festival_logo_date']);
         $current_logo_img = $festivalVals['festival_logo_img'] ?? '';
         $current_logo_text = $festivalVals['festival_logo_text'] ?? '';
+        $current_logo_date = $festivalVals['festival_logo_date'] ?? '';
         ?>
 
         <form method="POST" action="" enctype="multipart/form-data">
@@ -1532,6 +1537,13 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
                        value="<?php echo htmlspecialchars($current_logo_text); ?>" 
                        placeholder="শুভেচ্ছা">
                 <small class="form-hint">যদি ছবির বদলে কোনো টেক্সট দেখাতে চান, তবে এখানে লিখুন (ছবির URL ফাঁকা রাখলে এটি কাজ করবে)।</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <label class="form-label" for="festival_logo_date">Festival Activation Date (YYYY-MM-DD):</label>
+                <input type="date" class="form-input" id="festival_logo_date" name="festival_logo_date" 
+                       value="<?php echo htmlspecialchars($current_logo_date); ?>">
+                <small class="form-hint">লোগোটি শুধু এই তারিখেই অটোমেটিক অ্যাক্টিভেট হবে। খালি রাখলে সব সময় দেখাবে।</small>
             </div>
 
             <button type="submit" name="save_festival_logo" class="btn btn-primary">

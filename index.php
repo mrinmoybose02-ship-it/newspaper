@@ -116,7 +116,7 @@ if (!function_exists('timeAgo')) {
         if ($diff < 3600) { $m = (int)($diff / 60); return str_replace($en, $bn, $m) . ' মিনিট আগে'; }
         if ($diff < 86400) { $h = (int)($diff / 3600); return str_replace($en, $bn, $h) . ' ঘণ্টা আগে'; }
         if ($diff < 2592000) { $d2 = (int)($diff / 86400); return str_replace($en, $bn, $d2) . ' দিন আগে'; }
-        if ($diff < 31536000) { $mo = (int)($diff / 2592000); return str_replace($en, $bn, $mo) + ' মাস আগে'; }
+        if ($diff < 31536000) { $mo = (int)($diff / 2592000); return str_replace($en, $bn, $mo) . ' মাস আগে'; }
         $y = (int)($diff / 31536000); return str_replace($en, $bn, $y) . ' বছর আগে';
     }
 }
@@ -210,7 +210,7 @@ if (!function_exists('renderAd')) {
         $html .= '<div class="ad-label">- Sponsored -</div>';
         if ($ad['ad_type'] === 'image' && !empty($ad['image'])) {
             $link = !empty($ad['link_url']) ? $ad['link_url'] : '#';
-            $html += '<a href="' . htmlspecialchars($link) . '" target="_blank" rel="nofollow sponsored">';
+            $html .= '<a href="' . htmlspecialchars($link) . '" target="_blank" rel="nofollow sponsored">';
             $html .= '<img src="' . htmlspecialchars($ad['image']) . '" alt="' . htmlspecialchars($ad['title']) . '" style="max-width:100%;height:auto;border-radius:8px;" loading="lazy">';
             $html .= '</a>';
         } elseif ($ad['ad_type'] === 'code' && !empty($ad['ad_code'])) {
@@ -300,7 +300,7 @@ if ($currentSub) {
 // Archive Dropdown: Show only months that have data within the allowed limits
  $archiveDates = [];
 try {
-    $archStmt = $pdo->query("SELECT YEAR(created_at) as y, MONTH(created_at) as m FROM news WHERE status = 'published'{$dateLimitSQL} GROUP BY y, m ORDER BY y DESC, m DESC");
+    $archStmt = $pdo->query("SELECT YEAR(n.created_at) as y, MONTH(n.created_at) as m FROM news n WHERE n.status = 'published'{$dateLimitSQL} GROUP BY y, m ORDER BY y DESC, m DESC");
     $archiveDates = $archStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
  $bnMonths = [1=>'জানুয়ারি', 2=>'ফেব্রুয়ারি', 3=>'মার্চ', 4=>'এপ্রিল', 5=>'মে', 6=>'জুন', 7=>'জুলাই', 8=>'আগস্ট', 9=>'সেপ্টেম্বর', 10=>'অক্টোবর', 11=>'নভেম্বর', 12=>'ডিসেম্বর'];
@@ -434,7 +434,6 @@ if ($page === 'single') {
     if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
     if ($currentSub) { $sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $countSql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $params[] = $currentSub; }
 
-    // Apply Year/Month filter, then ALWAYS apply the date limits (no future, 30 days past unless archive)
     if ($archYear) {
         $sql .= " AND YEAR(n.created_at) = ?"; $countSql .= " AND YEAR(n.created_at) = ?"; $params[] = $archYear;
         if ($archMonth) {
@@ -587,17 +586,30 @@ if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
 
-// Festival Logo ডেটাবেস থেকে আনার কোড
+// Festival Logo ডেটাবেস থেকে আনার এবং তারিখ অনুযায়ী অটো-অ্যাক্টিভেশন কোড
  $festival_logo_img = '';
  $festival_logo_text = '';
+ $festival_logo_date = '';
 try {
-    $stmt_fest = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ('festival_logo_img', 'festival_logo_text')");
+    $stmt_fest = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ('festival_logo_img', 'festival_logo_text', 'festival_logo_date')");
     $stmt_fest->execute();
     $fest_settings = $stmt_fest->fetchAll(PDO::FETCH_KEY_PAIR);
     $festival_logo_img = $fest_settings['festival_logo_img'] ?? '';
     $festival_logo_text = $fest_settings['festival_logo_text'] ?? '';
-} catch (Exception $e) {
-    // ডেটাবেস এরর হলে সাইলেন্টলি ইগনোর করবে
+    $festival_logo_date = $fest_settings['festival_logo_date'] ?? '';
+} catch (Exception $e) {}
+
+// আজকের তারিখ (IST timezone অনুযায়ী)
+ $today_date = date('Y-m-d');
+
+// লোগো শুধু তখনই দেখাবে যখন ডেট সেট করা থাকবে এবং সেটি আজকের তারিখের সাথে মিলবে। 
+// যদি কোনো ডেট সেট করা না থাকে, কিন্তু লোগো সেট করা থাকে, তখন ফল-ব্যাক হিসেবে দেখাবে।
+ $is_festival_today = (!empty($festival_logo_date) && $festival_logo_date === $today_date);
+ $hasFestivalLogo = (!empty($festival_logo_img) || !empty($festival_logo_text)) && $is_festival_today;
+
+// ফল-ব্যাক: ডেট সেট করা না থাকলেও লোগো দেখাবে (যাতে পুরোনো সিস্টেম ভেঙে না পড়ে)
+if (empty($festival_logo_date) && (!empty($festival_logo_img) || !empty($festival_logo_text))) {
+    $hasFestivalLogo = true;
 }
 ?>
 <!DOCTYPE html>
@@ -942,7 +954,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     color: #fff;
     font-size: 9px;
     font-weight: 800;
-    padding: 2px 6px,
+    padding: 2px 6px;
     border-radius: 3px;
     margin-left: 6px;
     letter-spacing: 0.5px;
@@ -1180,8 +1192,8 @@ body { top: 0 !important; }
 
 <header class="kol-header">
     <div class="container">
-        <?php if (!empty($festival_logo_img) || !empty($festival_logo_text)): ?>
-        <!-- Pendulum Hanging Logo (Shows only if data exists from admin) -->
+        <?php if ($hasFestivalLogo): ?>
+        <!-- Pendulum Hanging Logo (Shows only if festival date matches today) -->
         <div class="logo-pendulum">
             <div class="pendulum-string"></div>
             <div class="logo-box">
@@ -1194,7 +1206,7 @@ body { top: 0 !important; }
         </div>
         <?php endif; ?>
         
-        <div class="header-content <?php echo (!empty($festival_logo_img) || !empty($festival_logo_text)) ? 'has-logo' : 'no-logo'; ?>">
+        <div class="header-content <?= $hasFestivalLogo ? 'has-logo' : 'no-logo'; ?>">
             <h1>সংবাদ সংকলন</h1>
             <div class="tagline">Truthy &amp; Trusted News Portal</div>
         </div>
@@ -2012,7 +2024,7 @@ function googleTranslateElementInit() {
       // Check if today is a holiday
       var isHoliday = marketHolidays.indexOf(dateStr) !== -1;
 
-      var isWeekday = day >= 1 && day <= 5;
+      var isWeekday = day >= 1 and day <= 5;
       
       // Market hours: 9:15 AM to 3:30 PM
       // 9 * 60 + 15 = 555

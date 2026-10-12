@@ -128,7 +128,7 @@ class BengaliFestivalCalendar {
             ['key'=>'durga_nabami_2027','name'=>'মা দুর্গা নবমী','name_en'=>'Durga Nabami','start'=>'2027-10-09','end'=>'2027-10-09','logo'=>'durga_nabami.png','priority'=>95],
             ['key'=>'bijoya_dashami_2027','name'=>'বিজয়া দশমী','name_en'=>'Bijoya Dashami','start'=>'2027-10-10','end'=>'2027-10-10','logo'=>'bijoya_dashami.png','priority'=>98],
             ['key'=>'durga_puja_2027','name'=>'দুর্গাপূজা','name_en'=>'Durga Puja','start'=>'2027-10-08','end'=>'2027-10-10','logo'=>'durga_puja.png','priority'=>100],
-            ['key'=>'lakshmi_puja_2027','name'=>'কোজাগরী লক্ষ্মी পূজা','name_en'=>'Kojagari Lakshmi Puja','start'=>'2027-10-17','end'=>'2027-10-17','logo'=>'lakshmi_puja.png','priority'=>85],
+            ['key'=>'lakshmi_puja_2027','name'=>'কোজাগরী লক্ষ্মী পূজা','name_en'=>'Kojagari Lakshmi Puja','start'=>'2027-10-17','end'=>'2027-10-17','logo'=>'lakshmi_puja.png','priority'=>85],
             ['key'=>'kali_puja_2027','name'=>'কালী পূজা','name_en'=>'Kali Puja','start'=>'2027-10-31','end'=>'2027-10-31','logo'=>'kali_puja.png','priority'=>90],
             ['key'=>'diwali_2027','name'=>'দীপাবলি','name_en'=>'Diwali','start'=>'2027-10-31','end'=>'2027-10-31','logo'=>'diwali.png','priority'=>90],
             ['key'=>'bhatridwitiya_2027','name'=>'ভাই ফোঁটা','name_en'=>'Bhai Phonta','start'=>'2027-11-02','end'=>'2027-11-02','logo'=>'bhai_phonta.png','priority'=>75],
@@ -831,9 +831,6 @@ try { $pendingDateRequestsCount = (int)$pdo->query("SELECT COUNT(*) FROM date_ch
     'কৃষি' => ['icon' => 'fa-seedling', 'color' => '#8BC34A'],
 ];
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','পরিবেশ'=>'fa-leaf','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase'];
-
-// Get all festivals for the dropdown list inside Festival Logo Settings
- $allFestivalsList = BengaliFestivalCalendar::getAllFestivals();
 ?>
 <!DOCTYPE html>
 <html lang="en" dir="ltr">
@@ -1611,62 +1608,79 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
 <!-- Festival Logo Settings Section Start -->
 <div class="panel" style="border-color: var(--purple);">
     <div class="panel-header" style="background: var(--purple); border-bottom: 2px solid var(--accent-dark);">
-        <div class="panel-title" style="color: #fff;"><i class="fas fa-image"></i> Festival Pendulum Logo Settings</div>
+        <div class="panel-title" style="color: #fff;"><i class="fas fa-image"></i> Festival Logo Settings</div>
     </div>
     <div class="panel-body">
         <p style="font-size: 13px; color: var(--muted); margin-bottom: 15px;">
-            এখানে লোগো এবং তারিখ সেট করুন। নির্দিষ্ট তারিখে (রাত ১২টা) লোগোটি স্বয়ংক্রিয়ভাবে ওয়েবসাইটে অ্যাক্টিভেট হবে। তারিখ ফাঁকা রাখলে লোগো সব সময় দেখাবে।
+            <i class="fas fa-circle-info" style="color: var(--purple);"></i> 
+            উৎসবের দিন (রাত ১২:০০ AM) থেকে লোগোটি স্বয়ংক্রিয়ভাবে ওয়েবসাইটে দেখানো শুরু হবে। নিচের ফিল্ডগুলো ব্যবহার করে আপনি শুধুমাত্র কাস্টম লোগো বা টেক্সট আপলোড করতে পারেন। <strong>একবার সেভ করলে এটি সেটিংসে সেভ হয়ে থাকবে, বারবার সেভ করার প্রয়োজন নেই।</strong>
         </p>
         <?php
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_festival_logo'])) {
-            $festival_logo_img = trim($_POST['festival_logo_img'] ?? '');
-            $festival_logo_text = trim($_POST['festival_logo_text'] ?? '');
-            $festival_logo_date = trim($_POST['festival_logo_date'] ?? '');
-            $festival_event_key = trim($_POST['festival_event_key'] ?? '');
             
-            if (isset($_FILES['festival_logo_file']) && $_FILES['festival_logo_file']['error'] === UPLOAD_ERR_OK) {
-                $ur = handleUpload('festival_logo_file');
-                if ($ur !== null) {
-                    if (isset($ur["error"])) {
-                        echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Upload Error: " . $ur["error"] . "</div>";
-                    } else {
-                        $festival_logo_img = $ur["path"];
+            // Handle Reset to Default
+            if (isset($_POST['reset_festival_logo'])) {
+                saveSettings($pdo, [
+                    'festival_logo_img' => '',
+                    'festival_logo_text' => ''
+                ]);
+                echo "<div class='alert alert-success' style='margin-bottom: 15px;'><i class='fas fa-check-circle'></i> Custom settings cleared. Default event logos will be used.</div>";
+            } else {
+                $festival_logo_img = trim($_POST['festival_logo_img'] ?? '');
+                $festival_logo_text = trim($_POST['festival_logo_text'] ?? '');
+                
+                // If new file is uploaded, overwrite the URL path
+                if (isset($_FILES['festival_logo_file']) && $_FILES['festival_logo_file']['error'] === UPLOAD_ERR_OK) {
+                    $ur = handleUpload('festival_logo_file');
+                    if ($ur !== null) {
+                        if (isset($ur["error"])) {
+                            echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Upload Error: " . $ur["error"] . "</div>";
+                        } else {
+                            $festival_logo_img = $ur["path"];
+                        }
                     }
                 }
-            }
-            
-            try {
-                saveSettings($pdo, [
-                    'festival_logo_img' => $festival_logo_img,
-                    'festival_logo_text' => $festival_logo_text,
-                    'festival_logo_date' => $festival_logo_date,
-                    'festival_event_key' => $festival_event_key
-                ]);
-                echo "<div class='alert alert-success' style='margin-bottom: 15px;'><i class='fas fa-check-circle'></i> Festival Logo settings saved successfully!</div>";
-                $current_logo_img = $festival_logo_img;
-                $current_logo_text = $festival_logo_text;
-                $current_logo_date = $festival_logo_date;
-                $current_event_key = $festival_event_key;
-            } catch (Exception $e) {
-                echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Error saving settings: " . $e->getMessage() . "</div>";
+                
+                try {
+                    saveSettings($pdo, [
+                        'festival_logo_img' => $festival_logo_img,
+                        'festival_logo_text' => $festival_logo_text
+                    ]);
+                    echo "<div class='alert alert-success' style='margin-bottom: 15px;'><i class='fas fa-check-circle'></i> Custom Festival Logo settings saved successfully! এটি স্থায়ীভাবে সেভ হয়ে গেছে।</div>";
+                } catch (Exception $e) {
+                    echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Error saving settings: " . $e->getMessage() . "</div>";
+                }
             }
         }
 
-        $festivalVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text', 'festival_logo_date', 'festival_event_key']);
+        // Load saved settings to show in the form
+        $festivalVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
         $current_logo_img = $festivalVals['festival_logo_img'] ?? '';
         $current_logo_text = $festivalVals['festival_logo_text'] ?? '';
-        $current_logo_date = $festivalVals['festival_logo_date'] ?? '';
-        $current_event_key = $festivalVals['festival_event_key'] ?? '';
+        
+        // Check if there's an active festival today
+        $activeFestival = BengaliFestivalCalendar::getActiveFestival();
         ?>
+
+        <?php if ($activeFestival): ?>
+        <div class="alert alert-success" style="margin-bottom: 15px;">
+            <i class="fas fa-calendar-check"></i> <strong>Currently Active Event:</strong> <?= htmlspecialchars($activeFestival['name']) ?> <br>
+            <small>Default Image: <code>uploads/festivals/<?= htmlspecialchars($activeFestival['logo']) ?></code></small>
+        </div>
+        <?php else: ?>
+        <div class="alert alert-warning" style="margin-bottom: 15px;">
+            <i class="fas fa-info-circle"></i> বর্তমানে কোনো ইভেন্ট অ্যাক্টিভ নেই। ক্যালেন্ডার অনুযায়ী নির্দিষ্ট তারিখে অটোমেটিক চালু হবে।
+        </div>
+        <?php endif; ?>
 
         <form method="POST" action="" enctype="multipart/form-data">
             <div class="form-group" style="margin-bottom: 15px;">
-                <label class="form-label" for="festival_logo_file">Upload Festival Logo Image:</label>
+                <label class="form-label" for="festival_logo_file">Upload Custom Festival Logo Image:</label>
                 <div class="img-upload-area <?= !empty($current_logo_img) ? 'has-image' : '' ?>" id="festLogoImgArea" style="max-width: 300px; padding: 15px;">
                     <input type="file" name="festival_logo_file" id="festival_logo_file" accept="image/jpeg,image/png,image/gif/image/webp" style="position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 2;">
                     <?php if (!empty($current_logo_img)): ?>
                         <img src="<?= htmlspecialchars($current_logo_img) ?>" class="img-preview" id="festLogoImgPreview" alt="" style="max-height: 100px;">
-                        <div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div>
+                        <div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Saved Image exists</div>
                     <?php else: ?>
                         <div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>
                         <div class="img-upload-text">Click to select image</div>
@@ -1674,79 +1688,51 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
                         <img src="" class="img-preview" id="festLogoImgPreview" style="display:none" alt="">
                     <?php endif; ?>
                 </div>
-                <small class="form-hint">ছবি আপলোড করলে নিচের URL ফিল্ডটি অটোমেটিক আপডেট হবে। অথবা আপনি নিজেও URL দিতে পারেন।</small>
+                <small class="form-hint">নতুন ছবি আপলোড করলে পুরোনোটির পরিবর্তে এটি সেভ হবে। না চাইলে ফাঁকা রাখুন।</small>
             </div>
 
             <div class="form-group" style="margin-bottom: 15px;">
-                <label class="form-label" for="festival_logo_img">Festival Logo Image URL:</label>
+                <label class="form-label" for="festival_logo_img">Saved Custom Logo Image URL:</label>
                 <input type="text" class="form-input" id="festival_logo_img" name="festival_logo_img" 
                        value="<?php echo htmlspecialchars($current_logo_img); ?>" 
                        placeholder="https://example.com/festival-logo.png">
+                <small class="form-hint">এখানে আগে সেভ করা URL দেখাচ্ছে। পরিবর্তন না করলে এটি এভাবেই সেভ হয়ে থাকবে।</small>
             </div>
 
             <div class="form-group" style="margin-bottom: 15px;">
-                <label class="form-label" for="festival_logo_text">Festival Logo Text (Optional):</label>
+                <label class="form-label" for="festival_logo_text">Saved Festival Logo Text (Optional):</label>
                 <input type="text" class="form-input" id="festival_logo_text" name="festival_logo_text" 
                        value="<?php echo htmlspecialchars($current_logo_text); ?>" 
                        placeholder="শুভেচ্ছা">
-                <small class="form-hint">যদি ছবির বদলে কোনো টেক্সট দেখাতে চান, তবে এখানে লিখুন (ছবির URL ফাঁকা রাখলে এটি কাজ করবে)।</small>
+                <small class="form-hint">এখানে আগে সেভ করা টেক্সট দেখাচ্ছে।</small>
             </div>
 
-            <div class="form-group" style="margin-bottom: 15px;">
-                <label class="form-label" for="festival_logo_date">Festival Activation Date (YYYY-MM-DD):</label>
-                <input type="date" class="form-input" id="festival_logo_date" name="festival_logo_date" 
-                       value="<?php echo htmlspecialchars($current_logo_date); ?>">
-                <small class="form-hint">লোগোটি শুধু এই তারিখেই অটোমেটিক অ্যাক্টিভেট হবে। খালি রাখলে সব সময় দেখাবে।</small>
-                
-                <!-- Event List Inside Festival Settings -->
-                <div style="margin-top: 10px; background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-                    <label class="form-label" style="font-size: 12px; color: var(--purple);"><i class="fas fa-calendar-star"></i> অথবা, ইভেন্ট লিস্ট থেকে নির্বাচন করুন:</label>
-                    <select id="festival_event_list" name="festival_event_key" class="form-select" style="padding: 5px 10px; font-size: 12px;">
-                        <option value="">-- Select Event --</option>
-                        <?php 
-                        foreach ($allFestivalsList as $ev) {
-                            $sel = ($ev['key'] === $current_event_key) ? 'selected' : '';
-                            echo '<option value="'.$ev['key'].'" data-date="'.$ev['start'].'" data-logo="'.$ev['logo'].'" data-name="'.$ev['name'].'" '.$sel.'>'.$ev['name'].' ('.date('d M Y', strtotime($ev['start'])).')</option>';
-                        }
-                        ?>
-                    </select>
-                    <small class="form-hint" style="margin-top: 5px;">ইভেন্ট সিলেক্ট করলে তারিখ এবং লোগোর URL অটোমেটিক সেট হয়ে যাবে।</small>
-                </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button type="submit" name="save_festival_logo" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+                <button type="submit" name="reset_festival_logo" value="1" class="btn btn-outline" onclick="return confirm('Are you sure you want to clear custom settings and use default event logos?')">
+                    <i class="fas fa-rotate-left"></i> Reset to Default
+                </button>
             </div>
-
-            <button type="submit" name="save_festival_logo" class="btn btn-primary">
-                <i class="fas fa-save"></i> Save Festival Logo
-            </button>
         </form>
     </div>
 </div>
 <!-- Festival Logo Settings Section End -->
 
 <script>
-// Script to auto-fill date and logo URL when an event is selected from the list
-document.getElementById('festival_event_list').addEventListener('change', function() {
-    if(this.value) {
-        var selectedOption = this.options[this.selectedIndex];
-        var eventDate = selectedOption.getAttribute('data-date');
-        var logoName = selectedOption.getAttribute('data-logo');
-        var eventName = selectedOption.getAttribute('data-name');
-        
-        if(eventDate) {
-            document.getElementById('festival_logo_date').value = eventDate;
-        }
-        
-        var logoInput = document.getElementById('festival_logo_img');
-        var textInput = document.getElementById('festival_logo_text');
-        
-        // Always overwrite when an event is explicitly selected
-        if(logoInput) {
-            logoInput.value = 'uploads/festivals/' + logoName;
-        }
-        if(textInput) {
-            textInput.value = eventName;
-        }
-    }
-});
+// Script for Custom Festival Image Upload Preview
+var fli = document.getElementById('festival_logo_file'), flpr = document.getElementById('festLogoImgPreview'), flar = document.getElementById('festLogoImgArea');
+if (fli) fli.onchange = function() { 
+    if (this.files && this.files[0]) { 
+        var r = new FileReader(); 
+        r.onload = function(e) { 
+            if (flpr) { flpr.src = e.target.result; flpr.style.display = 'block'; } 
+            if (flar) flar.classList.add('has-image'); 
+        }; 
+        r.readAsDataURL(this.files[0]); 
+    } 
+};
 </script>
 
 <?php elseif ($section === "videos" && hasPerm('videos')): ?>

@@ -10,7 +10,6 @@ require_once __DIR__ . '/config.php';
 date_default_timezone_set('Asia/Kolkata');
 
 // FIX: Sync MySQL session timezone to IST to match PHP timezone
-// This prevents newly uploaded news from being hidden due to timezone mismatch on live servers
 try {
     if (isset($pdo)) {
         $pdo->exec("SET time_zone = '+05:30';");
@@ -396,7 +395,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -599,31 +598,38 @@ if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
 
-// Festival Logo ডেটাবেস থেকে আনার এবং তারিখ অনুযায়ী অটো-অ্যাক্টিভেশন কোড
+// ====== NEW FESTIVAL LOGIC INTEGRATED ======
+// ডাটাবেস থেকে কাস্টম সেটিংস লোড করুন (যদি অ্যাডমিন কাস্টম ইমেজ দিয়ে থাকেন)
+ $customVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
+ $custom_img = $customVals['festival_logo_img'] ?? '';
+ $custom_text = $customVals['festival_logo_text'] ?? '';
+
+// আজকের অটোমেটিক ইভেন্ট চেক করুন
+ $activeEvent = null;
+if (class_exists('BengaliFestivalCalendar')) {
+    $activeEvent = BengaliFestivalCalendar::getActiveFestival();
+}
+
  $festival_logo_img = '';
  $festival_logo_text = '';
- $festival_logo_date = '';
-try {
-    $stmt_fest = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ('festival_logo_img', 'festival_logo_text', 'festival_logo_date')");
-    $stmt_fest->execute();
-    $fest_settings = $stmt_fest->fetchAll(PDO::FETCH_KEY_PAIR);
-    $festival_logo_img = $fest_settings['festival_logo_img'] ?? '';
-    $festival_logo_text = $fest_settings['festival_logo_text'] ?? '';
-    $festival_logo_date = $fest_settings['festival_logo_date'] ?? '';
-} catch (Exception $e) {}
+ $hasFestivalLogo = false;
 
-// আজকের তারিখ (IST timezone অনুযায়ী)
- $today_date = date('Y-m-d');
-
-// লোগো শুধু তখনই দেখাবে যখন ডেট সেট করা থাকবে এবং সেটি আজকের তারিখের সাথে মিলবে। 
-// যদি কোনো ডেট সেট করা না থাকে, কিন্তু লোগো সেট করা থাকে, তখন ফল-ব্যাক হিসেবে দেখাবে।
- $is_festival_today = (!empty($festival_logo_date) && $festival_logo_date === $today_date);
- $hasFestivalLogo = (!empty($festival_logo_img) || !empty($festival_logo_text)) && $is_festival_today;
-
-// ফল-ব্যাক: ডেট সেট করা না থাকলেও লোগো দেখাবে (যাতে পুরোনো সিস্টেম ভেঙে না পড়ে)
-if (empty($festival_logo_date) && (!empty($festival_logo_img) || !empty($festival_logo_text))) {
+if ($activeEvent) {
+    // যদি অ্যাডমিন কাস্টম ইমেজ সেট করে থাকেন, তবে সেটি দেখাবে, নাহলে ডিফল্ট ইভেন্টের ইমেজ দেখাবে
+    $festival_logo_img = !empty($custom_img) ? $custom_img : 'uploads/festivals/' . $activeEvent['logo'];
+    $festival_logo_text = !empty($custom_text) ? $custom_text : $activeEvent['name'];
+    
+    $fileExists = file_exists(__DIR__ . '/' . $festival_logo_img) || filter_var($festival_logo_img, FILTER_VALIDATE_URL);
+    if ($fileExists || !empty($festival_logo_text)) {
+        $hasFestivalLogo = true;
+    }
+} elseif (!empty($custom_img) || !empty($custom_text)) {
+    // ফল-ব্যাক: ইভেন্ট না থাকলেও অ্যাডমিন কাস্টম ইমেজ বা টেক্সট সেট করলে দেখাবে
+    $festival_logo_img = $custom_img;
+    $festival_logo_text = $custom_text;
     $hasFestivalLogo = true;
 }
+// ==========================================
 ?>
 <!DOCTYPE html>
 <html lang="bn" dir="ltr">
@@ -1004,7 +1010,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     color: #aaa;
     font-size: 9px;
     font-weight: 700;
-    padding: 2px 6px;
+    padding:2px 6px;
     border-radius: 3px;
     margin-left: 6px;
     letter-spacing: 0.5px;
@@ -1210,9 +1216,11 @@ body { top: 0 !important; }
         <div class="logo-pendulum">
             <div class="pendulum-string"></div>
             <div class="logo-box">
-                <?php if (!empty($festival_logo_img)): ?>
-                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="Festival Wish" class="festival-logo-img">
-                <?php elseif (!empty($festival_logo_text)): ?>
+                <?php 
+                $fileExists = file_exists(__DIR__ . '/' . $festival_logo_img) || filter_var($festival_logo_img, FILTER_VALIDATE_URL);
+                if (!empty($festival_logo_img) && $fileExists): ?>
+                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img">
+                <?php else: ?>
                     <div class="festival-logo-text"><?= htmlspecialchars($festival_logo_text) ?></div>
                 <?php endif; ?>
             </div>
@@ -1783,7 +1791,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 </ul>
 </div>
 <div class="ft-contact">
-<h4><i class="fas fa-address-card"></i> যোগাযোগ</h4>
+<h4><i class="fas fa-address-card"></i>&nbsp; যোগাযোগ</h4>
 <ul class="ft-contact-list">
 <?php if (!empty($contactVals['contact_address'])): ?>
 <li class="ft-addr-item"><i class="fas fa-map-marker-alt"></i><span><?= htmlspecialchars($contactVals['contact_address']) ?></span></li>

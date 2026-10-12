@@ -3,8 +3,6 @@ date_default_timezone_set('Asia/Kolkata'); // লোকাল টাইমজো
 
 /**
  * Bengali Calendar & Festival Auto-Set System (2026 Onward)
- * Auto-converts Gregorian dates to Bengali calendar dates and detects festivals.
- * Epoch: 2026-04-15 = 1 Boishakh 1433 (Reformed Bengali Calendar)
  */
 class BengaliCalendar {
     private static $bn_digits = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
@@ -13,22 +11,14 @@ class BengaliCalendar {
     private static $bn_weekdays = ['রবিবার','সোমবার','মঙ্গলবার','বুধবার','বৃহস্পতিবার','শুক্রবার','শনিবার'];
 
     public static function toBengaliDate($date = null) {
-        if ($date === null) {
-            $date = time();
-        }
-        if (is_string($date)) {
-            $date = strtotime($date);
-        }
-        if (is_numeric($date) && $date > 100000000000) {
-            $date = (int)($date/1000);
-        }
+        if ($date === null) $date = time();
+        if (is_string($date)) $date = strtotime($date);
+        if (is_numeric($date) && $date > 100000000000) $date = (int)($date/1000);
 
         $epoch = gmmktime(0, 0, 0, 4, 15, 2026);
         $days_diff = (int)floor(($date - $epoch) / 86400);
 
-        $b_year = 1433; 
-        $b_month = 1; 
-        $b_day = 1;
+        $b_year = 1433; $b_month = 1; $b_day = 1;
 
         if ($days_diff >= 0) {
             $remaining = $days_diff;
@@ -37,28 +27,20 @@ class BengaliCalendar {
                 if ($remaining >= $days_in_month) {
                     $remaining -= $days_in_month;
                     $b_month++;
-                    if ($b_month > 12) { 
-                        $b_month = 1; 
-                        $b_year++; 
-                    }
+                    if ($b_month > 12) { $b_month = 1; $b_year++; }
                 } else {
                     $b_day = 1 + $remaining;
                     $remaining = 0;
                 }
             }
         } else {
-            $b_year = 1432; 
-            $b_month = 12; 
-            $b_day = 30;
+            $b_year = 1432; $b_month = 12; $b_day = 30;
             $remaining = abs($days_diff);
             while ($remaining > 0) {
                 if ($remaining >= $b_day) {
                     $remaining -= $b_day;
                     $b_month--;
-                    if ($b_month < 1) { 
-                        $b_month = 12; 
-                        $b_year--; 
-                    }
+                    if ($b_month < 1) { $b_month = 12; $b_year--; }
                     $b_day = self::daysInBengaliMonth($b_month, $b_year);
                 } else {
                     $b_day -= $remaining;
@@ -68,9 +50,7 @@ class BengaliCalendar {
         }
 
         return [
-            'day' => $b_day, 
-            'month' => $b_month, 
-            'year' => $b_year,
+            'day' => $b_day, 'month' => $b_month, 'year' => $b_year,
             'day_bn' => self::toBengaliNumber($b_day),
             'month_bn' => self::$bn_months[$b_month],
             'year_bn' => self::toBengaliNumber($b_year),
@@ -85,24 +65,18 @@ class BengaliCalendar {
     public static function daysInBengaliMonth($month, $year) {
         if ($month == 11) {
             $g_year = $year + 593;
-            if ((($g_year % 4 == 0) && ($g_year % 100 != 0)) || ($g_year % 400 == 0)) {
-                return 31;
-            }
+            if ((($g_year % 4 == 0) && ($g_year % 100 != 0)) || ($g_year % 400 == 0)) return 31;
             return 30;
         }
         return ($month <= 5) ? 31 : 30;
     }
 
     public static function toBengaliNumber($num) {
-        $str = (string)$num; 
-        $result = '';
+        $str = (string)$num; $result = '';
         for ($i = 0; $i < strlen($str); $i++) {
             $ch = $str[$i];
-            if (isset(self::$bn_digits[(int)$ch])) {
-                $result .= self::$bn_digits[(int)$ch];
-            } else {
-                $result .= $ch;
-            }
+            if (isset(self::$bn_digits[(int)$ch])) $result .= self::$bn_digits[(int)$ch];
+            else $result .= $ch;
         }
         return $result;
     }
@@ -154,7 +128,7 @@ class BengaliFestivalCalendar {
             ['key'=>'durga_nabami_2027','name'=>'মা দুর্গা নবমী','name_en'=>'Durga Nabami','start'=>'2027-10-09','end'=>'2027-10-09','logo'=>'durga_nabami.png','priority'=>95],
             ['key'=>'bijoya_dashami_2027','name'=>'বিজয়া দশমী','name_en'=>'Bijoya Dashami','start'=>'2027-10-10','end'=>'2027-10-10','logo'=>'bijoya_dashami.png','priority'=>98],
             ['key'=>'durga_puja_2027','name'=>'দুর্গাপূজা','name_en'=>'Durga Puja','start'=>'2027-10-08','end'=>'2027-10-10','logo'=>'durga_puja.png','priority'=>100],
-            ['key'=>'lakshmi_puja_2027','name'=>'কোজাগরী লক্ষ্মী পূজা','name_en'=>'Kojagari Lakshmi Puja','start'=>'2027-10-17','end'=>'2027-10-17','logo'=>'lakshmi_puja.png','priority'=>85],
+            ['key'=>'lakshmi_puja_2027','name'=>'কোজাগরী লক্ষ্মी পূজা','name_en'=>'Kojagari Lakshmi Puja','start'=>'2027-10-17','end'=>'2027-10-17','logo'=>'lakshmi_puja.png','priority'=>85],
             ['key'=>'kali_puja_2027','name'=>'কালী পূজা','name_en'=>'Kali Puja','start'=>'2027-10-31','end'=>'2027-10-31','logo'=>'kali_puja.png','priority'=>90],
             ['key'=>'diwali_2027','name'=>'দীপাবলি','name_en'=>'Diwali','start'=>'2027-10-31','end'=>'2027-10-31','logo'=>'diwali.png','priority'=>90],
             ['key'=>'bhatridwitiya_2027','name'=>'ভাই ফোঁটা','name_en'=>'Bhai Phonta','start'=>'2027-11-02','end'=>'2027-11-02','logo'=>'bhai_phonta.png','priority'=>75],
@@ -170,9 +144,7 @@ class BengaliFestivalCalendar {
             $dateStr = sprintf('%04d-%02d-%02d', $year, $month, $d);
             foreach ($festivals as $f) {
                 if ($dateStr >= $f['start'] && $dateStr <= $f['end']) {
-                    if (!isset($matched[$d])) {
-                        $matched[$d] = $f;
-                    }
+                    if (!isset($matched[$d])) $matched[$d] = $f;
                 }
             }
         }
@@ -180,24 +152,16 @@ class BengaliFestivalCalendar {
     }
 
     public static function getActiveFestivals($date = null) {
-        if ($date === null) {
-            $date = date('Y-m-d');
-        } elseif (is_numeric($date)) {
-            $date = date('Y-m-d', $date);
-        } elseif (is_string($date)) {
-            $date = date('Y-m-d', strtotime($date));
-        }
+        if ($date === null) $date = date('Y-m-d');
+        elseif (is_numeric($date)) $date = date('Y-m-d', $date);
+        elseif (is_string($date)) $date = date('Y-m-d', strtotime($date));
 
         $festivals = self::getAllFestivals();
         $matched = [];
         foreach ($festivals as $f) {
-            if ($date >= $f['start'] && $date <= $f['end']) {
-                $matched[] = $f;
-            }
+            if ($date >= $f['start'] && $date <= $f['end']) $matched[] = $f;
         }
-        usort($matched, function($a, $b) { 
-            return $b['priority'] - $a['priority']; 
-        });
+        usort($matched, function($a, $b) { return $b['priority'] - $a['priority']; });
         return $matched;
     }
 
@@ -227,14 +191,9 @@ try {
  $currentUserPerms = [];
 try {
     $rawPerms = $currentUserData['permissions'] ?? null;
-    if ($rawPerms === null) { 
-        $currentUserPerms = null; 
-    } else { 
-        $currentUserPerms = json_decode($rawPerms, true) ?: []; 
-    }
-} catch (Exception $e) { 
-    $currentUserPerms = []; 
-}
+    if ($rawPerms === null) { $currentUserPerms = null; }
+    else { $currentUserPerms = json_decode($rawPerms, true) ?: []; }
+} catch (Exception $e) { $currentUserPerms = []; }
 
 function hasPerm($perm) {
     global $currentUserPerms;
@@ -329,42 +288,55 @@ if (!function_exists('sendWebSocketNotification')) {
     }
 }
 
+// Create Date Change Requests Table
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS date_change_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        news_id INT NOT NULL,
+        requested_by INT NOT NULL,
+        requested_date DATETIME NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+} catch (Exception $e) {}
+
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard","add","edit","manage","breaking","categories","social","contact","ads","password","api_subcategories","nse_market","api_nse_data","api_ad_click","videos","home_panels","users"];
+ $validSections = ["dashboard","add","edit","manage","breaking","categories","social","contact","ads","password","api_subcategories","nse_market","api_nse_data","api_ad_click","videos","home_panels","users","date_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
+
+// Handle Date Change Request Approval/Rejection
+if ($section === "date_requests" && $currentUserPerms === null) {
+    if (isset($_GET['approve']) && isset($_GET['token'])) {
+        if (hash_equals($_SESSION['csrf_token'] ?? "", $_GET['token'])) {
+            $rid = (int)$_GET['approve'];
+            $reqStmt = $pdo->prepare("SELECT * FROM date_change_requests WHERE id=? AND status='pending'");
+            $reqStmt->execute([$rid]);
+            $reqData = $reqStmt->fetch(PDO::FETCH_ASSOC);
+            if ($reqData) {
+                $pdo->prepare("UPDATE news SET created_at=? WHERE id=?")->execute([$reqData['requested_date'], $reqData['news_id']]);
+                $pdo->prepare("UPDATE date_change_requests SET status='approved' WHERE id=?")->execute([$rid]);
+                $umsg = "Date change request approved and applied successfully.";
+            }
+        }
+    }
+    if (isset($_GET['reject']) && isset($_GET['token'])) {
+        if (hash_equals($_SESSION['csrf_token'] ?? "", $_GET['token'])) {
+            $pdo->prepare("UPDATE date_change_requests SET status='rejected' WHERE id=?")->execute([(int)$_GET['reject']]);
+            $umsg = "Date change request rejected.";
+        }
+    }
+}
 
 if ($section === "api_subcategories") {
     header('Content-Type: application/json; charset=utf-8'); @session_write_close();
     $cid = (int)($_GET["category_id"] ?? 0);
-    if ($cid > 0) { 
-        try { 
-            $s = $pdo->prepare("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY name ASC"); 
-            $s->execute([$cid]); 
-            echo json_encode($s->fetchAll(PDO::FETCH_ASSOC)); 
-        } catch (Exception $e) { 
-            echo json_encode([]); 
-        } 
-    } else { 
-        echo json_encode([]); 
-    }
+    if ($cid > 0) { try { $s = $pdo->prepare("SELECT id, name FROM subcategories WHERE category_id = ? ORDER BY name ASC"); $s->execute([$cid]); echo json_encode($s->fetchAll(PDO::FETCH_ASSOC)); } catch (Exception $e) { echo json_encode([]); } } else { echo json_encode([]); }
     exit;
 }
 if ($section === "api_ad_click") {
     header('Content-Type: application/json; charset=utf-8'); @session_write_close();
     $aid = (int)($_GET["ad_id"] ?? 0);
-    if ($aid > 0) { 
-        try { 
-            $pdo->prepare("UPDATE advertisements SET clicks = clicks + 1 WHERE id = ? AND is_active = 1")->execute([$aid]); 
-            $r = $pdo->prepare("SELECT link_url FROM advertisements WHERE id = ? AND is_active = 1"); 
-            $r->execute([$aid]); 
-            $d = $r->fetch(); 
-            echo json_encode(["success" => true, "url" => $d["link_url"] ?? ""]); 
-        } catch (Exception $e) { 
-            echo json_encode(["success" => false]); 
-        } 
-    } else { 
-        echo json_encode(["success" => false]); 
-    }
+    if ($aid > 0) { try { $pdo->prepare("UPDATE advertisements SET clicks = clicks + 1 WHERE id = ? AND is_active = 1")->execute([$aid]); $r = $pdo->prepare("SELECT link_url FROM advertisements WHERE id = ? AND is_active = 1"); $r->execute([$aid]); $d = $r->fetch(); echo json_encode(["success" => true, "url" => $d["link_url"] ?? ""]); } catch (Exception $e) { echo json_encode(["success" => false]); } } else { echo json_encode(["success" => false]); }
     exit;
 }
 if ($section === "api_nse_data") {
@@ -372,139 +344,23 @@ if ($section === "api_nse_data") {
     $cd = __DIR__ . '/../cache'; if (!is_dir($cd)) @mkdir($cd, 0755, true);
     $cf = $cd.'/nse_market.json'; $ck = $cd.'/nse_cookies.txt';
     $ct = 5;
-    if (file_exists($cf) && (time() - filemtime($cf)) < $ct) { 
-        $c = json_decode(file_get_contents($cf), true); 
-        if ($c) { 
-            $c['_source'] = 'cache'; echo json_encode($c); exit; 
-        } 
-    }
+    if (file_exists($cf) && (time() - filemtime($cf)) < $ct) { $c = json_decode(file_get_contents($cf), true); if ($c) { $c['_source'] = 'cache'; echo json_encode($c); exit; } }
     $data = ['indices'=>[],'gainers'=>[],'losers'=>[],'watchlist'=>[],'market_status'=>'closed','last_updated'=>'','error'=>''];
     $ti = ['NIFTY 50','NIFTY BANK','NIFTY IT','NIFTY PHARMA','NIFTY NEXT 50','NIFTY MIDCAP 50','NIFTY AUTO','NIFTY METAL','NIFTY FMCG','NIFTY MEDIA','NIFTY REALTY','NIFTY ENERGY','NIFTY FIN SERVICE','NIFTY PSU BANK'];
     $ws = ['RELIANCE','TCS','INFY','HDFCBANK','ICICIBANK','HINDUNILVR','ITC','SBIN','BHARTIARTL','KOTAKBANK','LT','AXISBANK','BAJFINANCE','ASIANPAINT','MARUTI','TATAMOTORS','WIPRO','HCLTECH','SUNPHARMA','TITAN','ULTRACEMCO','NESTLEIND','POWERGRID','NTPC','ONGC','ADANIENT','ADANIPORTS','COALINDIA','JSWSTEEL','TATASTEEL'];
     $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-    if (!function_exists('nse_curl')) { 
-        function nse_curl($url, $ck, $ua, $headers = []) { 
-            $ch = curl_init($url); 
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true, 
-                CURLOPT_COOKIEFILE => $ck, 
-                CURLOPT_COOKIEJAR => $ck, 
-                CURLOPT_USERAGENT => $ua, 
-                CURLOPT_SSL_VERIFYPEER => false, 
-                CURLOPT_SSL_VERIFYHOST => false, 
-                CURLOPT_TIMEOUT => 15, 
-                CURLOPT_FOLLOWLOCATION => true, 
-                CURLOPT_HEADER => false, 
-                CURLOPT_ENCODING => "", 
-                CURLOPT_HTTPHEADER => $headers
-            ]); 
-            $res = @curl_exec($ch); 
-            curl_close($ch); 
-            return $res; 
-        } 
-    }
+    if (!function_exists('nse_curl')) { function nse_curl($url, $ck, $ua, $headers = []) { $ch = curl_init($url); curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $ck, CURLOPT_COOKIEJAR => $ck, CURLOPT_USERAGENT => $ua, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSL_VERIFYHOST => false, CURLOPT_TIMEOUT => 15, CURLOPT_FOLLOWLOCATION => true, CURLOPT_HEADER => false, CURLOPT_ENCODING => "", CURLOPT_HTTPHEADER => $headers]); $res = @curl_exec($ch); curl_close($ch); return $res; } }
     nse_curl('https://www.nseindia.com', $ck, $ua, ['Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8','Accept-Language: en-US,en;q=0.5','Connection: keep-alive']);
     usleep(1000000);
     $api_headers = ['Accept: application/json, text/plain, */*','Accept-Language: en-US,en;q=0.9','Referer: https://www.nseindia.com/market-data/live-equity-market','X-Requested-With: XMLHttpRequest','Connection: keep-alive'];
     $ir = nse_curl('https://www.nseindia.com/api/allIndices', $ck, $ua, $api_headers);
-    if ($ir) { 
-        $ij = json_decode($ir, true); 
-        if (isset($ij['data']) && is_array($ij['data'])) { 
-            foreach ($ij['data'] as $it) { 
-                $n = $it['indexSymbol'] ?? $it['name'] ?? ''; 
-                if (in_array($n, $ti) || in_array($it['name'] ?? '', $ti)) { 
-                    $l = floatval($it['last'] ?? 0); 
-                    $p = floatval($it['previousClose'] ?? 0); 
-                    $c = isset($it['change']) ? floatval($it['change']) : round($l - $p, 2); 
-                    $cp = isset($it['percentChange']) ? floatval($it['percentChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); 
-                    $data['indices'][] = [
-                        'symbol'=>$n,
-                        'name'=>$it['name']??$n,
-                        'last'=>$l,
-                        'change'=>$c,
-                        'changePercent'=>$cp,
-                        'high'=>floatval($it['high']??0),
-                        'low'=>floatval($it['low']??0),
-                        'open'=>floatval($it['open']??0),
-                        'previousClose'=>$p
-                    ]; 
-                } 
-            } 
-        } 
-    }
+    if ($ir) { $ij = json_decode($ir, true); if (isset($ij['data']) && is_array($ij['data'])) { foreach ($ij['data'] as $it) { $n = $it['indexSymbol'] ?? $it['name'] ?? ''; if (in_array($n, $ti) || in_array($it['name'] ?? '', $ti)) { $l = floatval($it['last'] ?? 0); $p = floatval($it['previousClose'] ?? 0); $c = isset($it['change']) ? floatval($it['change']) : round($l - $p, 2); $cp = isset($it['percentChange']) ? floatval($it['percentChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $data['indices'][] = ['symbol'=>$n,'name'=>$it['name']??$n,'last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($it['high']??0),'low'=>floatval($it['low']??0),'open'=>floatval($it['open']??0),'previousClose'=>$p]; } } } }
     usleep(500000);
     $sr = nse_curl('https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050', $ck, $ua, $api_headers);
     $as = [];
-    if ($sr) { 
-        $sj = json_decode($sr, true); 
-        if (isset($sj['data']) && is_array($sj['data'])) { 
-            foreach ($sj['data'] as $s) { 
-                if (!isset($s['companyName']) || empty($s['companyName']) || $s['symbol'] === 'NIFTY 50' || $s['symbol'] === 'NIFTY BANK') continue; 
-                $l = floatval($s['lastPrice'] ?? 0); 
-                $p = floatval($s['previousClose'] ?? 0); 
-                $c = isset($s['change']) ? floatval($s['change']) : round($l - $p, 2); 
-                $cp = isset($s['pChange']) ? floatval($s['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); 
-                $as[] = [
-                    'symbol'=>$s['symbol']??'',
-                    'name'=>$s['companyName']??'',
-                    'last'=>$l,
-                    'change'=>$c,
-                    'changePercent'=>$cp,
-                    'high'=>floatval($s['dayHigh']??0),
-                    'low'=>floatval($s['dayLow']??0),
-                    'open'=>floatval($s['open']??0),
-                    'previousClose'=>$p,
-                    'volume'=>intval($s['totalTradedVolume']??0),
-                    'value'=>round(floatval($s['totalTradedValue']??0)/10000000,2)
-                ]; 
-            } 
-            usort($as, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); 
-            $data['gainers'] = array_slice($as, 0, 10); 
-            $data['losers'] = array_slice(array_reverse($as), 0, 10); 
-        } 
-    }
-    foreach ($ws as $sym) { 
-        $fd = null; 
-        foreach ($as as $st) { 
-            if ($st['symbol'] === $sym) { 
-                $fd = $st; break; 
-            } 
-        } 
-        if ($fd) { 
-            $data['watchlist'][] = $fd; continue; 
-        } 
-        usleep(200000); 
-        $qr = nse_curl('https://www.nseindia.com/api/quote-equity?symbol='.urlencode($sym), $ck, $ua, $api_headers); 
-        if ($qr) { 
-            $qj = json_decode($qr, true); 
-            if (isset($qj['priceInfo'])) { 
-                $pi = $qj['priceInfo']; 
-                $l = floatval($pi['lastPrice'] ?? 0); 
-                $p = floatval($pi['previousClose'] ?? 0); 
-                $c = isset($pi['change']) ? floatval($pi['change']) : round($l - $p, 2); 
-                $cp = isset($pi['pChange']) ? floatval($pi['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); 
-                $data['watchlist'][] = [
-                    'symbol'=>$sym,
-                    'name'=>$qj['info']['companyName']??$sym,
-                    'last'=>$l,
-                    'change'=>$c,
-                    'changePercent'=>$cp,
-                    'high'=>floatval($pi['intraDayHighLow']['max']??0),
-                    'low'=>floatval($pi['intraDayHighLow']['min']??0),
-                    'open'=>floatval($pi['open']??0),
-                    'previousClose'=>$p,
-                    'volume'=>intval($pi['totalTradedVolume']??0),
-                    'value'=>0
-                ]; 
-            } 
-        } 
-    }
-    if (empty($as) && !empty($data['watchlist'])) { 
-        $tempAs = $data['watchlist']; 
-        usort($tempAs, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); 
-        $data['gainers'] = array_slice($tempAs, 0, 10); 
-        $data['losers'] = array_slice(array_reverse($tempAs), 0, 10); 
-    }
+    if ($sr) { $sj = json_decode($sr, true); if (isset($sj['data']) && is_array($sj['data'])) { foreach ($sj['data'] as $s) { if (!isset($s['companyName']) || empty($s['companyName']) || $s['symbol'] === 'NIFTY 50' || $s['symbol'] === 'NIFTY BANK') continue; $l = floatval($s['lastPrice'] ?? 0); $p = floatval($s['previousClose'] ?? 0); $c = isset($s['change']) ? floatval($s['change']) : round($l - $p, 2); $cp = isset($s['pChange']) ? floatval($s['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $as[] = ['symbol'=>$s['symbol']??'','name'=>$s['companyName']??'','last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($s['dayHigh']??0),'low'=>floatval($s['dayLow']??0),'open'=>floatval($s['open']??0),'previousClose'=>$p,'volume'=>intval($s['totalTradedVolume']??0),'value'=>round(floatval($s['totalTradedValue']??0)/10000000,2)]; } usort($as, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($as, 0, 10); $data['losers'] = array_slice(array_reverse($as), 0, 10); } }
+    foreach ($ws as $sym) { $fd = null; foreach ($as as $st) { if ($st['symbol'] === $sym) { $fd = $st; break; } } if ($fd) { $data['watchlist'][] = $fd; continue; } usleep(200000); $qr = nse_curl('https://www.nseindia.com/api/quote-equity?symbol='.urlencode($sym), $ck, $ua, $api_headers); if ($qr) { $qj = json_decode($qr, true); if (isset($qj['priceInfo'])) { $pi = $qj['priceInfo']; $l = floatval($pi['lastPrice'] ?? 0); $p = floatval($pi['previousClose'] ?? 0); $c = isset($pi['change']) ? floatval($pi['change']) : round($l - $p, 2); $cp = isset($pi['pChange']) ? floatval($pi['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $data['watchlist'][] = ['symbol'=>$sym,'name'=>$qj['info']['companyName']??$sym,'last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($pi['intraDayHighLow']['max']??0),'low'=>floatval($pi['intraDayHighLow']['min']??0),'open'=>floatval($pi['open']??0),'previousClose'=>$p,'volume'=>intval($pi['totalTradedVolume']??0),'value'=>0]; } } }
+    if (empty($as) && !empty($data['watchlist'])) { $tempAs = $data['watchlist']; usort($tempAs, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($tempAs, 0, 10); $data['losers'] = array_slice(array_reverse($tempAs), 0, 10); }
     
     $nw = new DateTime('now', new DateTimeZone('Asia/Kolkata')); 
     $h = (int)$nw->format('G'); $mi = (int)$nw->format('i'); $d = (int)$nw->format('N'); $tv = $h * 60 + $mi;
@@ -523,20 +379,8 @@ if ($section === "api_nse_data") {
     $data['market_status'] = $isTradingHours ? 'open' : 'closed';
     
     $data['last_updated'] = $nw->format('d M Y, h:i:s A'); $data['fetched_at'] = time();
-    if (file_exists($cf)) { 
-        $cachedData = json_decode(file_get_contents($cf), true); 
-        if ($cachedData) { 
-            if (empty($data['gainers']) && !empty($cachedData['gainers'])) $data['gainers'] = $cachedData['gainers']; 
-            if (empty($data['losers']) && !empty($cachedData['losers'])) $data['losers'] = $cachedData['losers']; 
-            if (empty($data['indices']) && !empty($cachedData['indices'])) $data['indices'] = $cachedData['indices']; 
-            if (empty($data['watchlist']) && !empty($cachedData['watchlist'])) $data['watchlist'] = $cachedData['watchlist']; 
-        } 
-    }
-    if (!empty($data['gainers']) || !empty($data['losers']) || !empty($data['indices']) || !empty($data['watchlist'])) { 
-        @file_put_contents($cf, json_encode($data), LOCK_EX); 
-    } else { 
-        $data['error'] = 'Failed to fetch data from NSE. Please try again later.'; 
-    }
+    if (file_exists($cf)) { $cachedData = json_decode(file_get_contents($cf), true); if ($cachedData) { if (empty($data['gainers']) && !empty($cachedData['gainers'])) $data['gainers'] = $cachedData['gainers']; if (empty($data['losers']) && !empty($cachedData['losers'])) $data['losers'] = $cachedData['losers']; if (empty($data['indices']) && !empty($cachedData['indices'])) $data['indices'] = $cachedData['indices']; if (empty($data['watchlist']) && !empty($cachedData['watchlist'])) $data['watchlist'] = $cachedData['watchlist']; } }
+    if (!empty($data['gainers']) || !empty($data['losers']) || !empty($data['indices']) || !empty($data['watchlist'])) { @file_put_contents($cf, json_encode($data), LOCK_EX); } else { $data['error'] = 'Failed to fetch data from NSE. Please try again later.'; }
     echo json_encode($data); exit;
 }
 
@@ -545,14 +389,8 @@ try {
     $recheckStmt = $pdo->prepare("SELECT is_approved FROM users WHERE id = ?");
     $recheckStmt->execute([$_SESSION['user_id']]);
     $recheckData = $recheckStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$recheckData || empty($recheckData['is_approved'])) { 
-        session_unset(); session_destroy(); 
-        header("Location: ?page=admin_login&error=not_approved"); exit; 
-    }
-} catch (Exception $e) { 
-    session_unset(); session_destroy(); 
-    header("Location: ?page=admin_login&error=db_error"); exit; 
-}
+    if (!$recheckData || empty($recheckData['is_approved'])) { session_unset(); session_destroy(); header("Location: ?page=admin_login&error=not_approved"); exit; }
+} catch (Exception $e) { session_unset(); session_destroy(); header("Location: ?page=admin_login&error=db_error"); exit; }
 
  $umsg = '';
 
@@ -560,67 +398,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_action'])) {
     $action = $_POST['user_action'];
     if ($action === 'update_password') {
         $uid = (int)($_POST['target_user_id'] ?? 0); $newPass = trim($_POST['new_password'] ?? '');
-        if ($uid > 0 && !empty($newPass)) { 
-            $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$newPass, $uid]); 
-            $umsg = "Password updated for user ID: {$uid}"; 
-        } else { 
-            $umsg = "Please provide a valid password."; 
-        }
+        if ($uid > 0 && !empty($newPass)) { $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$newPass, $uid]); $umsg = "Password updated for user ID: {$uid}"; }
+        else { $umsg = "Please provide a valid password."; }
     }
     if ($action === 'delete_user') {
         $uid = (int)($_POST['user_delete_id'] ?? 0);
-        if ($uid > 0 && $uid != $_SESSION['user_id']) { 
-            $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$uid]); 
-            $umsg = 'User deleted successfully.'; 
-        } else { 
-            $umsg = 'You cannot delete your own account.'; 
-        }
+        if ($uid > 0 && $uid != $_SESSION['user_id']) { $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$uid]); $umsg = 'User deleted successfully.'; }
+        else { $umsg = 'You cannot delete your own account.'; }
     }
     if ($action === 'approve_user') {
         $uid = (int)($_POST['target_user_id'] ?? 0);
-        if ($uid > 0) { 
-            $pdo->prepare("UPDATE users SET is_approved = 1, approved_at = NOW(), approved_by = ? WHERE id = ?")->execute([$_SESSION['user_id'], $uid]); 
-            $umsg = 'User approved. They can now login.'; 
-        }
+        if ($uid > 0) { $pdo->prepare("UPDATE users SET is_approved = 1, approved_at = NOW(), approved_by = ? WHERE id = ?")->execute([$_SESSION['user_id'], $uid]); $umsg = 'User approved. They can now login.'; }
     }
     if ($action === 'unapprove_user') {
         $uid = (int)($_POST['target_user_id'] ?? 0);
-        if ($uid > 0 && $uid != $_SESSION['user_id']) { 
-            $pdo->prepare("UPDATE users SET is_approved = 0, approved_at = NULL, approved_by = NULL WHERE id = ?")->execute([$uid]); 
-            $umsg = 'User access revoked. They cannot login.'; 
-        } else { 
-            $umsg = 'You cannot revoke your own access.'; 
-        }
+        if ($uid > 0 && $uid != $_SESSION['user_id']) { $pdo->prepare("UPDATE users SET is_approved = 0, approved_at = NULL, approved_by = NULL WHERE id = ?")->execute([$uid]); $umsg = 'User access revoked. They cannot login.'; }
+        else { $umsg = 'You cannot revoke your own access.'; }
     }
     if ($action === 'update_permissions') {
         $uid = (int)($_POST['target_user_id'] ?? 0); $perms = $_POST['permissions'] ?? [];
         if (!is_array($perms)) $perms = [];
-        if ($currentUserPerms !== null) { 
-            $umsg = 'Only Super Admin can change user permissions.'; 
-        } elseif ($uid > 0 && $uid != $_SESSION['user_id']) { 
-            $permJson = json_encode(array_values($perms)); 
-            $pdo->prepare("UPDATE users SET permissions = ? WHERE id = ?")->execute([$permJson, $uid]); 
-            $umsg = 'Permissions updated for user ID: ' . $uid . ' (role unchanged)'; 
-        } else { 
-            $umsg = 'You cannot change your own permissions.'; 
-        }
+        if ($currentUserPerms !== null) { $umsg = 'Only Super Admin can change user permissions.'; }
+        elseif ($uid > 0 && $uid != $_SESSION['user_id']) { $permJson = json_encode(array_values($perms)); $pdo->prepare("UPDATE users SET permissions = ? WHERE id = ?")->execute([$permJson, $uid]); $umsg = 'Permissions updated for user ID: ' . $uid . ' (role unchanged)'; }
+        else { $umsg = 'You cannot change your own permissions.'; }
     }
     if ($action === 'update_role') {
         $uid = (int)($_POST['target_user_id'] ?? 0); $roleKey = $_POST['role'] ?? '';
-        if ($currentUserPerms !== null) { 
-            $umsg = 'Only Super Admin can change user roles.'; 
-        } elseif (empty($roleKey) || $roleKey === 'custom') { 
-            $umsg = 'Select a role or use manual checkboxes below.'; 
-        } elseif (!isset($allRoles[$roleKey])) { 
-            $umsg = 'Invalid role selected.'; 
-        } elseif ($uid > 0 && $uid != $_SESSION['user_id']) { 
-            $rolePerms = $allRoles[$roleKey]['permissions']; 
-            $permJson = $rolePerms === null ? null : json_encode($rolePerms); 
-            $pdo->prepare("UPDATE users SET permissions = ?, role = ? WHERE id = ?")->execute([$permJson, $roleKey, $uid]); 
-            $umsg = 'Role changed to "' . $allRoles[$roleKey]['label'] . '" for user ID: ' . $uid; 
-        } else { 
-            $umsg = 'You cannot change your own role.'; 
-        }
+        if ($currentUserPerms !== null) { $umsg = 'Only Super Admin can change user roles.'; }
+        elseif (empty($roleKey) || $roleKey === 'custom') { $umsg = 'Select a role or use manual checkboxes below.'; }
+        elseif (!isset($allRoles[$roleKey])) { $umsg = 'Invalid role selected.'; }
+        elseif ($uid > 0 && $uid != $_SESSION['user_id']) { $rolePerms = $allRoles[$roleKey]['permissions']; $permJson = $rolePerms === null ? null : json_encode($rolePerms); $pdo->prepare("UPDATE users SET permissions = ?, role = ? WHERE id = ?")->execute([$permJson, $roleKey, $uid]); $umsg = 'Role changed to "' . $allRoles[$roleKey]['label'] . '" for user ID: ' . $uid; }
+        else { $umsg = 'You cannot change your own role.'; }
     }
 }
 
@@ -628,27 +436,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_action'])) {
 try { $allUsers = $pdo->query("SELECT * FROM users ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC); } catch (PDOException $e) {}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_ads'])) {
-    foreach (['ad_bottom_1_embed', 'ad_bottom_2_embed'] as $key) { 
-        $value = $_POST[$key] ?? ''; 
-        $stmt = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"); 
-        $stmt->execute([$key, $value]); 
-    }
+    foreach (['ad_bottom_1_embed', 'ad_bottom_2_embed'] as $key) { $value = $_POST[$key] ?? ''; $stmt = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"); $stmt->execute([$key, $value]); }
     echo "<script>alert('Advertisement embed codes updated successfully!');</script>";
 }
  $adKeys = ['ad_bottom_1_embed', 'ad_bottom_2_embed']; $currentAds = [];
-try { 
-    $in = implode(",", array_fill(0, count($adKeys), "?")); 
-    $st = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ($in)"); 
-    $st->execute($adKeys); 
-    $rows = $st->fetchAll(PDO::FETCH_KEY_PAIR); 
-    foreach ($adKeys as $k) { 
-        $currentAds[$k] = $rows[$k] ?? ""; 
-    } 
-} catch (Exception $e) { 
-    foreach ($adKeys as $k) { 
-        $currentAds[$k] = ""; 
-    } 
-}
+try { $in = implode(",", array_fill(0, count($adKeys), "?")); $st = $pdo->prepare("SELECT setting_key, setting_value FROM site_settings WHERE setting_key IN ($in)"); $st->execute($adKeys); $rows = $st->fetchAll(PDO::FETCH_KEY_PAIR); foreach ($adKeys as $k) { $currentAds[$k] = $rows[$k] ?? ""; } } catch (Exception $e) { foreach ($adKeys as $k) { $currentAds[$k] = ""; } }
 
  $fullName = $_SESSION["full_name"] ?? $_SESSION["username"] ?? "Admin";
  $perPage = 15; $currentPage = max(1, (int)($_GET["p"] ?? 1));
@@ -741,7 +533,7 @@ if ($section === "edit") {
         if (!verifyCSRF()) { $editError = "Token mismatch."; }
         else {
             $editData["title"] = trim($_POST["title"] ?? ""); $editData["slug"] = trim($_POST["slug"] ?? ""); $editData["content"] = $_POST["content"] ?? ""; $editData["tags"] = trim($_POST["tags"] ?? ""); $editData["category_id"] = $_POST["category_id"] ?? ""; $editData["subcategories"] = $_POST["subcategories"] ?? []; if (!is_array($editData["subcategories"])) $editData["subcategories"] = explode(",", $editData["subcategories"]); $editData["author"] = trim($_POST["author"] ?? $fullName); $editData["status"] = ($_POST["status"] === "published") ? "published" : "draft"; $editData["is_featured"] = isset($_POST["is_featured"]) ? 1 : 0;
-            $editData["created_at"] = trim($_POST["news_created_at"] ?? "");
+            
             if (empty($editData["title"])) { $editError = "Please provide a title."; } elseif (empty($editData["content"])) { $editError = "Please write a description."; }
             else {
                 if (empty($editData["slug"])) $editData["slug"] = generateSlug($editData["title"]);
@@ -751,7 +543,26 @@ if ($section === "edit") {
                 if (empty($editError)) {
                     try {
                         $firstSubId = !empty($editData["subcategories"]) ? (int)$editData["subcategories"][0] : null;
-                        $news_created_at = !empty($editData["created_at"]) ? date('Y-m-d H:i:s', strtotime($editData["created_at"])) : date('Y-m-d H:i:s');
+                        
+                        // Handle Publish Date based on permissions
+                        if ($currentUserPerms === null) {
+                            // Super Admin can directly change the date
+                            $editData["created_at"] = trim($_POST["news_created_at"] ?? "");
+                            $news_created_at = !empty($editData["created_at"]) ? date('Y-m-d H:i:s', strtotime($editData["created_at"])) : date('Y-m-d H:i:s');
+                            $editSuccess = "Updated successfully.";
+                        } else {
+                            // Other users cannot change the date directly. They can request it.
+                            $news_created_at = $er["created_at"]; // Keep original date
+                            $requested_date = trim($_POST["requested_date"] ?? "");
+                            if (!empty($requested_date)) {
+                                $req_date_sql = date('Y-m-d H:i:s', strtotime($requested_date));
+                                $pdo->prepare("INSERT INTO date_change_requests (news_id, requested_by, requested_date, status) VALUES (?, ?, ?, 'pending')")->execute([$eid, $_SESSION['user_id'], $req_date_sql]);
+                                $editSuccess = "News updated. A request to change the Publish Date has been sent to Super Admin.";
+                            } else {
+                                $editSuccess = "Updated successfully.";
+                            }
+                        }
+                        
                         $pdo->prepare("UPDATE news SET title=?,slug=?,content=?,image=?,tags=?,category_id=?,subcategory_id=?,author=?,status=?,is_featured=?,created_at=?,updated_at=? WHERE id=?")
                             ->execute([$editData["title"],$editData["slug"],$editData["content"],$editData["image"],$editData["tags"],!empty($editData["category_id"])?(int)$editData["category_id"]:null,$firstSubId,$editData["author"],$editData["status"],$editData["is_featured"], $news_created_at, date('Y-m-d H:i:s'), $eid]);
                         saveNewsSubcategories($pdo, $eid, $editData["subcategories"]);
@@ -760,7 +571,6 @@ if ($section === "edit") {
                             sendWebSocketNotification($eid, $editData["title"]);
                         }
                         
-                        $editSuccess = "Updated successfully.";
                     } catch (PDOException $e) { $editError = "Failed: ".$e->getMessage(); }
                 }
             }
@@ -999,6 +809,9 @@ if (!function_exists('secLink')) { function secLink($s, $i, $l, $b = "") { globa
  $pendingUsersCount = 0;
 try { $pendingUsersCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE is_approved = 0")->fetchColumn(); } catch (Exception $e) {}
 
+ $pendingDateRequestsCount = 0;
+try { $pendingDateRequestsCount = (int)$pdo->query("SELECT COUNT(*) FROM date_change_requests WHERE status='pending'")->fetchColumn(); } catch (Exception $e) {}
+
  $currentRoleKey = !empty($currentUserData['role']) ? $currentUserData['role'] : getUserRole($currentUserData['permissions'] ?? null);
  $currentUserRoleLabel = $allRoles[$currentRoleKey]['label'] ?? 'Custom';
 
@@ -1094,6 +907,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .form-group{margin-bottom:14px}.form-label{display:block;font-size:12.5px;font-weight:600;margin-bottom:4px}
 .form-input{padding:9px 13px;border:2px solid var(--border);border-radius:8px;font-size:13.5px;color:var(--fg);background:var(--bg);outline:none;transition:all .25s;width:100%}
 .form-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light);background:var(--card)}
+.form-input:disabled{background:#eee;color:#999;cursor:not-allowed}
 .form-select{padding:9px 13px;border:2px solid var(--border);border-radius:8px;font-size:13.5px;color:var(--fg);background:var(--bg);outline:none;width:100%;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B6155' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
 .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;transition:all .25s;border:none;cursor:pointer}
 .btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-dark);transform:translateY(-1px);box-shadow:0 4px 12px rgba(196,30,58,.3)}
@@ -1245,7 +1059,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="sb-nav-label">Monetization</div>
 <?= secLink("ads","fa-rectangle-ad","Advertisements",$activeAds."/".$totalAds) ?>
 <?php endif; ?>
-<?php if (hasPerm('videos') || hasPerm('nse_market') || hasPerm('users') || hasPerm('password')): ?>
+<?php if (hasPerm('videos') || hasPerm('nse_market') || hasPerm('users') || hasPerm('password') || $currentUserPerms === null): ?>
 <div class="sb-nav-divider"></div>
 <div class="sb-nav-label">Others</div>
 <?php endif; ?>
@@ -1260,6 +1074,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php endif; ?>
 <?php if (hasPerm('users')): ?>
 <?= secLink("users","fa-users","User Management",$pendingUsersCount > 0 ? '<span class="badge pending">'.$pendingUsersCount.' Pending</span>' : '') ?>
+<?php endif; ?>
+<?php if ($currentUserPerms === null): // Super Admin Only Link ?>
+<?= secLink("date_requests","fa-calendar-check","Date Requests", $pendingDateRequestsCount > 0 ? '<span class="badge pending">'.$pendingDateRequestsCount.' Pending</span>' : '') ?>
 <?php endif; ?>
 <?php if (hasPerm('password')): ?>
 <?= secLink("password","fa-key","Change Password") ?>
@@ -1277,6 +1094,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
+<?php endif; ?>
+<?php if ($pendingDateRequestsCount > 0 && $currentUserPerms === null): ?>
+<div class="alert alert-warning"><i class="fas fa-calendar-day"></i> You have <strong><?= $pendingDateRequestsCount ?></strong> date change request(s) pending. <a href="?page=admin_dashboard&section=date_requests" style="text-decoration:underline;font-weight:700">Review now →</a></div>
 <?php endif; ?>
 <div class="stats-grid">
 <div class="stat-card sc-red"><div class="stat-icon"><i class="fas fa-newspaper"></i></div><div><div class="stat-num"><?= $totalNews ?></div><div class="stat-label">Total News</div></div></div>
@@ -1312,6 +1132,41 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php if (hasPerm('nse_market')): ?><a href="?page=admin_dashboard&section=nse_market" class="quick-action"><i class="fas fa-chart-line"></i> View NSE Market</a><?php endif; ?>
 </div></div></div></div>
 
+<?php elseif ($section === "date_requests" && $currentUserPerms === null): // Super Admin Date Requests View ?>
+<div class="admin-topbar"><h1><i class="fas fa-calendar-check" style="color:var(--purple)"></i> Date Change Requests</h1></div>
+<?php if (!empty($umsg)): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($umsg) ?></div><?php endif; ?>
+<div class="panel">
+    <div class="panel-header"><div class="panel-title"><i class="fas fa-list"></i> Pending Requests</div></div>
+    <div class="panel-body" style="padding:0">
+        <table class="data-table">
+            <thead><tr><th>#</th><th>News Title</th><th>Current Date</th><th>Requested Date</th><th>Requested By</th><th>Action</th></tr></thead>
+            <tbody>
+            <?php 
+            try {
+                $reqList = $pdo->query("SELECT r.*, n.title as news_title, u.username as requester_name FROM date_change_requests r JOIN news n ON r.news_id=n.id JOIN users u ON r.requested_by=u.id WHERE r.status='pending' ORDER BY r.created_at DESC")->fetchAll();
+            } catch (Exception $e) { $reqList = []; }
+            foreach ($reqList as $i => $req): 
+            ?>
+                <tr>
+                    <td style="color:var(--muted);font-size:11px"><?= $i + 1 ?></td>
+                    <td style="font-weight:600"><?= htmlspecialchars($req["news_title"]) ?></td>
+                    <td style="font-size:11px;color:var(--muted)"><?= date("d M Y, h:i A", strtotime($pdo->query("SELECT created_at FROM news WHERE id={$req['news_id']}")->fetchColumn())) ?></td>
+                    <td style="font-size:11px;color:var(--accent);font-weight:600"><?= date("d M Y, h:i A", strtotime($req["requested_date"])) ?></td>
+                    <td><?= htmlspecialchars($req["requester_name"]) ?></td>
+                    <td>
+                        <div class="tbl-actions">
+                            <a href="?page=admin_dashboard&section=date_requests&approve=<?= $req['id'] ?>&token=<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>" class="tbl-btn tbl-btn-approve" title="Approve" style="color:var(--green)"><i class="fas fa-check"></i></a>
+                            <a href="?page=admin_dashboard&section=date_requests&reject=<?= $req['id'] ?>&token=<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>" class="tbl-btn tbl-btn-delete" title="Reject" style="color:#dc2626"><i class="fas fa-times"></i></a>
+                        </div>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (empty($reqList)): ?><tr><td colspan="6"><div class="empty-state"><p>No pending date change requests.</p></div></td></tr><?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <?php elseif (($section === "add" && hasPerm('add_news')) || ($section === "edit" && hasPerm('manage_news'))): ?>
 <?php
  $fD = ($section === "edit" && $editData) ? $editData : $addData;
@@ -1342,14 +1197,22 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="form-group"><label class="form-label">Title <span style="color:var(--accent)">*</span></label><input type="text" name="title" class="form-input" value="<?= htmlspecialchars($fD["title"]) ?>" placeholder="News title" required></div>
 <div class="form-row"><div class="form-group"><label class="form-label">Slug</label><input type="text" name="slug" class="form-input" value="<?= htmlspecialchars($fD["slug"]) ?>" placeholder="auto-slug"><div class="form-hint">Leave empty to auto-generate</div></div><div class="form-group"><label class="form-label">Author</label><input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>"></div></div>
 
-<?php if ($currentUserPerms === null): // Only Super Admin can change publish date ?>
+<?php if ($currentUserPerms === null): // Super Admin ?>
 <div class="form-group">
-    <label class="form-label">Publish Date & Time (Admin Only)</label>
+    <label class="form-label">Publish Date & Time</label>
     <input type="datetime-local" name="news_created_at" class="form-input" value="<?= !empty($fD["created_at"]) ? date('Y-m-d\TH:i', strtotime($fD["created_at"])) : date('Y-m-d\TH:i') ?>">
-    <div class="form-hint">শুধুমাত্র সুপার অ্যাডমিন এই তারিখ পরিবর্তন করতে পারবেন।</div>
+    <div class="form-hint">Super Admin can directly change the publish date.</div>
 </div>
-<?php else: // Other users get hidden field with original or current time ?>
-<input type="hidden" name="news_created_at" value="<?= !empty($fD["created_at"]) ? date('Y-m-d\TH:i', strtotime($fD["created_at"])) : date('Y-m-d\TH:i') ?>">
+<?php else: // Other Users ?>
+<div class="form-group">
+    <label class="form-label">Current Publish Date</label>
+    <input type="datetime-local" class="form-input" value="<?= !empty($fD["created_at"]) ? date('Y-m-d\TH:i', strtotime($fD["created_at"])) : date('Y-m-d\TH:i') ?>" disabled>
+    <div style="margin-top:8px; padding:10px; background:var(--bg); border-radius:8px; border:1px dashed var(--border);">
+        <label class="form-label" style="font-size:12px; color:var(--purple);">Request Date Change (Requires Admin Approval)</label>
+        <input type="datetime-local" name="requested_date" class="form-input" style="margin-bottom:8px;">
+        <small class="form-hint">If you want to change the publish date, select the new date here. It will be sent to Super Admin for approval. Leave blank to keep current date.</small>
+    </div>
+</div>
 <?php endif; ?>
 
 <div class="form-row"><div class="form-group"><label class="form-label">Category</label><select name="category_id" class="form-select" id="catSelect"><option value="">— Select —</option><?php foreach ($categories as $c): ?><option value="<?= $c["id"] ?>" <?= ($fD["category_id"] == $c["id"]) ? 'selected' : '' ?>><?= htmlspecialchars($c["name"]) ?></option><?php endforeach; ?></select></div><div class="form-group"><label class="form-label">Subcategories</label><select name="subcategories[]" class="form-select" id="subCatSelect" multiple style="min-height:42px"><option value="">— Select Category First —</option></select><div class="form-hint">Ctrl+Click to select multiple</div></div></div>

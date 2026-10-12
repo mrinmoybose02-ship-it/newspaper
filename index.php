@@ -1,8 +1,21 @@
 <?php
+// Prevent browser caching so new news shows up immediately on live server
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+
 require_once __DIR__ . '/config.php';
 
 // Set timezone to IST (Indian Standard Time)
 date_default_timezone_set('Asia/Kolkata');
+
+// FIX: Sync MySQL session timezone to IST to match PHP timezone
+// This prevents newly uploaded news from being hidden due to timezone mismatch on live servers
+try {
+    if (isset($pdo)) {
+        $pdo->exec("SET time_zone = '+05:30';");
+    }
+} catch (Exception $e) {}
 
 // Determine current language for UI display
  $current_lang = 'বাংলা';
@@ -586,7 +599,7 @@ if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
 
-// Festival Logo ডেটাবেস থেকে আনার এবং তারিখ অনুযায়ী অটো-অ্যাক্টিভেশন কোড
+// Festival Logo ডেটাবেস থেকে আনার এবং তারিখ অনুযায়ী অটো-অ্যাক্টিভেশন কোড
  $festival_logo_img = '';
  $festival_logo_text = '';
  $festival_logo_date = '';
@@ -599,7 +612,7 @@ try {
     $festival_logo_date = $fest_settings['festival_logo_date'] ?? '';
 } catch (Exception $e) {}
 
-// আজকের তারিখ (IST timezone অনুযায়ী)
+// আজকের তারিখ (IST timezone অনুযায়ী)
  $today_date = date('Y-m-d');
 
 // লোগো শুধু তখনই দেখাবে যখন ডেট সেট করা থাকবে এবং সেটি আজকের তারিখের সাথে মিলবে। 
@@ -607,7 +620,7 @@ try {
  $is_festival_today = (!empty($festival_logo_date) && $festival_logo_date === $today_date);
  $hasFestivalLogo = (!empty($festival_logo_img) || !empty($festival_logo_text)) && $is_festival_today;
 
-// ফল-ব্যাক: ডেট সেট করা না থাকলেও লোগো দেখাবে (যাতে পুরোনো সিস্টেম ভেঙে না পড়ে)
+// ফল-ব্যাক: ডেট সেট করা না থাকলেও লোগো দেখাবে (যাতে পুরোনো সিস্টেম ভেঙে না পড়ে)
 if (empty($festival_logo_date) && (!empty($festival_logo_img) || !empty($festival_logo_text))) {
     $hasFestivalLogo = true;
 }
@@ -1923,8 +1936,8 @@ function googleTranslateElementInit() {
 
   function updateClock() {
     try {
-      var utcTimestamp = Date.now() + serverOffset;
-      var istTimestamp = utcTimestamp + IST_OFFSET_MS;
+      var istTimestamp = Date.now() + serverOffset;
+      istTimestamp = istTimestamp + IST_OFFSET_MS;
       var istDate = new Date(istTimestamp);
 
       var h = istDate.getUTCHours();
@@ -1946,8 +1959,8 @@ function googleTranslateElementInit() {
 
   function updateDate() {
     try {
-      var utcTimestamp = Date.now() + serverOffset;
-      var istTimestamp = utcTimestamp + IST_OFFSET_MS;
+      var istTimestamp = Date.now() + serverOffset;
+      istTimestamp = istTimestamp + IST_OFFSET_MS;
       var istDate = new Date(istTimestamp);
 
       var dateEl = document.getElementById('liveDate');
@@ -2024,7 +2037,7 @@ function googleTranslateElementInit() {
       // Check if today is a holiday
       var isHoliday = marketHolidays.indexOf(dateStr) !== -1;
 
-      var isWeekday = day >= 1 and day <= 5;
+      var isWeekday = day >= 1 && day <= 5;
       
       // Market hours: 9:15 AM to 3:30 PM
       // 9 * 60 + 15 = 555

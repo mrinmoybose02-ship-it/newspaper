@@ -33,6 +33,82 @@ if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
     exit;
 }
 
+// ====== BACKGROUND AJAX FETCH FOR NSE STOCKS TO SPEED UP PAGE LOAD ======
+if (isset($_GET['ajax_nse'])) {
+    header('Content-Type: application/json');
+    $nseStockList = [
+        ['s'=>'RELIANCE.NS','short'=>'RELIANCE'],['s'=>'TCS.NS','short'=>'TCS'],['s'=>'INFY.NS','short'=>'INFY'],
+        ['s'=>'HDFCBANK.NS','short'=>'HDFCBANK'],['s'=>'ICICIBANK.NS','short'=>'ICICIBANK'],['s'=>'SBIN.NS','short'=>'SBIN'],
+        ['s'=>'KOTAKBANK.NS','short'=>'KOTAKBANK'],['s'=>'AXISBANK.NS','short'=>'AXISBANK'],['s'=>'INDUSINDBK.NS','short'=>'INDUSINDBK'],
+        ['s'=>'WIPRO.NS','short'=>'WIPRO'],['s'=>'HCLTECH.NS','short'=>'HCLTECH'],['s'=>'TECHM.NS','short'=>'TECHM'],
+        ['s'=>'BHARTIARTL.NS','short'=>'BHARTIARTL'],['s'=>'ITC.NS','short'=>'ITC'],['s'=>'LT.NS','short'=>'LT'],
+        ['s'=>'HINDUNILVR.NS','short'=>'HINDUNILVR'],['s'=>'NESTLEIND.NS','short'=>'NESTLEIND'],['s'=>'BRITANNIA.NS','short'=>'BRITANNIA'],
+        ['s'=>'TATACONSUM.NS','short'=>'TATACONSUM'],['s'=>'VARUNBEVERAGES.NS','short'=>'VARUNBEV'],['s'=>'BAJFINANCE.NS','short'=>'BAJFINANCE'],
+        ['s'=>'BAJAJFINSV.NS','short'=>'BAJAJFINSV'],['s'=>'MARUTI.NS','short'=>'MARUTI'],['s'=>'M&M.NS','short'=>'M&M'],
+        ['s'=>'EICHERMOT.NS','short'=>'EICHERMOT'],['s'=>'HEROMOTOCO.NS','short'=>'HEROMOTOCO'],['s'=>'TATAMOTORS.NS','short'=>'TATAMOTORS'],
+        ['s'=>'ASHOKLEY.NS','short'=>'ASHOKLEY'],['s'=>'ADANIENT.NS','short'=>'ADANIENT'],['s'=>'ADANIPORTS.NS','short'=>'ADANIPORTS'],
+        ['s'=>'SUNPHARMA.NS','short'=>'SUNPHARMA'],['s'=>'DRREDDY.NS','short'=>'DRREDDY'],['s'=>'CIPLA.NS','short'=>'CIPLA'],
+        ['s'=>'DIVISLAB.NS','short'=>'DIVISLAB'],['s'=>'APOLLOHOSP.NS','short'=>'APOLLOHOSP'],['s'=>'ASIANPAINT.NS','short'=>'ASIANPAINT'],
+        ['s'=>'TITAN.NS','short'=>'TITAN'],['s'=>'TATASTEEL.NS','short'=>'TATASTEEL'],['s'=>'JSWSTEEL.NS','short'=>'JSWSTEEL'],
+        ['s'=>'HINDALCO.NS','short'=>'HINDALCO'],['s'=>'VEDL.NS','short'=>'VEDL'],['s'=>'NTPC.NS','short'=>'NTPC'],
+        ['s'=>'POWERGRID.NS','short'=>'POWERGRID'],['s'=>'ONGC.NS','short'=>'ONGC'],['s'=>'COALINDIA.NS','short'=>'COALINDIA'],
+        ['s'=>'GAIL.NS','short'=>'GAIL'],['s'=>'IOC.NS','short'=>'IOC'],['s'=>'GRASIM.NS','short'=>'GRASIM'],
+        ['s'=>'ULTRACEMCO.NS','short'=>'ULTRACEMCO'],['s'=>'SHREECEM.NS','short'=>'SHREECEM'],['s'=>'IRCTC.NS','short'=>'IRCTC'],
+        ['s'=>'PIDILITIND.NS','short'=>'PIDILITIND'],['s'=>'DABUR.NS','short'=>'DABUR'],['s'=>'AMBUJACEM.NS','short'=>'AMBUJACEM'],['s'=>'SAIL.NS','short'=>'SAIL']
+    ];
+    $nseCacheFile = __DIR__ . '/cache_nse_stocks.json';
+    $nseData = [];
+    
+    // Return cached data if fresh (prevents spamming Yahoo API on rapid page loads)
+    if (file_exists($nseCacheFile) && (time() - filemtime($nseCacheFile) < 300)) { 
+        $nseCached = json_decode(file_get_contents($nseCacheFile), true); 
+        if (is_array($nseCached)) {
+            echo json_encode(['status' => 'cached', 'data' => $nseCached]);
+            exit;
+        }
+    }
+
+    if (function_exists('curl_init')) {
+        foreach ($nseStockList as $st) {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => "https://query1.finance.yahoo.com/v8/finance/chart/".$st['s']."?range=1d&interval=1d",
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 2, 
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_HTTPHEADER => ['User-Agent: Mozilla/5.0'],
+                CURLOPT_FOLLOWLOCATION => true
+            ]);
+            $resp = curl_exec($ch);
+            $hc = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            $p=0; $c=0; $cp=0; $ok=false;
+            if($resp && $hc===200){
+                $j=json_decode($resp,true);
+                if(isset($j['chart']['result'][0]['meta'])){
+                    $m=$j['chart']['result'][0]['meta'];
+                    if(isset($m['regularMarketPrice'])){
+                        $p=round($m['regularMarketPrice'],2);
+                        $pc2=$m['chartPreviousClose']??$p;
+                        $c=round($p-$pc2,2);
+                        $cp=$pc2>0?round(($c/$pc2)*100,2):0;
+                        $ok=true;
+                    }
+                }
+            }
+            $nseData[]=['short'=>$st['short'],'price'=>$p,'change'=>$c,'changePct'=>$cp,'fetched'=>$ok];
+        }
+        @file_put_contents($nseCacheFile, json_encode($nseData), LOCK_EX);
+    } else {
+        foreach ($nseStockList as $st) {
+            $nseData[] = ['short'=>$st['short'],'price'=>0,'change'=>0,'changePct'=>0,'fetched'=>false];
+        }
+    }
+    echo json_encode(['status' => 'fresh', 'data' => $nseData]);
+    exit;
+}
+// =====================================================
+
 // ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION & AUTO FETCH ======
 if (isset($_GET['ajax_check_new_news'])) {
     header('Content-Type: application/json');
@@ -223,7 +299,7 @@ if (!function_exists('renderAd')) {
         if ($ad['ad_type'] === 'image' && !empty($ad['image'])) {
             $link = !empty($ad['link_url']) ? $ad['link_url'] : '#';
             $html .= '<a href="' . htmlspecialchars($link) . '" target="_blank" rel="nofollow sponsored">';
-            $html .= '<img src="' . htmlspecialchars($ad['image']) . '" alt="' . htmlspecialchars($ad['title']) . '" style="max-width:100%;height:auto;border-radius:8px;" loading="lazy">';
+            $html .= '<img src="' . htmlspecialchars($ad['image']) . '" alt="' . htmlspecialchars($ad['title']) . '" style="max-width:100%;height:auto;border-radius:8px;" loading="lazy" decoding="async">';
             $html .= '</a>';
         } elseif ($ad['ad_type'] === 'code' && !empty($ad['ad_code'])) {
             $html .= $ad['ad_code'];
@@ -395,7 +471,7 @@ try {
 } catch (Exception $e) {}
 
 if (empty($homeCatPanels)) {
-    foreach (['জাতীয়', 'আন্তর্জাতিক', '�েলাধুলা', 'বিনোদন'] as $defName) {
+    foreach (['জাতীয়', 'আন্তর্জাতিক', 'খেলাধুলা', 'বিনোদন'] as $defName) {
         $homeCatPanels[] = ['name' => $defName, 'icon' => $panelDefaults[$defName]['icon'] ?? 'fa-folder', 'color' => $panelDefaults[$defName]['color'] ?? '#B71C1C'];
     }
 }
@@ -527,68 +603,14 @@ try {
 foreach ($popupAdsArr as $pad) { $adPopup .= renderAd($pad); }
 // =========================================================================
 
-// ====== NSE STOCK LIST - 55+ Companies ======
- $nseStockList = [
-    ['s'=>'RELIANCE.NS','short'=>'RELIANCE'],
-    ['s'=>'TCS.NS','short'=>'TCS'],
-    ['s'=>'INFY.NS','short'=>'INFY'],
-    ['s'=>'HDFCBANK.NS','short'=>'HDFCBANK'],
-    ['s'=>'ICICIBANK.NS','short'=>'ICICIBANK'],
-    ['s'=>'SBIN.NS','short'=>'SBIN'],
-    ['s'=>'KOTAKBANK.NS','short'=>'KOTAKBANK'],
-    ['s'=>'AXISBANK.NS','short'=>'AXISBANK'],
-    ['s'=>'INDUSINDBK.NS','short'=>'INDUSINDBK'],
-    ['s'=>'WIPRO.NS','short'=>'WIPRO'],
-    ['s'=>'HCLTECH.NS','short'=>'HCLTECH'],
-    ['s'=>'TECHM.NS','short'=>'TECHM'],
-    ['s'=>'BHARTIARTL.NS','short'=>'BHARTIARTL'],
-    ['s'=>'ITC.NS','short'=>'ITC'],
-    ['s'=>'LT.NS','short'=>'LT'],
-    ['s'=>'HINDUNILVR.NS','short'=>'HINDUNILVR'],
-    ['s'=>'NESTLEIND.NS','short'=>'NESTLEIND'],
-    ['s'=>'BRITANNIA.NS','short'=>'BRITANNIA'],
-    ['s'=>'TATACONSUM.NS','short'=>'TATACONSUM'],
-    ['s'=>'VARUNBEVERAGES.NS','short'=>'VARUNBEV'],
-    ['s'=>'BAJFINANCE.NS','short'=>'BAJFINANCE'],
-    ['s'=>'BAJAJFINSV.NS','short'=>'BAJAJFINSV'],
-    ['s'=>'MARUTI.NS','short'=>'MARUTI'],
-    ['s'=>'M&M.NS','short'=>'M&M'],
-    ['s'=>'EICHERMOT.NS','short'=>'EICHERMOT'],
-    ['s'=>'HEROMOTOCO.NS','short'=>'HEROMOTOCO'],
-    ['s'=>'TATAMOTORS.NS','short'=>'TATAMOTORS'],
-    ['s'=>'ASHOKLEY.NS','short'=>'ASHOKLEY'],
-    ['s'=>'ADANIENT.NS','short'=>'ADANIENT'],
-    ['s'=>'ADANIPORTS.NS','short'=>'ADANIPORTS'],
-    ['s'=>'SUNPHARMA.NS','short'=>'SUNPHARMA'],
-    ['s'=>'DRREDDY.NS','short'=>'DRREDDY'],
-    ['s'=>'CIPLA.NS','short'=>'CIPLA'],
-    ['s'=>'DIVISLAB.NS','short'=>'DIVISLAB'],
-    ['s'=>'APOLLOHOSP.NS','short'=>'APOLLOHOSP'],
-    ['s'=>'ASIANPAINT.NS','short'=>'ASIANPAINT'],
-    ['s'=>'TITAN.NS','short'=>'TITAN'],
-    ['s'=>'TATASTEEL.NS','short'=>'TATASTEEL'],
-    ['s'=>'JSWSTEEL.NS','short'=>'JSWSTEEL'],
-    ['s'=>'HINDALCO.NS','short'=>'HINDALCO'],
-    ['s'=>'VEDL.NS','short'=>'VEDL'],
-    ['s'=>'NTPC.NS','short'=>'NTPC'],
-    ['s'=>'POWERGRID.NS','short'=>'POWERGRID'],
-    ['s'=>'ONGC.NS','short'=>'ONGC'],
-    ['s'=>'COALINDIA.NS','short'=>'COALINDIA'],
-    ['s'=>'GAIL.NS','short'=>'GAIL'],
-    ['s'=>'IOC.NS','short'=>'IOC'],
-    ['s'=>'GRASIM.NS','short'=>'GRASIM'],
-    ['s'=>'ULTRACEMCO.NS','short'=>'ULTRACEMCO'],
-    ['s'=>'SHREECEM.NS','short'=>'SHREECEM'],
-    ['s'=>'IRCTC.NS','short'=>'IRCTC'],
-    ['s'=>'PIDILITIND.NS','short'=>'PIDILITIND'],
-    ['s'=>'DABUR.NS','short'=>'DABUR'],
-    ['s'=>'AMBUJACEM.NS','short'=>'AMBUJACEM'],
-    ['s'=>'SAIL.NS','short'=>'SAIL']
-];
+// ====== INSTANTLY LOAD NSE DATA FROM CACHE (NO SERVER BLOCKING) ======
  $nseCacheFile = __DIR__ . '/cache_nse_stocks.json';
  $nseData = [];
-if (file_exists($nseCacheFile) && (time() - filemtime($nseCacheFile) < 300)) { $nseCached = json_decode(file_get_contents($nseCacheFile), true); if (is_array($nseCached)) $nseData = $nseCached; }
-if (empty($nseData)) { foreach ($nseStockList as $st) { $ch = curl_init(); curl_setopt_array($ch, [CURLOPT_URL=>"https://query1.finance.yahoo.com/v8/finance/chart/".$st['s']."?range=1d&interval=1d",CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>6,CURLOPT_SSL_VERIFYPEER=>false,CURLOPT_HTTPHEADER=>['User-Agent: Mozilla/5.0'],CURLOPT_FOLLOWLOCATION=>true]); $resp = curl_exec($ch); $hc = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch); $p=0;$c=0;$cp=0;$ok=false; if($resp&&$hc===200){$j=json_decode($resp,true);if(isset($j['chart']['result'][0]['meta'])){$m=$j['chart']['result'][0]['meta'];if(isset($m['regularMarketPrice'])){$p=round($m['regularMarketPrice'],2);$pc2=$m['chartPreviousClose']??$p;$c=round($p-$pc2,2);$cp=$pc2>0?round(($c/$pc2)*100,2):0;$ok=true;}}} $nseData[]=['short'=>$st['short'],'price'=>$p,'change'=>$c,'changePct'=>$cp,'fetched'=>$ok]; } @file_put_contents($nseCacheFile, json_encode($nseData), LOCK_EX); }
+if (file_exists($nseCacheFile)) { 
+    $nseCached = json_decode(@file_get_contents($nseCacheFile), true); 
+    if (is_array($nseCached)) $nseData = $nseCached; 
+}
+// =====================================================
 
  $placeholderImg = "data:image/svg+xml," . urlencode("<svg xmlns='http://www.w3.org/2000/svg' width='400' height='250'><rect width='400' height='250' fill='%23e8e4de'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'>ছবি</text></svg>");
  $placeholderImgSm = "data:image/svg+xml," . urlencode("<svg xmlns='http://www.w3.org/2000/svg' width='120' height='90'><rect width='120' height='90' fill='%23e8e4de'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='10'>ছবি</text></svg>");
@@ -646,8 +668,17 @@ if ($activeEvent) {
 <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl) ?>">
 <meta property="og:locale" content="bn_BD">
 <meta name="twitter:card" content="summary_large_image">
+
+<!-- PERFORMANCE OPTIMIZATIONS: Preconnect & Preload -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<link rel="preconnect" href="https://query1.finance.yahoo.com">
+<link rel="preconnect" href="https://translate.google.com">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"></noscript>
+
 <style>
 :root{--red:#B71C1C;--red-dark:#7F0000;--gold:#D4950A;--bg:#F4F1EB;--fg:#1A1A1A;--muted:#666;--card:#FFF;--border:#DDD5C8;--nav-bg:#1A1A1A;--sidebar-w:260px}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -749,8 +780,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kn-pl-link.active{color:var(--gold);background:rgba(212,149,67,.08)}
 .kn-pl-link .kpi{width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.06);border-radius:5px;font-size:11px;color:#aaa;flex-shrink:0;transition:all .15s}
 .kn-pl-link:hover .kpi{background:rgba(212,149,67,.15);color:var(--gold)}
-.kn-pl-link .kpn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kn-pl-link .kpc{font-size:10px;color:rgba(255,255,255,.25);background:rgba(255,255,255,.06);padding:2px 7px;border-radius:8px;text-align:center;flex-shrink:0}
+.kn-pl-link .kpn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}
 .kn-pl-link.has-psubs{padding-right:44px}
 .kn-pl-link.has-psubs .kpc{margin-right:0}
 .kn-sub-tog{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(212,149,67,.2);border:1px solid rgba(212,149,67,.35);color:var(--gold);font-size:10px;cursor:pointer;border-radius:5px;transition:all .2s;z-index:20}
@@ -1176,7 +1206,7 @@ body { top: 0 !important; }
 <body>
 <!-- Google Translate Hidden Element -->
 <div id="google_translate_element" style="display:none;"></div>
-<iframe id="google_esf" name="google_esf" src="https://googleads.g.doubleclick.net/pagead/html/r20260929/r20190131/zrt_lookup_fy2021.html" style="display: none;"></iframe>
+<iframe id="google_esf" name="google_esf" src="https://googleads.g.doubleclick.net/pagead/html/r20260929/r20190131/zrt_lookup_fy2021.html" style="display: none;" loading="lazy"></iframe>
 
 <div class="kol-topbar">
 <div class="container">
@@ -1219,7 +1249,7 @@ body { top: 0 !important; }
                 <?php 
                 $fileExists = file_exists(__DIR__ . '/' . $festival_logo_img) || filter_var($festival_logo_img, FILTER_VALIDATE_URL);
                 if (!empty($festival_logo_img) && $fileExists): ?>
-                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img">
+                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img" loading="lazy" decoding="async">
                 <?php else: ?>
                     <div class="festival-logo-text"><?= htmlspecialchars($festival_logo_text) ?></div>
                 <?php endif; ?>
@@ -1297,7 +1327,7 @@ body { top: 0 !important; }
 <?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; ?>
 <div class="kn-pl-link<?= $cActive ? ' active' : '' ?><?= $cHasSubs ? ' has-psubs' : '' ?>" data-pcat="<?= htmlspecialchars($cn) ?>">
 <div class="kpi"><i class="fas <?= $cIcon ?>"></i></div>
-<span class="kpn"><?= htmlspecialchars($cn) ?></span>
+<a href="?cat=<?= urlencode($cn) ?>" class="kpn"><?= htmlspecialchars($cn) ?></a>
 <?php if ($cPostCNT > 0): ?><span class="kpc"><?= $cPostCNT ?></span><?php endif; ?>
 <?php if ($cHasSubs): ?><span class="kn-sub-tog" data-ptog="<?= htmlspecialchars($cn) ?>" title="সাব-ক্যাটাগরি"><i class="fas fa-chevron-down"></i></span><?php endif; ?>
 </div>
@@ -1346,7 +1376,7 @@ body { top: 0 !important; }
 <h3><i class="fas fa-fire-alt"></i> জনপ্রিয় সংবাদ</h3>
 <?php foreach ($popularPosts as $pp): ?>
 <a href="?page=single&id=<?= $pp['id'] ?>" class="pop-item">
-<img src="<?= newsImage($pp['image'], $placeholderImgSm) ?>" alt="" loading="lazy">
+<img src="<?= newsImage($pp['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
 <div class="pi-info">
 <div class="pi-t"><?= htmlspecialchars($pp['title']) ?></div>
 <div class="pi-m"><?= timeAgo($pp['created_at']) ?></div>
@@ -1435,7 +1465,7 @@ body { top: 0 !important; }
 <?php endif; ?>
 </div>
 <?php if (!empty($singleNews['image'])): ?>
-<div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>"></div>
+<div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>" loading="lazy" decoding="async"></div>
 <?php endif; ?>
 <?php
  $content = $singleNews['content'];
@@ -1522,7 +1552,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <div class="rel-grid">
 <?php foreach ($related as $ri): ?>
 <a href="?page=single&id=<?= $ri['id'] ?>" class="nc">
-<div class="nc-img"><img src="<?= newsImage($ri['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
+<div class="nc-img"><img src="<?= newsImage($ri['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
 <div class="nc-body">
 <div class="nc-cat"><?= htmlspecialchars($ri['category']) ?><?php if (!empty($ri['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ri['subcategory']) ?></span><?php endif; ?></div>
 <h3><?= htmlspecialchars($ri['title']) ?></h3>
@@ -1549,7 +1579,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <?php $fm = $displayFeatured[0]; $fsItems = array_slice($displayFeatured, 1); ?>
 <div class="feat-grid">
 <a href="?page=single&id=<?= $fm['id'] ?>" class="feat-main">
-<img src="<?= newsImage($fm['image'], $placeholderImg) ?>" alt="" loading="lazy">
+<img src="<?= newsImage($fm['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async">
 <div class="ov">
 <span class="cb"><?= htmlspecialchars($fm['category']) ?><?php if (!empty($fm['subcategory'])): ?> / <?= htmlspecialchars($fm['subcategory']) ?><?php endif; ?></span>
 <h2><?= htmlspecialchars($fm['title']) ?></h2>
@@ -1560,7 +1590,7 @@ echo '<div class="single-content">' . $out . '</div>';
 <div class="feat-side">
 <?php foreach ($fsItems as $fsi): ?>
 <a href="?page=single&id=<?= $fsi['id'] ?>" class="feat-si">
-<img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy">
+<img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
 <div class="fi">
 <div class="fcs"><?= htmlspecialchars($fsi['category']) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
 <h3><?= htmlspecialchars($fsi['title']) ?></h3>
@@ -1589,7 +1619,7 @@ if (empty($vidPoster)) $vidPoster = $placeholderImg;
 ?>
 <?php if(!empty($vidEmbed)): ?>
 <div class="vid-main" data-embed="<?= htmlspecialchars($vidEmbed) ?>">
-<img class="vid-poster" src="<?= htmlspecialchars($vidPoster) ?>" alt="<?= htmlspecialchars($vidMain['title'] ?? '') ?>">
+<img class="vid-poster" src="<?= htmlspecialchars($vidPoster) ?>" alt="<?= htmlspecialchars($vidMain['title'] ?? '') ?>" loading="lazy" decoding="async">
 <span class="vid-play"><i class="fas fa-play" style="margin-left:3px"></i></span>
 <div class="vid-info">
 <span class="cb"><?= htmlspecialchars($vidCat) ?></span>
@@ -1617,7 +1647,7 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 <?php if(!empty($vEmbed)): ?>
 <div class="vid-card" data-embed="<?= htmlspecialchars($vEmbed) ?>">
 <div class="vid-thumb">
-<img src="<?= htmlspecialchars($vThumb) ?>" alt="" loading="lazy">
+<img src="<?= htmlspecialchars($vThumb) ?>" alt="" loading="lazy" decoding="async">
 <span class="vid-sm-play"><i class="fas fa-play" style="margin-left:2px"></i></span>
 </div>
 <div class="vc-info">
@@ -1657,7 +1687,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     <div class="news-grid" id="newsGridContainer">
         <?php foreach ($pagedGrid as $ni): ?>
         <a href="?page=single&id=<?= $ni['id'] ?>" class="nc">
-            <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
+            <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
             <div class="nc-body">
                 <div class="nc-cat"><?= htmlspecialchars($ni['category']) ?><?php if (!empty($ni['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ni['subcategory']) ?></span><?php endif; ?></div>
                 <h3><?= htmlspecialchars($ni['title']) ?></h3>
@@ -1694,7 +1724,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <?php else: ?>
             <?php foreach ($hpItems as $hpi): ?>
             <a href="?page=single&id=<?= $hpi['id'] ?>" class="cat-panel-card">
-                <div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy"></div>
+                <div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
                 <div class="cpc-body">
                     <h3><?= htmlspecialchars($hpi['title']) ?></h3>
                     <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?> <span style="margin-left:5px;color:var(--red)"><?= htmlspecialchars($hpi['category']) ?><?php if (!empty($hpi['subcategory'])): ?> / <?= htmlspecialchars($hpi['subcategory']) ?><?php endif; ?></span></div>
@@ -1720,7 +1750,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
                 <?= $adVals['ad_bottom_1_embed'] ?>
             <?php else: ?>
                 <a href="#" target="_blank" rel="noopener noreferrer">
-                    <img src="https://via.placeholder.com/728x90?text=Bottom+Advertisement+1" alt="Advertisement">
+                    <img src="https://via.placeholder.com/728x90?text=Bottom+Advertisement+1" alt="Advertisement" loading="lazy" decoding="async">
                 </a>
             <?php endif; ?>
         </div>
@@ -1733,7 +1763,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
                 <?= $adVals['ad_bottom_2_embed'] ?>
             <?php else: ?>
                 <a href="#" target="_blank" rel="noopener noreferrer">
-                    <img src="https://via.placeholder.com/300x250?text=Bottom+Advertisement+2" alt="Advertisement">
+                    <img src="https://via.placeholder.com/300x250?text=Bottom+Advertisement+2" alt="Advertisement" loading="lazy" decoding="async">
                 </a>
             <?php endif; ?>
         </div>
@@ -1742,7 +1772,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 
 </div>
 
-<?php if (!empty($nseTrackHTML)): ?>
+<?php if (!empty($nseTrackHTML) || empty($nseData)): ?>
 <div class="nse-bar">
 <div class="nse-lbl">
     <i class="fas fa-chart-line"></i> Share Market
@@ -1750,7 +1780,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
     <span class="nse-closed-badge" id="nseClosedBadge">CLOSED</span>
 </div>
 <div class="nse-scroll">
-<div class="nse-track"><?= $nseTrackHTML ?></div>
+<div class="nse-track" id="nseTrackContainer"><?= $nseTrackHTML ?></div>
 </div>
 </div>
 <?php endif; ?>
@@ -1892,7 +1922,7 @@ function googleTranslateElementInit() {
     }, 'google_translate_element');
 }
 </script>
-<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" defer></script>
 
 <!-- ================================================== -->
 <!-- LIVE CLOCK & DATE UPDATE SCRIPT                  -->
@@ -2112,7 +2142,8 @@ if(moreBtn&&morePanel){
     document.addEventListener('click',function(e){if(!morePanel.contains(e.target)&&e.target!==moreBtn&&!moreBtn.contains(e.target)){morePanel.classList.remove('open');moreBtn.classList.remove('is-active');}});
 }
 
-document.querySelectorAll('.kn-pl-link.has-psubs').forEach(function(row){row.addEventListener('click',function(e){if(e.target.closest('.kn-sub-link'))return;var cat=this.getAttribute('data-pcat');var sl=document.querySelector('.kn-subs[data-psubs="'+cat+'"]');var tb=this.querySelector('.kn-sub-tog');if(sl)sl.classList.toggle('open');if(tb)tb.classList.toggle('open');});});
+// FIX: If clicking the text link, navigate normally instead of just toggling
+document.querySelectorAll('.kn-pl-link.has-psubs').forEach(function(row){row.addEventListener('click',function(e){if(e.target.closest('.kn-sub-link')||e.target.closest('.kpn'))return;var cat=this.getAttribute('data-pcat');var sl=document.querySelector('.kn-subs[data-psubs="'+cat+'"]');var tb=this.querySelector('.kn-sub-tog');if(sl)sl.classList.toggle('open');if(tb)tb.classList.toggle('open');});});
 document.querySelectorAll('.kn-sub-tog').forEach(function(btn){btn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var cat=this.getAttribute('data-ptog');var sl=document.querySelector('.kn-subs[data-psubs="'+cat+'"]');if(sl)sl.classList.toggle('open');this.classList.toggle('open');});});
 
 document.addEventListener('click',function(e){
@@ -2243,6 +2274,33 @@ if (ttsPlayBtn) {
     });
 }
 
+// ====== BACKGROUND AJAX FETCH FOR NSE STOCKS (SPEEDS UP PAGE LOAD) ======
+setTimeout(function(){
+    fetch('?ajax_nse=1').then(function(r){return r.json();}).then(function(res){
+        if(res.status === 'fresh' && res.data) {
+            var track = document.getElementById('nseTrackContainer');
+            if(track) {
+                var items = [];
+                res.data.forEach(function(ni){
+                    if(!ni.fetched) return;
+                    var cls = ni.change >= 0 ? 'nse-up' : 'nse-down';
+                    var sign = ni.change >= 0 ? '+' : '';
+                    items.push('<div class="nse-si"><span class="nse-sym">' + escapeHtml(ni.short) + '</span><span class="nse-pr">' + number_format(ni.price, 2) + '</span><span class="nse-chg ' + cls + '">' + sign + number_format(ni.change, 2) + ' (' + sign + number_format(ni.changePct, 2) + '%)</span></div>');
+                });
+                if(items.length > 0) {
+                    track.innerHTML = items.join('') + items.join('');
+                }
+            }
+        }
+    }).catch(function(e){console.warn('NSE background fetch error:', e);});
+}, 100);
+
+function number_format(number, decimals) {
+    if (isNaN(number)) return '0.00';
+    return parseFloat(number).toFixed(decimals);
+}
+// =====================================================
+
 var latestNewsId = <?= $latestNewsId ?>;
 var allowNewsPopup = document.getElementById('allowNewsPopup');
 var newNewsPopup = document.getElementById('newNewsPopup');
@@ -2329,9 +2387,10 @@ function checkForNewNews() {
                 }
             }
             
+            // FIX: Reduced reload time from 3000ms to 1000ms for faster refresh
             setTimeout(function() {
                 window.location.reload();
-            }, 3000);
+            }, 1000);
         }
     }).catch(function(error){ console.error('Error checking for new news:', error); });
 }

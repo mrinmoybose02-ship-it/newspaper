@@ -1,5 +1,5 @@
 <?php
-date_default_timezone_set('Asia/Kolkata'); // লোকাল টাইমজোন সেট করা হলো
+date_default_timezone_set('Asia/Kolkata');
 
 /**
  * Bengali Calendar & Festival Auto-Set System (2026 Onward)
@@ -202,29 +202,29 @@ function hasPerm($perm) {
 }
 
  $allPermissions = [
-    'dashboard'=>['label'=>'Dashboard','icon'=>'fas fa-gauge-high'],
-    'add_news'=>['label'=>'Add News','icon'=>'fas fa-plus-circle'],
-    'manage_news'=>['label'=>'Manage News','icon'=>'fas fa-newspaper'],
-    'breaking'=>['label'=>'Breaking News','icon'=>'fas fa-bolt'],
-    'categories'=>['label'=>'Categories','icon'=>'fas fa-folder-tree'],
-    'home_panels'=>['label'=>'Home Panels','icon'=>'fas fa-table-cells'],
-    'social'=>['label'=>'Social Media','icon'=>'fas fa-share-nodes'],
-    'contact'=>['label'=>'Contact Details','icon'=>'fas fa-address-book'],
-    'ads'=>['label'=>'Advertisements','icon'=>'fas fa-rectangle-ad'],
-    'videos'=>['label'=>'Videos','icon'=>'fas fa-video'],
-    'nse_market'=>['label'=>'NSE Market','icon'=>'fas fa-chart-line'],
-    'users'=>['label'=>'User Management','icon'=>'fas fa-users'],
-    'password'=>['label'=>'Change Password','icon'=>'fas fa-key'],
+    'dashboard' => ['label' => 'Dashboard', 'icon' => 'fas fa-gauge-high'],
+    'add_news' => ['label' => 'Add News', 'icon' => 'fas fa-plus-circle'],
+    'manage_news' => ['label' => 'Manage News', 'icon' => 'fas fa-newspaper'],
+    'breaking' => ['label' => 'Breaking News', 'icon' => 'fas fa-bolt'],
+    'categories' => ['label' => 'Categories', 'icon' => 'fas fa-folder-tree'],
+    'home_panels' => ['label' => 'Home Panels', 'icon' => 'fas fa-table-cells'],
+    'social' => ['label' => 'Social Media', 'icon' => 'fas fa-share-nodes'],
+    'contact' => ['label' => 'Contact Details', 'icon' => 'fas fa-address-book'],
+    'ads' => ['label' => 'Advertisements', 'icon' => 'fas fa-rectangle-ad'],
+    'videos' => ['label' => 'Videos', 'icon' => 'fas fa-video'],
+    'nse_market' => ['label' => 'NSE Market', 'icon' => 'fas fa-chart-line'],
+    'users' => ['label' => 'User Management', 'icon' => 'fas fa-users'],
+    'password' => ['label' => 'Change Password', 'icon' => 'fas fa-key'],
 ];
 
  $allRoles = [
-    'super_admin'=>['label'=>'Super Admin','icon'=>'fas fa-crown','color'=>'var(--purple)','description'=>'Full access to everything.','permissions'=>null],
-    'editor'=>['label'=>'Editor','icon'=>'fas fa-user-pen','color'=>'var(--blue)','description'=>'Can add, edit, and manage news articles.','permissions'=>['dashboard','add_news','manage_news','password']],
-    'publisher'=>['label'=>'Publisher','icon'=>'fas fa-newspaper','color'=>'var(--green)','description'=>'Can manage news, categories, breaking news, and home panels.','permissions'=>['dashboard','add_news','manage_news','breaking','categories','home_panels','password']],
-    'ad_manager'=>['label'=>'Ad Manager','icon'=>'fas fa-rectangle-ad','color'=>'var(--gold)','description'=>'Can manage advertisements and ad embed codes.','permissions'=>['dashboard','ads','password']],
-    'social_manager'=>['label'=>'Social Manager','icon'=>'fas fa-share-nodes','color'=>'#25D366','description'=>'Can manage social media, contact details, and videos.','permissions'=>['dashboard','social','contact','videos','password']],
-    'market_viewer'=>['label'=>'Market Viewer','icon'=>'fas fa-chart-line','color'=>'#FF9933','description'=>'Can view NSE market data and dashboard only.','permissions'=>['dashboard','nse_market','password']],
-    'viewer'=>['label'=>'Viewer','icon'=>'fas fa-eye','color'=>'var(--muted)','description'=>'Read-only access to dashboard only.','permissions'=>['dashboard','password']],
+    'super_admin' => ['label' => 'Super Admin', 'icon' => 'fas fa-crown', 'color' => 'var(--purple)', 'description' => 'Full access to everything.', 'permissions' => null],
+    'editor' => ['label' => 'Editor', 'icon' => 'fas fa-user-pen', 'color' => 'var(--blue)', 'description' => 'Can add, edit, and manage news articles.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'password']],
+    'publisher' => ['label' => 'Publisher', 'icon' => 'fas fa-newspaper', 'color' => 'var(--green)', 'description' => 'Can manage news, categories, breaking news, and home panels.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'breaking', 'categories', 'home_panels', 'password']],
+    'ad_manager' => ['label' => 'Ad Manager', 'icon' => 'fas fa-rectangle-ad', 'color' => 'var(--gold)', 'description' => 'Can manage advertisements and ad embed codes.', 'permissions' => ['dashboard', 'ads', 'password']],
+    'social_manager' => ['label' => 'Social Manager', 'icon' => 'fas fa-share-nodes', 'color' => '#25D366', 'description' => 'Can manage social media, contact details, and videos.', 'permissions' => ['dashboard', 'social', 'contact', 'videos', 'password']],
+    'market_viewer' => ['label' => 'Market Viewer', 'icon' => 'fas fa-chart-line', 'color' => '#FF9933', 'description' => 'Can view NSE market data and dashboard only.', 'permissions' => ['dashboard', 'nse_market', 'password']],
+    'viewer' => ['label' => 'Viewer', 'icon' => 'fas fa-eye', 'color' => 'var(--muted)', 'description' => 'Read-only access to dashboard only.', 'permissions' => ['dashboard', 'password']],
 ];
 
 function getUserRole($permissionsRaw) {
@@ -239,35 +239,35 @@ function getUserRole($permissionsRaw) {
 }
 
 function roleColor($color) {
-    $map = ['var(--purple)'=>'rgba(107,33,168,.1)','var(--blue)'=>'rgba(30,90,140,.1)','var(--green)'=>'rgba(45,80,22,.1)','var(--gold)'=>'rgba(212,160,23,.1)','var(--muted)'=>'rgba(107,97,85,.1)','#25D366'=>'rgba(37,211,102,.1)','#FF9933'=>'rgba(255,153,51,.1)'];
+    $map = ['var(--purple)' => 'rgba(107,33,168,.1)', 'var(--blue)' => 'rgba(30,90,140,.1)', 'var(--green)' => 'rgba(45,80,22,.1)', 'var(--gold)' => 'rgba(212,160,23,.1)', 'var(--muted)' => 'rgba(107,97,85,.1)', '#25D366' => 'rgba(37,211,102,.1)', '#FF9933' => 'rgba(255,153,51,.1)'];
     return $map[$color] ?? 'rgba(107,33,168,.1)';
 }
 
 if (!function_exists('handleUpload')) {
     function handleUpload($inputName, $maxSizeMB = 5, $allowedTypes = null) {
-        if ($allowedTypes === null) $allowedTypes = ['image/jpeg','image/jpg','image/png','image/gif','image/webp','image/svg+xml'];
+        if ($allowedTypes === null) $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
         if (!isset($_FILES[$inputName])) return null;
         $file = $_FILES[$inputName];
         if ($file['error'] !== UPLOAD_ERR_OK) {
-            $m = [1=>'Server limit exceeded.',2=>'Form limit exceeded.',3=>'Partial upload.',4=>'No file selected.',6=>'Missing temp folder.',7=>'Failed to write to disk.',8=>'Extension blocked.'];
-            return ["error" => $m[$file['error']] ?? 'Error code: '.$file['error']];
+            $m = [1 => 'Server limit exceeded.', 2 => 'Form limit exceeded.', 3 => 'Partial upload.', 4 => 'No file selected.', 6 => 'Missing temp folder.', 7 => 'Failed to write to disk.', 8 => 'Extension blocked.'];
+            return ["error" => $m[$file['error']] ?? 'Error code: ' . $file['error']];
         }
-        if ($file['size'] > $maxSizeMB*1024*1024) return ["error" => "Maximum {$maxSizeMB}MB. Yours: ".round($file['size']/1024/1024,2)."MB"];
+        if ($file['size'] > $maxSizeMB * 1024 * 1024) return ["error" => "Maximum {$maxSizeMB}MB. Yours: " . round($file['size'] / 1024 / 1024, 2) . "MB"];
         if ($file['size'] === 0) return ["error" => "File is empty."];
         $dm = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
-        if (!in_array($dm, $allowedTypes)) return ["error" => "Type (".$dm.") is not allowed. Please use JPG, PNG, GIF, WebP."];
-        $em = ['image/jpeg'=>'jpg','image/jpg'=>'jpg','image/png'=>'png','image/gif'=>'gif','image/webp'=>'webp','image/svg+xml'=>'svg'];
+        if (!in_array($dm, $allowedTypes)) return ["error" => "Type (" . $dm . ") is not allowed. Please use JPG, PNG, GIF, WebP."];
+        $em = ['image/jpeg' => 'jpg', 'image/jpg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/svg+xml' => 'svg'];
         $ext = $em[$dm] ?? 'jpg';
         if ($dm !== 'image/svg+xml' && !@getimagesize($file['tmp_name'])) return ["error" => "Not a valid image."];
         $isAd = (strpos($inputName, 'ad_') === 0) || (strpos($inputName, 'festival_') === 0);
         $sub = $isAd ? 'ads' : 'news';
-        $dir = __DIR__ . '/../uploads/'.$sub.'/'.date('Y/m/').'/';
+        $dir = __DIR__ . '/../uploads/' . $sub . '/' . date('Y/m/') . '/';
         if (!is_dir($dir)) { if (!@mkdir($dir, 0755, true)) return ["error" => "Failed to create directory."]; }
-        $fn = ($isAd?'ad_':'news_').time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
+        $fn = ($isAd ? 'ad_' : 'news_') . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
         $dest = $dir . $fn;
         if (!@move_uploaded_file($file['tmp_name'], $dest) && !@copy($file['tmp_name'], $dest)) return ["error" => "Failed to save file."];
         @chmod($dest, 0644);
-        return ["path" => "uploads/".$sub.'/'.date('Y/m/').'/'.$fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size']];
+        return ["path" => "uploads/" . $sub . '/' . date('Y/m/') . '/' . $fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size']];
     }
 }
 
@@ -301,7 +301,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard","add","edit","manage","breaking","categories","social","contact","ads","password","api_subcategories","nse_market","api_nse_data","api_ad_click","videos","home_panels","users","date_requests"];
+ $validSections = ["dashboard", "add", "edit", "manage", "breaking", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -342,25 +342,25 @@ if ($section === "api_ad_click") {
 if ($section === "api_nse_data") {
     header('Content-Type: application/json; charset=utf-8'); @session_write_close();
     $cd = __DIR__ . '/../cache'; if (!is_dir($cd)) @mkdir($cd, 0755, true);
-    $cf = $cd.'/nse_market.json'; $ck = $cd.'/nse_cookies.txt';
+    $cf = $cd . '/nse_market.json'; $ck = $cd . '/nse_cookies.txt';
     $ct = 5;
     if (file_exists($cf) && (time() - filemtime($cf)) < $ct) { $c = json_decode(file_get_contents($cf), true); if ($c) { $c['_source'] = 'cache'; echo json_encode($c); exit; } }
-    $data = ['indices'=>[],'gainers'=>[],'losers'=>[],'watchlist'=>[],'market_status'=>'closed','last_updated'=>'','error'=>''];
-    $ti = ['NIFTY 50','NIFTY BANK','NIFTY IT','NIFTY PHARMA','NIFTY NEXT 50','NIFTY MIDCAP 50','NIFTY AUTO','NIFTY METAL','NIFTY FMCG','NIFTY MEDIA','NIFTY REALTY','NIFTY ENERGY','NIFTY FIN SERVICE','NIFTY PSU BANK'];
-    $ws = ['RELIANCE','TCS','INFY','HDFCBANK','ICICIBANK','HINDUNILVR','ITC','SBIN','BHARTIARTL','KOTAKBANK','LT','AXISBANK','BAJFINANCE','ASIANPAINT','MARUTI','TATAMOTORS','WIPRO','HCLTECH','SUNPHARMA','TITAN','ULTRACEMCO','NESTLEIND','POWERGRID','NTPC','ONGC','ADANIENT','ADANIPORTS','COALINDIA','JSWSTEEL','TATASTEEL'];
+    $data = ['indices' => [], 'gainers' => [], 'losers' => [], 'watchlist' => [], 'market_status' => 'closed', 'last_updated' => '', 'error' => ''];
+    $ti = ['NIFTY 50', 'NIFTY BANK', 'NIFTY IT', 'NIFTY PHARMA', 'NIFTY NEXT 50', 'NIFTY MIDCAP 50', 'NIFTY AUTO', 'NIFTY METAL', 'NIFTY FMCG', 'NIFTY MEDIA', 'NIFTY REALTY', 'NIFTY ENERGY', 'NIFTY FIN SERVICE', 'NIFTY PSU BANK'];
+    $ws = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'KOTAKBANK', 'LT', 'AXISBANK', 'BAJFINANCE', 'ASIANPAINT', 'MARUTI', 'TATAMOTORS', 'WIPRO', 'HCLTECH', 'SUNPHARMA', 'TITAN', 'ULTRACEMCO', 'NESTLEIND', 'POWERGRID', 'NTPC', 'ONGC', 'ADANIENT', 'ADANIPORTS', 'COALINDIA', 'JSWSTEEL', 'TATASTEEL'];
     $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     if (!function_exists('nse_curl')) { function nse_curl($url, $ck, $ua, $headers = []) { $ch = curl_init($url); curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $ck, CURLOPT_COOKIEJAR => $ck, CURLOPT_USERAGENT => $ua, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSL_VERIFYHOST => false, CURLOPT_TIMEOUT => 15, CURLOPT_FOLLOWLOCATION => true, CURLOPT_HEADER => false, CURLOPT_ENCODING => "", CURLOPT_HTTPHEADER => $headers]); $res = @curl_exec($ch); curl_close($ch); return $res; } }
-    nse_curl('https://www.nseindia.com', $ck, $ua, ['Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8','Accept-Language: en-US,en;q=0.5','Connection: keep-alive']);
+    nse_curl('https://www.nseindia.com', $ck, $ua, ['Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8', 'Accept-Language: en-US,en;q=0.5', 'Connection: keep-alive']);
     usleep(1000000);
-    $api_headers = ['Accept: application/json, text/plain, */*','Accept-Language: en-US,en;q=0.9','Referer: https://www.nseindia.com/market-data/live-equity-market','X-Requested-With: XMLHttpRequest','Connection: keep-alive'];
+    $api_headers = ['Accept: application/json, text/plain, */*', 'Accept-Language: en-US,en;q=0.9', 'Referer: https://www.nseindia.com/market-data/live-equity-market', 'X-Requested-With: XMLHttpRequest', 'Connection: keep-alive'];
     $ir = nse_curl('https://www.nseindia.com/api/allIndices', $ck, $ua, $api_headers);
-    if ($ir) { $ij = json_decode($ir, true); if (isset($ij['data']) && is_array($ij['data'])) { foreach ($ij['data'] as $it) { $n = $it['indexSymbol'] ?? $it['name'] ?? ''; if (in_array($n, $ti) || in_array($it['name'] ?? '', $ti)) { $l = floatval($it['last'] ?? 0); $p = floatval($it['previousClose'] ?? 0); $c = isset($it['change']) ? floatval($it['change']) : round($l - $p, 2); $cp = isset($it['percentChange']) ? floatval($it['percentChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $data['indices'][] = ['symbol'=>$n,'name'=>$it['name']??$n,'last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($it['high']??0),'low'=>floatval($it['low']??0),'open'=>floatval($it['open']??0),'previousClose'=>$p]; } } } }
+    if ($ir) { $ij = json_decode($ir, true); if (isset($ij['data']) && is_array($ij['data'])) { foreach ($ij['data'] as $it) { $n = $it['indexSymbol'] ?? $it['name'] ?? ''; if (in_array($n, $ti) || in_array($it['name'] ?? '', $ti)) { $l = floatval($it['last'] ?? 0); $p = floatval($it['previousClose'] ?? 0); $c = isset($it['change']) ? floatval($it['change']) : round($l - $p, 2); $cp = isset($it['percentChange']) ? floatval($it['percentChange']) : ($p > 0 ? round(($c / $p) * 100, 2) : 0); $data['indices'][] = ['symbol' => $n, 'name' => $it['name'] ?? $n, 'last' => $l, 'change' => $c, 'changePercent' => $cp, 'high' => floatval($it['high'] ?? 0), 'low' => floatval($it['low'] ?? 0), 'open' => floatval($it['open'] ?? 0), 'previousClose' => $p]; } } } }
     usleep(500000);
     $sr = nse_curl('https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050', $ck, $ua, $api_headers);
     $as = [];
-    if ($sr) { $sj = json_decode($sr, true); if (isset($sj['data']) && is_array($sj['data'])) { foreach ($sj['data'] as $s) { if (!isset($s['companyName']) || empty($s['companyName']) || $s['symbol'] === 'NIFTY 50' || $s['symbol'] === 'NIFTY BANK') continue; $l = floatval($s['lastPrice'] ?? 0); $p = floatval($s['previousClose'] ?? 0); $c = isset($s['change']) ? floatval($s['change']) : round($l - $p, 2); $cp = isset($s['pChange']) ? floatval($s['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $as[] = ['symbol'=>$s['symbol']??'','name'=>$s['companyName']??'','last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($s['dayHigh']??0),'low'=>floatval($s['dayLow']??0),'open'=>floatval($s['open']??0),'previousClose'=>$p,'volume'=>intval($s['totalTradedVolume']??0),'value'=>round(floatval($s['totalTradedValue']??0)/10000000,2)]; } usort($as, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($as, 0, 10); $data['losers'] = array_slice(array_reverse($as), 0, 10); } }
-    foreach ($ws as $sym) { $fd = null; foreach ($as as $st) { if ($st['symbol'] === $sym) { $fd = $st; break; } } if ($fd) { $data['watchlist'][] = $fd; continue; } usleep(200000); $qr = nse_curl('https://www.nseindia.com/api/quote-equity?symbol='.urlencode($sym), $ck, $ua, $api_headers); if ($qr) { $qj = json_decode($qr, true); if (isset($qj['priceInfo'])) { $pi = $qj['priceInfo']; $l = floatval($pi['lastPrice'] ?? 0); $p = floatval($pi['previousClose'] ?? 0); $c = isset($pi['change']) ? floatval($pi['change']) : round($l - $p, 2); $cp = isset($pi['pChange']) ? floatval($pi['pChange']) : ($p > 0 ? round(($c/$p)*100, 2) : 0); $data['watchlist'][] = ['symbol'=>$sym,'name'=>$qj['info']['companyName']??$sym,'last'=>$l,'change'=>$c,'changePercent'=>$cp,'high'=>floatval($pi['intraDayHighLow']['max']??0),'low'=>floatval($pi['intraDayHighLow']['min']??0),'open'=>floatval($pi['open']??0),'previousClose'=>$p,'volume'=>intval($pi['totalTradedVolume']??0),'value'=>0]; } } }
-    if (empty($as) && !empty($data['watchlist'])) { $tempAs = $data['watchlist']; usort($tempAs, function($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($tempAs, 0, 10); $data['losers'] = array_slice(array_reverse($tempAs), 0, 10); }
+    if ($sr) { $sj = json_decode($sr, true); if (isset($sj['data']) && is_array($sj['data'])) { foreach ($sj['data'] as $s) { if (!isset($s['companyName']) || empty($s['companyName']) || $s['symbol'] === 'NIFTY 50' || $s['symbol'] === 'NIFTY BANK') continue; $l = floatval($s['lastPrice'] ?? 0); $p = floatval($s['previousClose'] ?? 0); $c = isset($s['change']) ? floatval($s['change']) : round($l - $p, 2); $cp = isset($s['pChange']) ? floatval($s['pChange']) : ($p > 0 ? round(($c / $p) * 100, 2) : 0); $as[] = ['symbol' => $s['symbol'] ?? '', 'name' => $s['companyName'] ?? '', 'last' => $l, 'change' => $c, 'changePercent' => $cp, 'high' => floatval($s['dayHigh'] ?? 0), 'low' => floatval($s['dayLow'] ?? 0), 'open' => floatval($s['open'] ?? 0), 'previousClose' => $p, 'volume' => intval($s['totalTradedVolume'] ?? 0), 'value' => round(floatval($s['totalTradedValue'] ?? 0) / 10000000, 2)]; } usort($as, function ($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($as, 0, 10); $data['losers'] = array_slice(array_reverse($as), 0, 10); } }
+    foreach ($ws as $sym) { $fd = null; foreach ($as as $st) { if ($st['symbol'] === $sym) { $fd = $st; break; } } if ($fd) { $data['watchlist'][] = $fd; continue; } usleep(200000); $qr = nse_curl('https://www.nseindia.com/api/quote-equity?symbol=' . urlencode($sym), $ck, $ua, $api_headers); if ($qr) { $qj = json_decode($qr, true); if (isset($qj['priceInfo'])) { $pi = $qj['priceInfo']; $l = floatval($pi['lastPrice'] ?? 0); $p = floatval($pi['previousClose'] ?? 0); $c = isset($pi['change']) ? floatval($pi['change']) : round($l - $p, 2); $cp = isset($pi['pChange']) ? floatval($pi['pChange']) : ($p > 0 ? round(($c / $p) * 100, 2) : 0); $data['watchlist'][] = ['symbol' => $sym, 'name' => $qj['info']['companyName'] ?? $sym, 'last' => $l, 'change' => $c, 'changePercent' => $cp, 'high' => floatval($pi['intraDayHighLow']['max'] ?? 0), 'low' => floatval($pi['intraDayHighLow']['min'] ?? 0), 'open' => floatval($pi['open'] ?? 0), 'previousClose' => $p, 'volume' => intval($pi['totalTradedVolume'] ?? 0), 'value' => 0]; } } }
+    if (empty($as) && !empty($data['watchlist'])) { $tempAs = $data['watchlist']; usort($tempAs, function ($a, $b) { return $b['changePercent'] <=> $a['changePercent']; }); $data['gainers'] = array_slice($tempAs, 0, 10); $data['losers'] = array_slice(array_reverse($tempAs), 0, 10); }
     
     $nw = new DateTime('now', new DateTimeZone('Asia/Kolkata')); 
     $h = (int)$nw->format('G'); $mi = (int)$nw->format('i'); $d = (int)$nw->format('N'); $tv = $h * 60 + $mi;
@@ -465,25 +465,38 @@ try { $catStats = $pdo->query("SELECT c.name, COUNT(n.id) as cnt FROM categories
 try { $subRows = $pdo->query("SELECT s.*, c.name as category_name FROM subcategories s LEFT JOIN categories c ON s.category_id=c.id ORDER BY s.category_id, s.name ASC")->fetchAll(); foreach ($subRows as $sr) { $allSubcategories[$sr["category_id"]][] = $sr; } } catch (Exception $e) {}
 
 if (!function_exists('getNewsSubcategoryIds')) { function getNewsSubcategoryIds($pdo, $nid) { try { $s = $pdo->prepare("SELECT subcategory_id FROM news_subcategories WHERE news_id=?"); $s->execute([$nid]); return array_column($s->fetchAll(), 'subcategory_id'); } catch (Exception $e) { return []; } } }
-if (!function_exists('saveNewsSubcategories')) { function saveNewsSubcategories($pdo, $nid, $sids) { $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$nid]); if (!is_array($sids)) $sids = []; if (!empty($sids)) { $st = $pdo->prepare("INSERT IGNORE INTO news_subcategories (news_id,subcategory_id) VALUES (?,?)"); foreach ($sids as $sid) { $sid=(int)$sid; if ($sid>0) $st->execute([$nid,$sid]); } } } }
+if (!function_exists('saveNewsSubcategories')) { function saveNewsSubcategories($pdo, $nid, $sids) { $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$nid]); if (!is_array($sids)) $sids = []; if (!empty($sids)) { $st = $pdo->prepare("INSERT IGNORE INTO news_subcategories (news_id,subcategory_id) VALUES (?,?)"); foreach ($sids as $sid) { $sid = (int)$sid; if ($sid > 0) $st->execute([$nid, $sid]); } } } }
 if (!function_exists('loadSettings')) { function loadSettings($pdo, $keys) { $v = []; try { $in = implode(",", array_fill(0, count($keys), "?")); $st = $pdo->prepare("SELECT setting_key,setting_value FROM site_settings WHERE setting_key IN ($in)"); $st->execute($keys); $rows = $st->fetchAll(PDO::FETCH_KEY_PAIR); foreach ($keys as $k) { $v[$k] = $rows[$k] ?? ""; } } catch (Exception $e) { foreach ($keys as $k) { $v[$k] = ""; } } return $v; } }
 if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st = $pdo->prepare("INSERT INTO site_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?,updated_at=NOW()"); foreach ($data as $k => $val) { $st->execute([$k, $val, $val]); } } }
 
- $adPositions = ["header_banner"=>["label"=>"Header Banner","icon"=>"fas fa-window-maximize","color"=>"#C41E3A"],"content_top"=>["label"=>"Top of Content","icon"=>"fas fa-arrow-up","color"=>"#1E5A8C"],"after_1st_para"=>["label"=>"After 1st Paragraph","icon"=>"fas fa-paragraph","color"=>"#6B21A8"],"after_2nd_para"=>["label"=>"After 2nd Paragraph","icon"=>"fas fa-paragraph","color"=>"#7C3AED"],"after_3rd_para"=>["label"=>"After 3rd Paragraph","icon"=>"fas fa-paragraph","color"=>"#8B5CF6"],"content_middle"=>["label"=>"Middle of Content","icon"=>"fas fa-arrows-up-down","color"=>"#D4A017"],"content_bottom"=>["label"=>"Bottom of Content","icon"=>"fas fa-arrow-down","color"=>"#2D5016"],"sidebar_top"=>["label"=>"Top of Sidebar","icon"=>"fas fa-arrow-up","color"=>"#0891B2"],"sidebar_middle"=>["label"=>"Middle of Sidebar","icon"=>"fas fa-grip-lines","color"=>"#0D9488"],"footer_banner"=>["label"=>"Footer Banner","icon"=>"fas fa-arrow-down","color"=>"#475569"],"popup"=>["label"=>"Popup","icon"=>"fas fa-external-link-alt","color"=>"#DC2626"]];
+ $adPositions = [
+    "header_banner" => ["label" => "Header Banner", "icon" => "fas fa-window-maximize", "color" => "#C41E3A"],
+    "content_top" => ["label" => "Top of Content", "icon" => "fas fa-arrow-up", "color" => "#1E5A8C"],
+    "after_1st_para" => ["label" => "After 1st Paragraph", "icon" => "fas fa-paragraph", "color" => "#6B21A8"],
+    "after_2nd_para" => ["label" => "After 2nd Paragraph", "icon" => "fas fa-paragraph", "color" => "#7C3AED"],
+    "after_3rd_para" => ["label" => "After 3rd Paragraph", "icon" => "fas fa-paragraph", "color" => "#8B5CF6"],
+    "content_middle" => ["label" => "Middle of Content", "icon" => "fas fa-arrows-up-down", "color" => "#D4A017"],
+    "content_bottom" => ["label" => "Bottom of Content", "icon" => "fas fa-arrow-down", "color" => "#2D5016"],
+    "sidebar_top" => ["label" => "Top of Sidebar", "icon" => "fas fa-arrow-up", "color" => "#0891B2"],
+    "sidebar_middle" => ["label" => "Middle of Sidebar", "icon" => "fas fa-grip-lines", "color" => "#0D9488"],
+    "footer_banner" => ["label" => "Footer Banner", "icon" => "fas fa-arrow-down", "color" => "#475569"],
+    "popup" => ["label" => "Popup", "icon" => "fas fa-external-link-alt", "color" => "#DC2626"]
+];
 
-try { $pdo->exec("ALTER TABLE news ADD COLUMN subcategory_id INT DEFAULT NULL AFTER category_id"); } catch(PDOException $e) {}
-try { $pdo->exec("ALTER TABLE news ADD COLUMN updated_at DATETIME DEFAULT NULL"); } catch(PDOException $e) {}
+try { $pdo->exec("ALTER TABLE news ADD COLUMN subcategory_id INT DEFAULT NULL AFTER category_id"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE news ADD COLUMN updated_at DATETIME DEFAULT NULL"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE news ADD COLUMN headline VARCHAR(255) DEFAULT NULL AFTER title"); } catch (PDOException $e) {}
 
  $categories = [];
 try { $categories = $pdo->query("SELECT id, name FROM categories ORDER BY name ASC")->fetchAll(); } catch (Exception $e) {}
 
- $addError = ""; $addSuccess = ""; $addData = ["title"=>"","slug"=>"","content"=>"","image"=>"","tags"=>"","category_id"=>"","subcategories"=>[],"author"=>$fullName,"status"=>"draft","is_featured"=>0,"created_at"=>""];
+ $addError = ""; $addSuccess = ""; $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "created_at" => ""];
 
 if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
     if (!verifyCSRF()) { $addError = "Token mismatch."; }
     else {
         $addData["title"] = trim($_POST["title"] ?? "");
-        $addData["slug"] = trim($_POST["slug"] ?? "");
+        $addData["headline"] = trim($_POST["headline"] ?? "");
         $addData["content"] = $_POST["content"] ?? "";
         $addData["tags"] = trim($_POST["tags"] ?? "");
         $addData["category_id"] = $_POST["category_id"] ?? "";
@@ -493,19 +506,21 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
         $addData["status"] = ($_POST["status"] === "published") ? "published" : "draft";
         $addData["is_featured"] = isset($_POST["is_featured"]) ? 1 : 0;
         $addData["created_at"] = trim($_POST["news_created_at"] ?? "");
+        
+        $addData["slug"] = generateSlug($addData["title"]);
+        $addData["slug"] = makeUniqueSlug($pdo, $addData["slug"]);
+
         if (empty($addData["title"])) { $addError = "Please provide a title."; }
         elseif (empty($addData["content"])) { $addError = "Please write a description."; }
         else {
-            if (empty($addData["slug"])) $addData["slug"] = generateSlug($addData["title"]);
-            $addData["slug"] = makeUniqueSlug($pdo, $addData["slug"]);
             $ur = handleUpload("news_image");
             if ($ur !== null) { if (isset($ur["error"])) { $addError = $ur["error"]; } else { $addData["image"] = $ur["path"]; } }
             if (empty($addError)) {
                 try {
                     $firstSubId = !empty($addData["subcategories"]) ? (int)$addData["subcategories"][0] : null;
                     $news_created_at = !empty($addData["created_at"]) ? date('Y-m-d H:i:s', strtotime($addData["created_at"])) : date('Y-m-d H:i:s');
-                    $pdo->prepare("INSERT INTO news (title,slug,content,image,tags,category_id,subcategory_id,author,status,is_featured,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
-                        ->execute([$addData["title"],$addData["slug"],$addData["content"],$addData["image"],$addData["tags"],!empty($addData["category_id"])?(int)$addData["category_id"]:null,$firstSubId,$addData["author"],$addData["status"],$addData["is_featured"], $news_created_at, date('Y-m-d H:i:s')]);
+                    $pdo->prepare("INSERT INTO news (title, headline, slug, content, image, tags, category_id, subcategory_id, author, status, is_featured, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$addData["title"], $addData["headline"], $addData["slug"], $addData["content"], $addData["image"], $addData["tags"], !empty($addData["category_id"]) ? (int)$addData["category_id"] : null, $firstSubId, $addData["author"], $addData["status"], $addData["is_featured"], $news_created_at, date('Y-m-d H:i:s')]);
                     $nid = $pdo->lastInsertId();
                     saveNewsSubcategories($pdo, $nid, $addData["subcategories"]);
                     
@@ -514,9 +529,9 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
                     }
                     
                     $addSuccess = "Saved successfully.";
-                    $addData = ["title"=>"","slug"=>"","content"=>"","image"=>"","tags"=>"","category_id"=>"","subcategories"=>[],"author"=>$fullName,"status"=>"draft","is_featured"=>0,"created_at"=>""];
+                    $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "created_at" => ""];
                     $section = "manage";
-                } catch (PDOException $e) { $addError = "Failed: ".$e->getMessage(); }
+                } catch (PDOException $e) { $addError = "Failed: " . $e->getMessage(); }
             }
         }
     }
@@ -528,31 +543,38 @@ if ($section === "edit") {
     $er = $pdo->prepare("SELECT * FROM news WHERE id=?"); $er->execute([$eid]); $er = $er->fetch();
     if (!$er) { header("Location: ?page=admin_dashboard&section=manage"); exit; }
     $esi = getNewsSubcategoryIds($pdo, $eid);
-    $editData = ["id"=>$er["id"],"title"=>$er["title"],"slug"=>$er["slug"],"content"=>$er["content"],"image"=>$er["image"]??"","tags"=>$er["tags"]??"","category_id"=>$er["category_id"]??"","subcategories"=>$esi,"author"=>$er["author"]??$fullName,"status"=>$er["status"],"is_featured"=>$er["is_featured"]??0,"created_at"=>$er["created_at"] ?? ""];
+    $editData = ["id" => $er["id"], "title" => $er["title"], "headline" => $er["headline"] ?? "", "slug" => $er["slug"], "content" => $er["content"], "image" => $er["image"] ?? "", "tags" => $er["tags"] ?? "", "category_id" => $er["category_id"] ?? "", "subcategories" => $esi, "author" => $er["author"] ?? $fullName, "status" => $er["status"], "is_featured" => $er["is_featured"] ?? 0, "created_at" => $er["created_at"] ?? ""];
     if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (!verifyCSRF()) { $editError = "Token mismatch."; }
         else {
-            $editData["title"] = trim($_POST["title"] ?? ""); $editData["slug"] = trim($_POST["slug"] ?? ""); $editData["content"] = $_POST["content"] ?? ""; $editData["tags"] = trim($_POST["tags"] ?? ""); $editData["category_id"] = $_POST["category_id"] ?? ""; $editData["subcategories"] = $_POST["subcategories"] ?? []; if (!is_array($editData["subcategories"])) $editData["subcategories"] = explode(",", $editData["subcategories"]); $editData["author"] = trim($_POST["author"] ?? $fullName); $editData["status"] = ($_POST["status"] === "published") ? "published" : "draft"; $editData["is_featured"] = isset($_POST["is_featured"]) ? 1 : 0;
+            $editData["title"] = trim($_POST["title"] ?? "");
+            $editData["headline"] = trim($_POST["headline"] ?? "");
+            $editData["content"] = $_POST["content"] ?? "";
+            $editData["tags"] = trim($_POST["tags"] ?? "");
+            $editData["category_id"] = $_POST["category_id"] ?? "";
+            $editData["subcategories"] = $_POST["subcategories"] ?? [];
+            if (!is_array($editData["subcategories"])) $editData["subcategories"] = explode(",", $editData["subcategories"]);
+            $editData["author"] = trim($_POST["author"] ?? $fullName);
+            $editData["status"] = ($_POST["status"] === "published") ? "published" : "draft";
+            $editData["is_featured"] = isset($_POST["is_featured"]) ? 1 : 0;
+            
+            if (empty($editData["slug"])) $editData["slug"] = generateSlug($editData["title"]);
+            $editData["slug"] = makeUniqueSlug($pdo, $editData["slug"], $eid);
             
             if (empty($editData["title"])) { $editError = "Please provide a title."; } elseif (empty($editData["content"])) { $editError = "Please write a description."; }
             else {
-                if (empty($editData["slug"])) $editData["slug"] = generateSlug($editData["title"]);
-                $editData["slug"] = makeUniqueSlug($pdo, $editData["slug"], $eid);
                 $ur = handleUpload("news_image");
-                if ($ur !== null) { if (isset($ur["error"])) { $editError = $ur["error"]; } else { if (!empty($editData["image"]) && file_exists(__DIR__.'/'.$editData["image"])) @unlink(__DIR__.'/'.$editData["image"]); $editData["image"] = $ur["path"]; } }
+                if ($ur !== null) { if (isset($ur["error"])) { $editError = $ur["error"]; } else { if (!empty($editData["image"]) && file_exists(__DIR__ . '/' . $editData["image"])) @unlink(__DIR__ . '/' . $editData["image"]); $editData["image"] = $ur["path"]; } }
                 if (empty($editError)) {
                     try {
                         $firstSubId = !empty($editData["subcategories"]) ? (int)$editData["subcategories"][0] : null;
                         
-                        // Handle Publish Date based on permissions
                         if ($currentUserPerms === null) {
-                            // Super Admin can directly change the date
                             $editData["created_at"] = trim($_POST["news_created_at"] ?? "");
                             $news_created_at = !empty($editData["created_at"]) ? date('Y-m-d H:i:s', strtotime($editData["created_at"])) : date('Y-m-d H:i:s');
                             $editSuccess = "Updated successfully.";
                         } else {
-                            // Other users cannot change the date directly. They can request it.
-                            $news_created_at = $er["created_at"]; // Keep original date
+                            $news_created_at = $er["created_at"];
                             $requested_date = trim($_POST["requested_date"] ?? "");
                             if (!empty($requested_date)) {
                                 $req_date_sql = date('Y-m-d H:i:s', strtotime($requested_date));
@@ -563,15 +585,15 @@ if ($section === "edit") {
                             }
                         }
                         
-                        $pdo->prepare("UPDATE news SET title=?,slug=?,content=?,image=?,tags=?,category_id=?,subcategory_id=?,author=?,status=?,is_featured=?,created_at=?,updated_at=? WHERE id=?")
-                            ->execute([$editData["title"],$editData["slug"],$editData["content"],$editData["image"],$editData["tags"],!empty($editData["category_id"])?(int)$editData["category_id"]:null,$firstSubId,$editData["author"],$editData["status"],$editData["is_featured"], $news_created_at, date('Y-m-d H:i:s'), $eid]);
+                        $pdo->prepare("UPDATE news SET title=?, headline=?, slug=?, content=?, image=?, tags=?, category_id=?, subcategory_id=?, author=?, status=?, is_featured=?, created_at=?, updated_at=? WHERE id=?")
+                            ->execute([$editData["title"], $editData["headline"], $editData["slug"], $editData["content"], $editData["image"], $editData["tags"], !empty($editData["category_id"]) ? (int)$editData["category_id"] : null, $firstSubId, $editData["author"], $editData["status"], $editData["is_featured"], $news_created_at, date('Y-m-d H:i:s'), $eid]);
                         saveNewsSubcategories($pdo, $eid, $editData["subcategories"]);
                         
                         if ($editData["status"] === "published") {
                             sendWebSocketNotification($eid, $editData["title"]);
                         }
                         
-                    } catch (PDOException $e) { $editError = "Failed: ".$e->getMessage(); }
+                    } catch (PDOException $e) { $editError = "Failed: " . $e->getMessage(); }
                 }
             }
         }
@@ -587,7 +609,7 @@ if ($section === "manage") {
             $dr = $pdo->prepare("SELECT image FROM news WHERE id=?"); 
             $dr->execute([$di]); 
             $dw = $dr->fetch(); 
-            if ($dw && !empty($dw["image"]) && file_exists(__DIR__.'/'.$dw["image"])) @unlink(__DIR__.'/'.$dw["image"]); 
+            if ($dw && !empty($dw["image"]) && file_exists(__DIR__ . '/' . $dw["image"])) @unlink(__DIR__ . '/' . $dw["image"]); 
             $pdo->prepare("DELETE FROM news WHERE id=?")->execute([$di]); 
             $manageSuccess = "Deleted successfully."; 
         } 
@@ -649,7 +671,7 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
                 $ck = $pdo->prepare("SELECT id FROM subcategories WHERE category_id=? AND name=?"); $ck->execute([$sci, $sn]);
                 if ($ck->fetch()) { $catError = "Already exists."; } else {
                     $sl = generateSlug($sn); $ck2 = $pdo->prepare("SELECT id FROM subcategories WHERE slug=?"); $ck2->execute([$sl]); $c = 1;
-                    while ($ck2->fetch()) { $sl = generateSlug($sn).'-'.$c++; $ck2->execute([$sl]); }
+                    while ($ck2->fetch()) { $sl = generateSlug($sn) . '-' . $c++; $ck2->execute([$sl]); }
                     $pdo->prepare("INSERT INTO subcategories (category_id,name,slug) VALUES (?,?,?)")->execute([$sci, $sn, $sl]);
                     $catSuccess = "Subcategory added successfully."; $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll();
                     $srs = $pdo->query("SELECT s.* FROM subcategories s ORDER BY s.category_id,s.name ASC")->fetchAll();
@@ -701,22 +723,60 @@ if ($section === "categories" && $_SERVER["REQUEST_METHOD"] === "POST") {
 }
 
  $socialSuccess = ""; $socialError = "";
- $socialFields = ["social_facebook"=>["label"=>"Facebook","icon"=>"fa-brands fa-facebook-f","type"=>"url","placeholder"=>"https://facebook.com/yourpage"],"social_twitter"=>["label"=>"Twitter / X","icon"=>"fa-brands fa-x-twitter","type"=>"url","placeholder"=>"https://x.com/yourhandle"],"social_youtube"=>["label"=>"YouTube","icon"=>"fa-brands fa-youtube","type"=>"url","placeholder"=>"https://youtube.com/@yourchannel"],"social_instagram"=>["label"=>"Instagram","icon"=>"fa-brands fa-instagram","type"=>"url","placeholder"=>"https://instagram.com/yourprofile"],"social_whatsapp"=>["label"=>"WhatsApp","icon"=>"fa-brands fa-whatsapp","type"=>"text","placeholder"=>"+8801XXXXXXXXX"],"social_telegram"=>["label"=>"Telegram","icon"=>"fa-brands fa-telegram","type"=>"url","placeholder"=>"https://t.me/yourchannel"],"social_linkedin"=>["label"=>"LinkedIn","icon"=>"fa-brands fa-linkedin-in","type"=>"url","placeholder"=>"https://linkedin.com/company/yourpage"],"social_tiktok"=>["label"=>"TikTok","icon"=>"fa-brands fa-tiktok","type"=>"url","placeholder"=>"https://tiktok.com/@yourhandle"]];
- $socialCodeFields = ["social_facebook_embed"=>["label"=>"Facebook Page Plugin","icon"=>"fa-code","placeholder"=>'<div class="fb-page"...>',"rows"=>5],"social_facebook_pixel"=>["label"=>"Facebook Pixel","icon"=>"fa-chart-line","placeholder"=>"<!-- Facebook Pixel -->","rows"=>5],"social_twitter_widget"=>["label"=>"Twitter Widget","icon"=>"fa-code","placeholder"=>'<a class="twitter-timeline"...>',"rows"=>5],"social_google_analytics"=>["label"=>"Google Analytics","icon"=>"fa-chart-bar","placeholder"=>"<!-- Google Analytics -->","rows"=>5]];
- $platformColors = ["social_facebook"=>"#1877F2","social_twitter"=>"#000","social_youtube"=>"#FF0000","social_instagram"=>"#E4405F","social_whatsapp"=>"#25D366","social_telegram"=>"#0088cc","social_linkedin"=>"#0A66C2","social_tiktok"=>"#000"];
+ $socialFields = [
+    "social_facebook" => ["label" => "Facebook", "icon" => "fa-brands fa-facebook-f", "type" => "url", "placeholder" => "https://facebook.com/yourpage"],
+    "social_twitter" => ["label" => "Twitter / X", "icon" => "fa-brands fa-x-twitter", "type" => "url", "placeholder" => "https://x.com/yourhandle"],
+    "social_youtube" => ["label" => "YouTube", "icon" => "fa-brands fa-youtube", "type" => "url", "placeholder" => "https://youtube.com/@yourchannel"],
+    "social_instagram" => ["label" => "Instagram", "icon" => "fa-brands fa-instagram", "type" => "url", "placeholder" => "https://instagram.com/yourprofile"],
+    "social_whatsapp" => ["label" => "WhatsApp", "icon" => "fa-brands fa-whatsapp", "type" => "text", "placeholder" => "+8801XXXXXXXXX"],
+    "social_telegram" => ["label" => "Telegram", "icon" => "fa-brands fa-telegram", "type" => "url", "placeholder" => "https://t.me/yourchannel"],
+    "social_linkedin" => ["label" => "LinkedIn", "icon" => "fa-brands fa-linkedin-in", "type" => "url", "placeholder" => "https://linkedin.com/company/yourpage"],
+    "social_tiktok" => ["label" => "TikTok", "icon" => "fa-brands fa-tiktok", "type" => "url", "placeholder" => "https://tiktok.com/@yourhandle"]
+];
+ $socialCodeFields = [
+    "social_facebook_embed" => ["label" => "Facebook Page Plugin", "icon" => "fa-code", "placeholder" => '<div class="fb-page"...>', "rows" => 5],
+    "social_facebook_pixel" => ["label" => "Facebook Pixel", "icon" => "fa-chart-line", "placeholder" => '<!-- Facebook Pixel -->', "rows" => 5],
+    "social_twitter_widget" => ["label" => "Twitter Widget", "icon" => "fa-code", "placeholder" => '<a class="twitter-timeline"...>', "rows" => 5],
+    "social_google_analytics" => ["label" => "Google Analytics", "icon" => "fa-chart-bar", "placeholder" => '<!-- Google Analytics -->', "rows" => 5]
+];
+ $platformColors = [
+    "social_facebook" => "#1877F2", "social_twitter" => "#000", "social_youtube" => "#FF0000",
+    "social_instagram" => "#E4405F", "social_whatsapp" => "#25D366", "social_telegram" => "#0088cc",
+    "social_linkedin" => "#0A66C2", "social_tiktok" => "#000"
+];
  $socialValues = loadSettings($pdo, array_merge(array_keys($socialFields), array_keys($socialCodeFields)));
-if ($section === "social" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $socialError = "Token mismatch."; } else { try { $sd = []; foreach (array_merge($socialFields, $socialCodeFields) as $k => $c) { $sd[$k] = $_POST[$k] ?? ""; $socialValues[$k] = $sd[$k]; } saveSettings($pdo, $sd); $socialSuccess = "Saved successfully."; } catch (PDOException $e) { $socialError = "Failed: ".$e->getMessage(); } } }
+if ($section === "social" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $socialError = "Token mismatch."; } else { try { $sd = []; foreach (array_merge($socialFields, $socialCodeFields) as $k => $c) { $sd[$k] = $_POST[$k] ?? ""; $socialValues[$k] = $sd[$k]; } saveSettings($pdo, $sd); $socialSuccess = "Saved successfully."; } catch (PDOException $e) { $socialError = "Failed: " . $e->getMessage(); } } }
 
  $contactSuccess = ""; $contactError = "";
- $contactFields = ["contact_phone"=>["label"=>"Phone (Primary)","icon"=>"fas fa-phone","type"=>"tel","placeholder"=>"+91 33 2245 6789","group"=>"phone"],"contact_phone_2"=>["label"=>"Phone 2","icon"=>"fas fa-phone-flip","type"=>"tel","placeholder"=>"+91 XXXX XXXXXX","group"=>"phone"],"contact_phone_3"=>["label"=>"Phone 3","icon"=>"fas fa-mobile-screen","type"=>"tel","placeholder"=>"+91 XXXX XXXXXX","group"=>"phone"],"contact_email_1"=>["label"=>"Email (Primary)","icon"=>"fas fa-envelope","type"=>"email","placeholder"=>"info@example.in","group"=>"email"],"contact_email_2"=>["label"=>"Email 2","icon"=>"fas fa-at","type"=>"email","placeholder"=>"news@example.in","group"=>"email"],"contact_email_3"=>["label"=>"Email 3","icon"=>"fas fa-envelope-open","type"=>"email","placeholder"=>"editor@example.in","group"=>"email"],"contact_address"=>["label"=>"Address","icon"=>"fas fa-location-dot","type"=>"text","placeholder"=>"Enter address","rows"=>3,"group"=>"address"],"contact_whatsapp"=>["label"=>"WhatsApp","icon"=>"fa-brands fa-whatsapp","type"=>"text","placeholder"=>"+91XXXXXXXXXX","group"=>"messaging"],"contact_telegram"=>["label"=>"Telegram","icon"=>"fa-brands fa-telegram","type"=>"text","placeholder"=>"@username","group"=>"messaging"],"contact_office_hours"=>["label"=>"Office Hours","icon"=>"fas fa-clock","type"=>"text","placeholder"=>"9 AM - 11 PM","group"=>"office"]];
- $contactCodeFields = ["contact_map_embed"=>["label"=>"Google Map Embed","icon"=>"fas fa-map","placeholder"=>'<iframe src="https://www.google.com/maps/embed?..."></iframe>',"rows"=>5],"contact_extra_info"=>["label"=>"Extra Info (HTML)","icon"=>"fas fa-info-circle","placeholder"=>"Extra info...","rows"=>6]];
- $contactGroupLabels = ["phone"=>["label"=>"Phone Numbers","icon"=>"fas fa-phone-volume","color"=>"var(--green)"],"email"=>["label"=>"Email","icon"=>"fas fa-envelope-open-text","color"=>"var(--blue)"],"address"=>["label"=>"Address","icon"=>"fas fa-map-location-dot","color"=>"var(--accent)"],"messaging"=>["label"=>"Messaging","icon"=>"fas fa-comments","color"=>"#25D366"],"office"=>["label"=>"Office Info","icon"=>"fas fa-building","color"=>"var(--purple)"]];
+ $contactFields = [
+    "contact_phone" => ["label" => "Phone (Primary)", "icon" => "fas fa-phone", "type" => "tel", "placeholder" => "+91 33 2245 6789", "group" => "phone"],
+    "contact_phone_2" => ["label" => "Phone 2", "icon" => "fas fa-phone-flip", "type" => "tel", "placeholder" => "+91 XXXX XXXXXX", "group" => "phone"],
+    "contact_phone_3" => ["label" => "Phone 3", "icon" => "fas fa-mobile-screen", "type" => "tel", "placeholder" => "+91 XXXX XXXXXX", "group" => "phone"],
+    "contact_email_1" => ["label" => "Email (Primary)", "icon" => "fas fa-envelope", "type" => "email", "placeholder" => "info@example.in", "group" => "email"],
+    "contact_email_2" => ["label" => "Email 2", "icon" => "fas fa-at", "type" => "email", "placeholder" => "news@example.in", "group" => "email"],
+    "contact_email_3" => ["label" => "Email 3", "icon" => "fas fa-envelope-open", "type" => "email", "placeholder" => "editor@example.in", "group" => "email"],
+    "contact_address" => ["label" => "Address", "icon" => "fas fa-location-dot", "type" => "text", "placeholder" => "Enter address", "rows" => 3, "group" => "address"],
+    "contact_whatsapp" => ["label" => "WhatsApp", "icon" => "fa-brands fa-whatsapp", "type" => "text", "placeholder" => "+91XXXXXXXXXX", "group" => "messaging"],
+    "contact_telegram" => ["label" => "Telegram", "icon" => "fa-brands fa-telegram", "type" => "text", "placeholder" => "@username", "group" => "messaging"],
+    "contact_office_hours" => ["label" => "Office Hours", "icon" => "fas fa-clock", "type" => "text", "placeholder" => "9 AM - 11 PM", "group" => "office"]
+];
+ $contactCodeFields = [
+    "contact_map_embed" => ["label" => "Google Map Embed", "icon" => "fas fa-map", "placeholder" => '<iframe src="https://www.google.com/maps/embed?..."></iframe>', "rows" => 5],
+    "contact_extra_info" => ["label" => "Extra Info (HTML)", "icon" => "fas fa-info-circle", "placeholder" => "Extra info...", "rows" => 6]
+];
+ $contactGroupLabels = [
+    "phone" => ["label" => "Phone Numbers", "icon" => "fas fa-phone-volume", "color" => "var(--green)"],
+    "email" => ["label" => "Email", "icon" => "fas fa-envelope-open-text", "color" => "var(--blue)"],
+    "address" => ["label" => "Address", "icon" => "fas fa-map-location-dot", "color" => "var(--accent)"],
+    "messaging" => ["label" => "Messaging", "icon" => "fas fa-comments", "color" => "#25D366"],
+    "office" => ["label" => "Office Info", "icon" => "fas fa-building", "color" => "var(--purple)"]
+];
  $contactValues = loadSettings($pdo, array_merge(array_keys($contactFields), array_keys($contactCodeFields)));
-if ($section === "contact" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $contactError = "Token mismatch."; } else { try { $sd = []; foreach (array_merge($contactFields, $contactCodeFields) as $k => $c) { $sd[$k] = $_POST[$k] ?? ""; $contactValues[$k] = $sd[$k]; } saveSettings($pdo, $sd); $contactSuccess = "Saved successfully."; } catch (PDOException $e) { $contactError = "Failed: ".$e->getMessage(); } } }
+if ($section === "contact" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $contactError = "Token mismatch."; } else { try { $sd = []; foreach (array_merge($contactFields, $contactCodeFields) as $k => $c) { $sd[$k] = $_POST[$k] ?? ""; $contactValues[$k] = $sd[$k]; } saveSettings($pdo, $sd); $contactSuccess = "Saved successfully."; } catch (PDOException $e) { $contactError = "Failed: " . $e->getMessage(); } } }
 
  $adSuccess = ""; $adError = ""; $adEditData = null; $adFilter = $_GET["ad_filter"] ?? "all"; $adList = []; $adTotal = 0;
 if ($section === "ads") {
-    if (isset($_GET["ad_delete"]) && isset($_GET["ad_dtoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_dtoken"])) { $di = (int)$_GET["ad_delete"]; $dr = $pdo->prepare("SELECT image FROM advertisements WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__.'/'.$dw["image"])) @unlink(__DIR__.'/'.$dw["image"]); $pdo->prepare("DELETE FROM advertisements WHERE id=?")->execute([$di]); $adSuccess = "Deleted successfully."; } }
+    if (isset($_GET["ad_delete"]) && isset($_GET["ad_dtoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_dtoken"])) { $di = (int)$_GET["ad_delete"]; $dr = $pdo->prepare("SELECT image FROM advertisements WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__ . '/' . $dw["image"])) @unlink(__DIR__ . '/' . $dw["image"]); $pdo->prepare("DELETE FROM advertisements WHERE id=?")->execute([$di]); $adSuccess = "Deleted successfully."; } }
     if (isset($_GET["ad_toggle"]) && isset($_GET["ad_ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_ttoken"])) { $pdo->prepare("UPDATE advertisements SET is_active=IF(is_active=1,0,1) WHERE id=?")->execute([(int)$_GET["ad_toggle"]]); $adSuccess = "Status changed successfully."; } }
     if (isset($_GET["ad_edit"])) { $er = $pdo->prepare("SELECT * FROM advertisements WHERE id=?"); $er->execute([(int)$_GET["ad_edit"]]); $er = $er->fetch(); if ($er) { $adEditData = $er; } }
     if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['user_action']) && !isset($_POST['save_festival_logo'])) {
@@ -732,20 +792,20 @@ if ($section === "ads") {
                             $aid = (int)$_POST["ad_id"];
                             if ($ai) {
                                 $oi = $pdo->prepare("SELECT image FROM advertisements WHERE id=?"); $oi->execute([$aid]); $o = $oi->fetch();
-                                if ($o && !empty($o["image"]) && file_exists(__DIR__.'/'.$o["image"])) @unlink(__DIR__.'/'.$o["image"]);
+                                if ($o && !empty($o["image"]) && file_exists(__DIR__ . '/' . $o["image"])) @unlink(__DIR__ . '/' . $o["image"]);
                                 $pdo->prepare("UPDATE advertisements SET title=?,position=?,ad_type=?,image=?,link_url=?,ad_code=?,sort_order=?,start_date=?,end_date=?,max_impressions=? WHERE id=?")
-                                    ->execute([$at,$ap,$aty,$ai,$al,$acd,$aso,$asd,$aed,$ami,$aid]);
+                                    ->execute([$at, $ap, $aty, $ai, $al, $acd, $aso, $asd, $aed, $ami, $aid]);
                             } else {
                                 $pdo->prepare("UPDATE advertisements SET title=?,position=?,ad_type=?,link_url=?,ad_code=?,sort_order=?,start_date=?,end_date=?,max_impressions=? WHERE id=?")
-                                    ->execute([$at,$ap,$aty,$al,$acd,$aso,$asd,$aed,$ami,$aid]);
+                                    ->execute([$at, $ap, $aty, $al, $acd, $aso, $asd, $aed, $ami, $aid]);
                             }
                             $adSuccess = "Updated successfully."; $adEditData = null;
                         } else {
                             $pdo->prepare("INSERT INTO advertisements (title,position,ad_type,image,link_url,ad_code,sort_order,start_date,end_date,max_impressions) VALUES (?,?,?,?,?,?,?,?,?,?)")
-                                ->execute([$at,$ap,$aty,$ai,$al,$acd,$aso,$asd,$aed,$ami]);
+                                ->execute([$at, $ap, $aty, $ai, $al, $acd, $aso, $asd, $aed, $ami]);
                             $adSuccess = "New ad added successfully.";
                         }
-                    } catch (PDOException $e) { $adError = "Failed: ".$e->getMessage(); }
+                    } catch (PDOException $e) { $adError = "Failed: " . $e->getMessage(); }
                 }
             }
         }
@@ -1079,7 +1139,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="https://songbadsongolon.infinityfree.me/" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -1087,7 +1147,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -1192,7 +1252,17 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 </div></div></div>
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-pen-nib"></i> News Details</div></div><div class="panel-body">
 <div class="form-group"><label class="form-label">Title <span style="color:var(--accent)">*</span></label><input type="text" name="title" class="form-input" value="<?= htmlspecialchars($fD["title"]) ?>" placeholder="News title" required></div>
-<div class="form-row"><div class="form-group"><label class="form-label">Slug</label><input type="text" name="slug" class="form-input" value="<?= htmlspecialchars($fD["slug"]) ?>" placeholder="auto-slug"><div class="form-hint">Leave empty to auto-generate</div></div><div class="form-group"><label class="form-label">Author</label><input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>"></div></div>
+<div class="form-row">
+    <div class="form-group">
+        <label class="form-label">Single Post Headline (Optional)</label>
+        <input type="text" name="headline" class="form-input" value="<?= htmlspecialchars($fD["headline"] ?? '') ?>" placeholder="Custom headline for single post view">
+        <div class="form-hint">Leave empty to use the main Title as headline.</div>
+    </div>
+    <div class="form-group">
+        <label class="form-label">Author</label>
+        <input type="text" name="author" class="form-input" value="<?= htmlspecialchars($fD["author"]) ?>">
+    </div>
+</div>
 
 <?php if ($currentUserPerms === null): // Super Admin ?>
 <div class="form-group">
@@ -1525,9 +1595,9 @@ if (tagPillsContainer) {
 <div class="panel"><div class="panel-header">
 <div class="filter-tabs"><?php foreach (["all"=>"All","published"=>"Published","draft"=>"Draft","featured"=>"Featured"] as $f => $l): ?><a href="?page=admin_dashboard&section=manage&filter=<?= $f ?>" class="filter-tab <?= $manageFilter === $f ? 'active' : '' ?>"><?= $l ?></a><?php endforeach; ?></div>
 <form method="GET" style="display:flex;gap:6px"><input type="hidden" name="page" value="admin_dashboard"><input type="hidden" name="section" value="manage"><input type="hidden" name="filter" value="<?= $manageFilter ?>"><input type="text" name="sq" class="form-input" style="width:200px;padding:6px 10px;font-size:12px" placeholder="Search..." value="<?= htmlspecialchars($manageSearch) ?>"><button type="submit" class="btn btn-sm btn-outline"><i class="fas fa-search"></i></button></form>
-</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>#</th><th>Title</th><th>Category</th><th>Status</th><th>Publish Date</th><th>Last Updated</th><th>Action</th></tr></thead><tbody>
+</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>#</th><th>Title</th><th>Category</th><th>Status</th><th>Publish Date & Time</th><th>Last Updated</th><th>Action</th></tr></thead><tbody>
 <?php foreach ($manageNews as $i => $mn): $rn = $offset + $i + 1; ?>
-<tr><td style="color:var(--muted);font-size:11px"><?= $rn ?></td><td><div style="display:flex;align-items:center;gap:8px"><?php if (!empty($mn["image"])): ?><img src="<?= htmlspecialchars($mn["image"]) ?>" class="img-thumb" alt=""><?php endif; ?><div class="tbl-title"><?= htmlspecialchars($mn["title"]) ?></div></div></td><td style="font-size:12px"><?= htmlspecialchars($mn["category_name"] ?? "—") ?></td><td><span class="status-badge status-<?= $mn["status"] ?>"><i class="fas fa-circle"></i> <?= $mn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--blue);white-space:nowrap;font-weight:600"><?= !empty($mn["created_at"]) ? date("d M Y, h:i A", strtotime($mn["created_at"])) : "—" ?></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= date("d M Y, h:i A", strtotime($mn["updated_at"] ?? $mn["created_at"])) ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=edit&id=<?= $mn["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=manage&toggle=<?= $mn["id"] ?>&ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $mn["status"] === 'published' ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=manage&delete=<?= $mn["id"] ?>&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Are you sure you want to delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
+<tr><td style="color:var(--muted);font-size:11px"><?= $rn ?></td><td><div style="display:flex;align-items:center;gap:8px"><?php if (!empty($mn["image"])): ?><img src="<?= htmlspecialchars($mn["image"]) ?>" class="img-thumb" alt=""><?php endif; ?><div class="tbl-title"><?= htmlspecialchars($mn["title"]) ?></div></div></td><td style="font-size:12px"><?= htmlspecialchars($mn["category_name"] ?? "—") ?></td><td><span class="status-badge status-<?= $mn["status"] ?>"><i class="fas fa-circle"></i> <?= $mn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= !empty($mn["created_at"]) ? date("d M Y, h:i A", strtotime($mn["created_at"])) : '—' ?></td><td style="font-size:11px;color:var(--blue);white-space:nowrap"><?= !empty($mn["updated_at"]) ? date("d M Y, h:i A", strtotime($mn["updated_at"])) : '—' ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=edit&id=<?= $mn["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=manage&toggle=<?= $mn["id"] ?>&ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $mn["status"] === 'published' ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=manage&delete=<?= $mn["id"] ?>&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Are you sure you want to delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
 <?php endforeach; ?>
 <?php if (empty($manageNews)): ?><tr><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i><p>No news found</p></div></td></tr><?php endif; ?>
 </tbody></table></div>

@@ -19,6 +19,32 @@ try {
 // Determine current language for UI display
  $current_lang = 'বাংলা';
 
+// ====== TTS PROXY FOR GOOGLE BENGALI VOICE (FIX FOR ALL DEVICES) ======
+if (isset($_GET['tts_proxy'])) {
+    $text = $_GET['text'] ?? '';
+    if (empty($text)) exit;
+    $text = substr($text, 0, 190); // Google TTS limit is around 200 chars
+    $url = 'https://translate.google.com/translate_tts?ie=UTF-8&q=' . urlencode($text) . '&tl=bn&client=tw-ob';
+    header('Content-Type: audio/mpeg');
+    header('Cache-Control: no-cache');
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+        "Referer: https://translate.google.com/",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    ));
+    $data = curl_exec($ch);
+    $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($httpcode == 200 && !empty($data)) {
+        echo $data;
+    }
+    exit;
+}
+// =====================================================================
+
 // রিয়েল-টাইম নিউজ আনার জন্য API
 if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
     header('Content-Type: application/json; charset=utf-8');
@@ -397,27 +423,25 @@ try {
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
- $allNewsData = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC")->fetchAll()));
-
 // Breaking News: Valid for 30 days only, no future dates
  $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= (NOW() - INTERVAL 30 DAY) AND created_at <= NOW() ORDER BY created_at DESC")->fetchAll());
 
- $latestNewsId = !empty($allNewsData[0]['id']) ? (int)$allNewsData[0]['id'] : 0;
+// ====== PERFORMANCE FIX: Fetch Latest News ID directly instead of loading all news ======
+ $latestNewsId = (int) $pdo->query("SELECT id FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 1")->fetchColumn();
 
- $tagCounts = [];
-foreach ($allNewsData as $n) {
-    if ($n['status'] !== 'published' || empty($n['tags'])) continue;
-    $tags = array_filter(array_map('trim', explode(',', $n['tags'])));
-    foreach ($tags as $tag) { if ($tag !== '') { if (!isset($tagCounts[$tag])) $tagCounts[$tag] = 0; $tagCounts[$tag]++; } }
-}
-arsort($tagCounts); $popularTags = array_slice($tagCounts, 0, 25, true);
+// ====== PERFORMANCE FIX: Fetch Popular Posts directly with LIMIT ======
+ $popularPosts = [];
+try {
+    $ppStmt = $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published' ORDER BY n.is_featured DESC, n.created_at DESC LIMIT 6");
+    $popularPosts = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $ppStmt->fetchAll()));
+} catch (Exception $e) {}
 
- $featuredItems = array_filter($allNewsData, function($n){ return $n['status'] === 'published' && $n['featured']; });
-if (empty($featuredItems)) $featuredItems = array_filter($allNewsData, function($n){ return $n['status'] === 'published'; });
- $popularPosts = array_slice($featuredItems, 0, 6);
-
+// ====== PERFORMANCE FIX: Fetch Category Post Counts directly ======
  $catPostCounts = [];
-foreach ($allNewsData as $n) { if ($n['status'] !== 'published') continue; $c = $n['category']; $catPostCounts[$c] = ($catPostCounts[$c] ?? 0) + 1; }
+try {
+    $cntStmt = $pdo->query("SELECT c.name, COUNT(n.id) as cnt FROM categories c LEFT JOIN news n ON n.category_id = c.id AND n.status = 'published' GROUP BY c.name");
+    foreach ($cntStmt->fetchAll() as $r) { $catPostCounts[$r['name']] = $r['cnt']; }
+} catch (Exception $e) {}
 
  $catSubcategories = [];
  $subRows = $pdo->query("SELECT s.id, s.category_id, s.name, s.slug FROM subcategories s ORDER BY s.category_id ASC, s.id ASC")->fetchAll();
@@ -431,6 +455,20 @@ if (!empty($subRows)) {
         foreach ($countStmt->fetchAll() as $cr) { $subPostCounts[(int)$cr['subcategory_id']] = (int)$cr['cnt']; }
     }
 }
+
+// ====== PERFORMANCE FIX: Fetch Popular Tags directly (limit to recent 500 to avoid heavy load) ======
+ $tagCounts = [];
+ $popularTags = [];
+try {
+    $tagStmt = $pdo->query("SELECT tags FROM news WHERE status='published' AND tags IS NOT NULL AND tags != '' ORDER BY created_at DESC LIMIT 500");
+    while($tr = $tagStmt->fetch()) {
+        $tags = array_filter(array_map('trim', explode(',', $tr['tags'])));
+        foreach ($tags as $tag) { if ($tag !== '') { if (!isset($tagCounts[$tag])) $tagCounts[$tag] = 0; $tagCounts[$tag]++; } }
+    }
+    arsort($tagCounts); 
+    $popularTags = array_slice($tagCounts, 0, 25, true);
+} catch (Exception $e) {}
+// =====================================================
 
  $navInlineCats = array_slice(array_column($categories, 'name'), 0, 8);
  $singleNews = null; $related = []; $displayFeatured = []; $pagedGrid = []; $totalGrid = 0; $totalPages = 1; $currentPage = 1;
@@ -503,8 +541,10 @@ if ($page === 'single') {
         $singleRelatedTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',', $singleNews['tags']))) : [];
         $related = [];
         if (!empty($singleRelatedTags)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($singleRelatedTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
-            $stmt2->execute(array_merge([$singleNews['id']], array_map(function($t){ return "%$t%"; }, $singleRelatedTags)));
+            // PERFORMANCE FIX: Limit tag search to first 2 tags to prevent slow LIKE queries
+            $searchTags = array_slice($singleRelatedTags, 0, 2);
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($searchTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2->execute(array_merge([$singleNews['id']], array_map(function($t){ return "%$t%"; }, $searchTags)));
             $related = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt2->fetchAll()));
         }
         if (empty($related)) {
@@ -866,7 +906,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .cpc-img{height:120px;overflow:hidden}
 .cpc-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
 .cat-panel-card:hover .cpc-img img{transform:scale(1.08)}
-.cpc-body{padding:10px 12px}
+.cpc-body{padding:14px 12px 10px}
 .cpc-body h3{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--fg)}
 .cpc-time{font-size:11px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:4px}
 .cpc-time i{font-size:10px}
@@ -886,7 +926,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .feat-si:last-child{border-radius:0 0 0 8px}
 .feat-si:hover{background:#fdf6f6}
 .feat-si img{width:110px;height:90px;object-fit:cover;flex-shrink:0}
-.feat-si .fi{padding:10px 12px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.feat-si .pi{padding:10px 12px;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .feat-si .fcs{font-size:10px;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
 .feat-si h3{font-size:12.5px;font-weight:600;line-height:1.35;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .feat-si .fdt{font-size:10px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:4px}
@@ -911,7 +951,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .vid-card:hover .vid-thumb img{transform:scale(1.06)}
 .vid-sm-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;background:rgba(183,28,28,.85);border-radius:50%;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;z-index:3;transition:all .2s}
 .vid-card:hover .vid-sm-play{background:var(--red);transform:translate(-50%,-50%) scale(1.15)}
-.vid-card .vc-info{padding:10px 12px;display:flex;flex-direction:column;justify-content:center;min-width:0;flex:1}
+.vid-card .vc-info{padding:12px 12px 10px;display:flex;flex-direction:column;justify-content:center;min-width:0;flex:1}
 .vid-card .vc-cat{font-size:10px;color:var(--red);font-weight:700}
 .vid-card h4{font-size:12.5px;font-weight:600;line-height:1.4;margin:2px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .vid-card .vc-time{font-size:10px;color:var(--muted);margin-top:4px}
@@ -924,7 +964,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .nc .nc-img{height:160px;overflow:hidden}
 .nc .nc-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
 .nc:hover .nc-img img{transform:scale(1.06)}
-.nc .nc-body{padding:12px}
+.nc .nc-body{padding:16px 12px 12px}
 .nc .nc-cat{font-size:10px;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
 .nc h3{font-size:14px;font-weight:700;margin-top:3px;line-height:1.4}
 .nc p{font-size:12px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -946,8 +986,32 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     display: block;
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
+.single-headline { margin: 15px 0; padding: 10px 15px; background: #f8f9fa; border-left: 4px solid var(--red); font-size: 11px; font-weight: normal; color: #444; line-height: 1.5; }
 .single-tags{margin-top:18px;padding-top:14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .single-tags-label{font-size:12px;font-weight:700;color:var(--muted);margin-right:4px}
+
+/* ====== NEWS SHARE BUTTONS ====== */
+.news-share-container{display:flex;align-items:center;gap:10px;margin:15px 0;flex-wrap:wrap;background:#f8f9fa;padding:10px 15px;border-radius:8px;border:1px solid var(--border)}
+.news-share-label{font-size:13px;font-weight:600;color:var(--muted);margin-right:5px}
+.news-share-btn{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;color:#fff;font-size:14px;transition:transform .2s,opacity .2s;text-decoration:none;cursor:pointer;border:none}
+.news-share-btn:hover{transform:translateY(-2px);opacity:.9}
+.share-fb{background:#1877F2}.share-x{background:#000}.share-wa{background:#25D366}.share-li{background:#0A66C2}.share-copy{background:var(--muted)}
+/* ================================ */
+
+/* ====== VIDEO PAGE GRID ====== */
+.video-page-sec{padding:12px 0 24px}
+.video-page-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.vp-card{background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 4px 10px rgba(0,0,0,0.05);transition:all .2s;border:1px solid var(--border)}
+.vp-card:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,0.1);border-color:rgba(183,28,28,0.3)}
+.vp-card .video-embed{border-bottom:3px solid var(--red)}
+.vp-card .vp-body{padding:16px 15px 15px}
+.vp-card .vp-title{font-size:16px;font-weight:700;color:#1a1a1a;line-height:1.4;margin:0 0 8px 0;font-family:'Noto Serif Bengali',serif}
+.vp-card .vp-date{font-size:12px;color:#888;margin:0}
+.vp-card .vp-date i{margin-right:5px;color:var(--red)}
+@media(max-width:1024px){.video-page-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.video-page-grid{grid-template-columns:1fr}}
+/* ============================== */
+
 .pg{display:flex;justify-content:center;align-items:center;gap:4px;padding:24px 0 12px;flex-wrap:wrap}
 .pg a,.pg span{display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 10px;border:1px solid var(--border);border-radius:4px;font-size:13px;font-weight:600;transition:all .2s;cursor:pointer;text-decoration:none}
 .pg a:hover{border-color:var(--red);color:var(--red)}
@@ -1409,38 +1473,42 @@ body { top: 0 !important; }
 <?php if (!empty($adContentTop)) echo $adContentTop; ?>
 
 <?php if ($page === 'videos' || $page === 'video'): ?>
-<section class="video-section" style="padding: 40px 0; background: #f9f9f9; margin-top: 20px; border-radius: 8px;">
-    <div class="container" style="max-width: 1200px; margin: 0 auto; padding: 0 15px;">
-        <h2 style="text-align: center; margin-bottom: 30px; font-size: 28px; color: #1a1a1a;">Latest Videos</h2>
-        <?php if (!empty($videos)): ?>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px;">
-                <?php foreach ($videos as $vid):
-                    $videoCode = $vid['code'] ?? '';
-                    if (!empty($videoCode) && stripos($videoCode, '<iframe') === false && stripos($videoCode, '<video') === false && stripos($videoCode, '<embed') === false) {
-                        $embedUrl = extractVideoEmbedUrl($videoCode);
-                        if (!empty($embedUrl) && filter_var($embedUrl, FILTER_VALIDATE_URL)) {
-                            $videoCode = '<iframe src="' . htmlspecialchars($embedUrl) . '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
-                        }
+<div class="video-page-sec">
+    <h2 class="sec-title"><span style="background:var(--red);color:#fff;width:32px;height:32px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;margin-right:8px"><i class="fas fa-video"></i></span> ভিডিও সংবাদ</h2>
+    <?php if (!empty($videos)): ?>
+        <div class="video-page-grid">
+            <?php foreach ($videos as $vid):
+                $videoCode = $vid['code'] ?? '';
+                if (!empty($videoCode) && stripos($videoCode, '<iframe') === false && stripos($videoCode, '<video') === false && stripos($videoCode, '<embed') === false) {
+                    $embedUrl = extractVideoEmbedUrl($videoCode);
+                    if (!empty($embedUrl) && filter_var($embedUrl, FILTER_VALIDATE_URL)) {
+                        $videoCode = '<iframe src="' . htmlspecialchars($embedUrl) . '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
                     }
-                ?>
-                    <div style="background: #fff; border-radius: 10px; overflow: hidden; box-shadow:0 4px 15px rgba(0,0,0,0.1); transition: transform 0.3s ease;" onmouseover="this.style.transform='translateY(-5px)'" onmouseout="this.style.transform='translateY(0)'">
-                        <div class="video-embed"><?= $videoCode ?></div>
-                        <div style="padding: 15px 20px;">
-                            <h3 style="margin: 0 0 8px 0; font-size: 18px; color: #1a1a1a; line-height: 1.4;"><?= htmlspecialchars($vid['title']) ?></h3>
-                            <p style="margin: 0; font-size: 13px; color: #888;"><i class="far fa-calendar-alt"></i> <?= date("d M Y", strtotime($vid['created_at'])) ?></p>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
+                }
+            ?>
+            <div class="vp-card">
+                <div class="video-embed"><?= $videoCode ?></div>
+                <div class="vp-body">
+                    <h3 class="vp-title"><?= htmlspecialchars($vid['title']) ?></h3>
+                    <p class="vp-date"><i class="far fa-calendar-alt"></i> <?= date("d M Y", strtotime($vid['created_at'])) ?></p>
+                </div>
             </div>
-        <?php else: ?>
-            <div style="text-align: center; padding: 50px 20px; color: #777; background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-                <i class="fas fa-video" style="font-size: 40px; margin-bottom: 15px; opacity: 0.3; display: block;"></i>
-                <p style="font-size: 16px; margin: 0;">No videos available at the moment. Please check back later.</p>
-            </div>
-        <?php endif; ?>
-    </div>
-</section>
-<?php elseif ($page === 'single' && $singleNews): ?>
+            <?php endforeach; ?>
+        </div>
+    <?php else: ?>
+        <div class="no-res">
+            <i class="fas fa-video"></i>
+            <h3>কোনো ভিডিও নেই</h3>
+            <p>এই মুহূর্তে কোনো ভিডিও উপলব্ধ নেই।</p>
+        </div>
+    <?php endif; ?>
+</div>
+<?php elseif ($page === 'single' && $singleNews): 
+    $shareUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['REQUEST_URI'] ?? '/');
+    $shareTitle = htmlspecialchars($singleNews['title']);
+    $shareTitleEnc = urlencode($shareTitle);
+    $shareUrlEnc = urlencode($shareUrl);
+?>
 <article class="single-wrap">
 <div style="margin-bottom:10px;">
 <a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars($singleNews['category']) ?></a>
@@ -1448,7 +1516,9 @@ body { top: 0 !important; }
 <a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)$singleNews['subcategory_id'] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
 <?php endif; ?>
 </div>
-<h1><?= htmlspecialchars($singleNews['title']) ?></h1>
+
+<!-- মূল টাইটেল এখানে দেখাবে (পরিবর্তন করা হবে না) -->
+<h1 class="news-title"><?= $shareTitle ?></h1>
 
 <div class="tts-container">
     <button id="ttsPlayBtn" class="tts-play-btn" title="Listen to this news">
@@ -1457,6 +1527,17 @@ body { top: 0 !important; }
     <span class="tts-label">Listen to this news (Audio)</span>
 </div>
 
+<!-- NEWS SHARE BUTTONS START -->
+<div class="news-share-container">
+    <span class="news-share-label">শেয়ার করুন:</span>
+    <a href="https://www.facebook.com/sharer/sharer.php?u=<?= $shareUrlEnc ?>" target="_blank" rel="noopener noreferrer" class="news-share-btn share-fb" aria-label="Share on Facebook"><i class="fab fa-facebook-f"></i></a>
+    <a href="https://twitter.com/intent/tweet?text=<?= $shareTitleEnc ?>&url=<?= $shareUrlEnc ?>" target="_blank" rel="noopener noreferrer" class="news-share-btn share-x" aria-label="Share on Twitter"><i class="fab fa-x-twitter"></i></a>
+    <a href="https://api.whatsapp.com/send?text=<?= $shareTitleEnc ?>%20<?= $shareUrlEnc ?>" target="_blank" rel="noopener noreferrer" class="news-share-btn share-wa" aria-label="Share on WhatsApp"><i class="fab fa-whatsapp"></i></a>
+    <a href="https://www.linkedin.com/sharing/share-offsite/?url=<?= $shareUrlEnc ?>" target="_blank" rel="noopener noreferrer" class="news-share-btn share-li" aria-label="Share on LinkedIn"><i class="fab fa-linkedin-in"></i></a>
+    <button class="news-share-btn share-copy" id="copyLinkBtn" aria-label="Copy Link"><i class="fas fa-link"></i></button>
+</div>
+<!-- NEWS SHARE BUTTONS END -->
+
 <div class="single-meta">
 <span><i class="far fa-clock"></i> <?= formatDate($singleNews['created_at']) ?></span>
 <span><i class="far fa-user"></i> সংবাদ সংকলন</span>
@@ -1464,8 +1545,16 @@ body { top: 0 !important; }
 <span><i class="fas fa-tags"></i> <?= htmlspecialchars($singleNews['tags']) ?></span>
 <?php endif; ?>
 </div>
+
+<!-- হেডলাইন এখানে দেখাবে (ছবির আগে) -->
+<?php if (!empty($singleNews['headline'])): ?>
+    <div class="single-headline">
+        <?= htmlspecialchars($singleNews['headline']) ?>
+    </div>
+<?php endif; ?>
+
 <?php if (!empty($singleNews['image'])): ?>
-<div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>" loading="lazy" decoding="async"></div>
+<div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>" decoding="async" fetchpriority="high"></div>
 <?php endif; ?>
 <?php
  $content = $singleNews['content'];
@@ -1911,7 +2000,7 @@ document.addEventListener('click',function(e){
 </script>
 <?php endif; ?>
 
-<!-- Google Translate Script -->
+<!-- PERFORMANCE FIX: Google Translate Script now loads AFTER page is fully loaded to prevent slow page rendering -->
 <script type="text/javascript">
 function googleTranslateElementInit() {
     new google.translate.TranslateElement({
@@ -1921,8 +2010,13 @@ function googleTranslateElementInit() {
         autoDisplay: false
     }, 'google_translate_element');
 }
+window.addEventListener('load', function() {
+    var script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src = '//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
+    document.head.appendChild(script);
+});
 </script>
-<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit" defer></script>
 
 <!-- ================================================== -->
 <!-- LIVE CLOCK & DATE UPDATE SCRIPT                  -->
@@ -2176,46 +2270,56 @@ if(langBtn) {
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');
 var ttsIcon = ttsPlayBtn ? ttsPlayBtn.querySelector('i') : null;
 var isSpeaking = false;
-var bnVoice = null;
+var ttsAudio = null;
+var ttsChunks = [];
+var ttsIndex = 0;
 
-function loadVoices() {
-    if (!('speechSynthesis' in window)) return;
-    var voices = window.speechSynthesis.getVoices();
-    if (voices.length === 0) return;
-
-    bnVoice = voices.find(function(v) { return v.lang.toLowerCase() === 'bn-in' && v.name.toLowerCase().includes('female'); })
-        || voices.find(function(v) { return v.lang.toLowerCase() === 'bn-in'; })
-        || voices.find(function(v) { return v.lang.toLowerCase().startsWith('bn') && v.name.toLowerCase().includes('female'); })
-        || voices.find(function(v) { return v.lang.toLowerCase().startsWith('bn'); });
+function stopTTS() {
+    isSpeaking = false;
+    ttsChunks = [];
+    ttsIndex = 0;
+    if (ttsAudio) {
+        ttsAudio.pause();
+        ttsAudio = null;
+    }
+    if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
 }
 
-if ('speechSynthesis' in window) {
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-} else {
-    if (ttsPlayBtn) {
-        ttsPlayBtn.disabled = true;
-        ttsPlayBtn.style.background = '#999';
-        if (ttsIcon) ttsIcon.className = 'fas fa-times';
-    }
+function splitTextIntoChunks(text, maxLength) {
+    var sentences = text.match(/[^.!?।]+[.!?।]*\s*/g) || [text];
+    var chunks = [];
+    var currentChunk = '';
+    
+    sentences.forEach(function(sentence) {
+        if ((currentChunk + sentence).length > maxLength) {
+            if (currentChunk) chunks.push(currentChunk.trim());
+            while (sentence.length > maxLength) {
+                chunks.push(sentence.substring(0, maxLength).trim());
+                sentence = sentence.substring(maxLength);
+            }
+            currentChunk = sentence;
+        } else {
+            currentChunk += sentence;
+        }
+    });
+    if (currentChunk) chunks.push(currentChunk.trim());
+    return chunks;
 }
 
 if (ttsPlayBtn) {
     ttsPlayBtn.addEventListener('click', function() {
-        if (!('speechSynthesis' in window)) return;
-
         if (isSpeaking) {
-            window.speechSynthesis.cancel();
-            isSpeaking = false;
-            if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
+            stopTTS();
             return;
         }
 
         var newsContentEl = document.querySelector('.single-content');
-        var newsTitleEl = document.querySelector('.single-wrap h1');
+        var newsTitleEl = document.querySelector('.news-title'); 
+        var newsHeadlineEl = document.querySelector('.single-headline'); 
         var textToRead = '';
         
         if (newsTitleEl) textToRead += newsTitleEl.textContent + '. ';
+        if (newsHeadlineEl) textToRead += newsHeadlineEl.textContent + '. ';
         
         if (newsContentEl) {
             var nodes = newsContentEl.querySelectorAll('p, h2, h3, h4, li');
@@ -2228,51 +2332,69 @@ if (ttsPlayBtn) {
 
         if (!textToRead.trim()) return;
 
-        var chunks = textToRead.match(/[^.!?]+[.!?]*\s*/g) || [textToRead];
-        
         isSpeaking = true;
         if (ttsIcon) ttsIcon.className = 'fas fa-stop';
 
-        var i = 0;
-        function speakNext() {
-            if (!isSpeaking) return;
-            if (i >= chunks.length) {
-                isSpeaking = false;
-                if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
-                return;
-            }
-            
-            var textChunk = chunks[i].trim();
-            if (!textChunk) {
-                i++;
-                speakNext();
-                return;
-            }
+        // PROXY ENGINE: Guarantees Google Bengali Female Voice on all devices (iOS, Android, Windows, Linux)
+        ttsChunks = splitTextIntoChunks(textToRead, 150); // 150 is safe limit for Google API
+        ttsIndex = 0;
+        ttsAudio = new Audio();
 
-            var utterance = new SpeechSynthesisUtterance(textChunk);
-            if (bnVoice) {
-                utterance.voice = bnVoice;
-                utterance.lang = bnVoice.lang;
-            } else {
-                utterance.lang = 'bn-IN';
+        function playNextProxy() {
+            if (!isSpeaking || ttsIndex >= ttsChunks.length) {
+                stopTTS();
+                return;
             }
-            utterance.rate = 1.0;
-            utterance.pitch = 1.1;
-            
-            utterance.onend = function() {
-                i++;
-                speakNext();
-            };
-            utterance.onerror = function() {
-                isSpeaking = false;
-                if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
-            };
-            
-            window.speechSynthesis.speak(utterance);
+            var textChunk = ttsChunks[ttsIndex];
+            if (!textChunk) {
+                ttsIndex++;
+                playNextProxy();
+                return;
+            }
+            var url = '?tts_proxy=1&text=' + encodeURIComponent(textChunk);
+            ttsAudio.src = url;
+            ttsAudio.play().catch(function(e) {
+                console.error("TTS Playback Error:", e);
+                stopTTS();
+            });
         }
-        speakNext();
+
+        ttsAudio.addEventListener('ended', function() {
+            ttsIndex++;
+            setTimeout(playNextProxy, 100);
+        });
+        
+        ttsAudio.addEventListener('error', function() {
+            console.error("TTS Audio Error");
+            stopTTS();
+        });
+
+        playNextProxy();
     });
 }
+
+// ====== COPY LINK FUNCTIONALITY FOR SHARE BUTTONS ======
+var copyBtn = document.getElementById('copyLinkBtn');
+if(copyBtn) {
+    copyBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var tempInput = document.createElement("input");
+        tempInput.value = window.location.href;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        tempInput.setSelectionRange(0, 99999); // For mobile devices
+        try {
+            document.execCommand('copy');
+            var icon = copyBtn.querySelector('i');
+            var oldClass = icon.className;
+            icon.className = 'fas fa-check';
+            setTimeout(function() { icon.className = oldClass; }, 2000);
+        } catch(err) {}
+        document.body.removeChild(tempInput);
+    });
+}
+// ======================================================
 
 // ====== BACKGROUND AJAX FETCH FOR NSE STOCKS (SPEEDS UP PAGE LOAD) ======
 setTimeout(function(){

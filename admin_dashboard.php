@@ -1,175 +1,14 @@
 <?php
 date_default_timezone_set('Asia/Kolkata');
 
-/**
- * Bengali Calendar & Festival Auto-Set System (2026 Onward)
- */
-class BengaliCalendar {
-    private static $bn_digits = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
-    private static $bn_months = [1=>'বৈশাখ',2=>'জ্যৈষ্ঠ',3=>'আষাঢ়',4=>'শ্রাবণ',5=>'ভাদ্র',6=>'আশ্বিন',7=>'কার্তিক',8=>'অগ্রহায়ণ',9=>'পৌষ',10=>'মাঘ',11=>'ফাল্গুন',12=>'চৈত্র'];
-    private static $bn_seasons = ['গ্রীষ্ম', 'বর্ষা', 'শরৎ', 'হেমন্ত', 'শীত', 'বসন্ত'];
-    private static $bn_weekdays = ['রবিবার','সোমবার','মঙ্গলবার','বুধবার','বৃহস্পতিবার','শুক্রবার','শনিবার'];
+// 1. Calendar File ti Include Korlam
+require_once __DIR__ . '/bengali_calendar.php';
 
-    public static function toBengaliDate($date = null) {
-        if ($date === null) $date = time();
-        if (is_string($date)) $date = strtotime($date);
-        if (is_numeric($date) && $date > 100000000000) $date = (int)($date/1000);
+// 2. Data Collection
+ $todayBengali = BengaliCalendar::toBengaliDate();
+ $activeFestival = BengaliFestivalCalendar::getActiveFestival();
+ $allActiveFestivals = BengaliFestivalCalendar::getActiveFestivals(); // Sob active festival er list
 
-        $epoch = gmmktime(0, 0, 0, 4, 15, 2026);
-        $days_diff = (int)floor(($date - $epoch) / 86400);
-
-        $b_year = 1433; $b_month = 1; $b_day = 1;
-
-        if ($days_diff >= 0) {
-            $remaining = $days_diff;
-            while ($remaining > 0) {
-                $days_in_month = self::daysInBengaliMonth($b_month, $b_year);
-                if ($remaining >= $days_in_month) {
-                    $remaining -= $days_in_month;
-                    $b_month++;
-                    if ($b_month > 12) { $b_month = 1; $b_year++; }
-                } else {
-                    $b_day = 1 + $remaining;
-                    $remaining = 0;
-                }
-            }
-        } else {
-            $b_year = 1432; $b_month = 12; $b_day = 30;
-            $remaining = abs($days_diff);
-            while ($remaining > 0) {
-                if ($remaining >= $b_day) {
-                    $remaining -= $b_day;
-                    $b_month--;
-                    if ($b_month < 1) { $b_month = 12; $b_year--; }
-                    $b_day = self::daysInBengaliMonth($b_month, $b_year);
-                } else {
-                    $b_day -= $remaining;
-                    $remaining = 0;
-                }
-            }
-        }
-
-        return [
-            'day' => $b_day, 'month' => $b_month, 'year' => $b_year,
-            'day_bn' => self::toBengaliNumber($b_day),
-            'month_bn' => self::$bn_months[$b_month],
-            'year_bn' => self::toBengaliNumber($b_year),
-            'weekday_bn' => self::$bn_weekdays[(int)date('w', $date)],
-            'season_bn' => self::$bn_seasons[(int)(($b_month - 1) / 2)],
-            'formatted' => self::toBengaliNumber($b_day) . ' ' . self::$bn_months[$b_month] . ', ' . self::toBengaliNumber($b_year),
-            'formatted_full' => self::$bn_weekdays[(int)date('w', $date)] . ', ' . self::toBengaliNumber($b_day) . ' ' . self::$bn_months[$b_month] . ', ' . self::toBengaliNumber($b_year),
-            'gregorian' => date('Y-m-d', $date)
-        ];
-    }
-
-    public static function daysInBengaliMonth($month, $year) {
-        if ($month == 11) {
-            $g_year = $year + 593;
-            if ((($g_year % 4 == 0) && ($g_year % 100 != 0)) || ($g_year % 400 == 0)) return 31;
-            return 30;
-        }
-        return ($month <= 5) ? 31 : 30;
-    }
-
-    public static function toBengaliNumber($num) {
-        $str = (string)$num; $result = '';
-        for ($i = 0; $i < strlen($str); $i++) {
-            $ch = $str[$i];
-            if (isset(self::$bn_digits[(int)$ch])) $result .= self::$bn_digits[(int)$ch];
-            else $result .= $ch;
-        }
-        return $result;
-    }
-}
-
-class BengaliFestivalCalendar {
-    public static function getAllFestivals() {
-        return [
-            ['key'=>'new_year_2026','name'=>'ইংরেজি নববর্ষ','name_en'=>'English New Year','start'=>'2026-01-01','end'=>'2026-01-01','logo'=>'new_year.png','priority'=>70],
-            ['key'=>'netaji_2026','name'=>'নেতাজি জয়ন্তী','name_en'=>'Netaji Jayanti','start'=>'2026-01-23','end'=>'2026-01-23','logo'=>'netaji.png','priority'=>65],
-            ['key'=>'rep_day_2026','name'=>'Republic Day','name_en'=>'Republic Day','start'=>'2026-01-26','end'=>'2026-01-26','logo'=>'republic_day.png','priority'=>70],
-            ['key'=>'sarawati_2026','name'=>'সরস্বতী পূজা','name_en'=>'Saraswati Puja','start'=>'2026-02-01','end'=>'2026-02-01','logo'=>'saraswati.png','priority'=>75],
-            ['key'=>'pohela_falgun_2026','name'=>'পহেলা ফাল্গুন','name_en'=>'Pohela Falgun','start'=>'2026-02-13','end'=>'2026-02-13','logo'=>'pohela_falgun.png','priority'=>80],
-            ['key'=>'dol_2026','name'=>'দোলযাত্রা','name_en'=>'Dol Yatra','start'=>'2026-03-03','end'=>'2026-03-03','logo'=>'dol_yatra.png','priority'=>75],
-            ['key'=>'dolyatra_2026','name'=>'দোল পূর্ণিমা','name_en'=>'Dol Purnima','start'=>'2026-03-03','end'=>'2026-03-03','logo'=>'dol_purnima.png','priority'=>75],
-            ['key'=>'chaitra_sankranti_2026','name'=>'চৈত্র সংক্রান্তি','name_en'=>'Chaitra Sankranti','start'=>'2026-04-14','end'=>'2026-04-14','logo'=>'chaitra_sankranti.png','priority'=>80],
-            ['key'=>'pohela_boishakh_1433','name'=>'পহেলা বৈশাখ','name_en'=>'Pohela Boishakh (Bengali New Year)','start'=>'2026-04-15','end'=>'2026-04-15','logo'=>'pohela_boishakh.png','priority'=>100],
-            ['key'=>'rabindra_jayanti_2026','name'=>'রবীন্দ্র জয়ন্তী','name_en'=>'Rabindra Jayanti','start'=>'2026-05-09','end'=>'2026-05-09','logo'=>'rabindra_jayanti.png','priority'=>85],
-            ['key'=>'buddha_purnima_2026','name'=>'বুদ্ধ পূর্ণিমা','name_en'=>'Buddha Purnima','start'=>'2026-05-31','end'=>'2026-05-31','logo'=>'buddha_purnima.png','priority'=>65],
-            ['key'=>'rath_yatra_2026','name'=>'রথযাত্রা','name_en'=>'Rath Yatra','start'=>'2026-07-03','end'=>'2026-07-03','logo'=>'rath_yatra.png','priority'=>75],
-            ['key'=>'independence_2026','name'=>'Independence Day','name_en'=>'Independence Day','start'=>'2026-08-15','end'=>'2026-08-15','logo'=>'independence_day.png','priority'=>70],
-            ['key'=>'janmashtami_2026','name'=>'জন্মাষ্টমী','name_en'=>'Janmashtami','start'=>'2026-09-04','end'=>'2026-09-04','logo'=>'janmashtami.png','priority'=>70],
-            ['key'=>'mahalaya_2026','name'=>'মহালয়া','name_en'=>'Mahalaya','start'=>'2026-10-09','end'=>'2026-10-09','logo'=>'mahalaya.png','priority'=>85],
-            ['key'=>'durga_ashtami_2026','name'=>'মা দুর্গা অষ্টমী','name_en'=>'Durga Ashtami','start'=>'2026-10-18','end'=>'2026-10-18','logo'=>'durga_ashtami.png','priority'=>95],
-            ['key'=>'durga_nabami_2026','name'=>'মা দুর্গা নবমী','name_en'=>'Durga Nabami','start'=>'2026-10-19','end'=>'2026-10-19','logo'=>'durga_nabami.png','priority'=>95],
-            ['key'=>'bijoya_dashami_2026','name'=>'বিজয়া দশমী','name_en'=>'Bijoya Dashami','start'=>'2026-10-20','end'=>'2026-10-20','logo'=>'bijoya_dashami.png','priority'=>98],
-            ['key'=>'durga_puja_2026','name'=>'দুর্গাপূজা','name_en'=>'Durga Puja','start'=>'2026-10-18','end'=>'2026-10-20','logo'=>'durga_puja.png','priority'=>100],
-            ['key'=>'lakshmi_puja_2026','name'=>'কোজাগরী লক্ষ্মী পূজা','name_en'=>'Kojagari Lakshmi Puja','start'=>'2026-10-27','end'=>'2026-10-27','logo'=>'lakshmi_puja.png','priority'=>85],
-            ['key'=>'kali_puja_2026','name'=>'কালী পূজা','name_en'=>'Kali Puja','start'=>'2026-11-10','end'=>'2026-11-10','logo'=>'kali_puja.png','priority'=>90],
-            ['key'=>'diwali_2026','name'=>'দীপাবলি','name_en'=>'Diwali','start'=>'2026-11-10','end'=>'2026-11-10','logo'=>'diwali.png','priority'=>90],
-            ['key'=>'bhatridwitiya_2026','name'=>'ভাই ফোঁটা','name_en'=>'Bhai Phonta','start'=>'2026-11-12','end'=>'2026-11-12','logo'=>'bhai_phonta.png','priority'=>75],
-            ['key'=>'christmas_2026','name'=>'বড়দিন','name_en'=>'Christmas','start'=>'2026-12-25','end'=>'2026-12-25','logo'=>'christmas.png','priority'=>80],
-            ['key'=>'new_year_eve_2026','name'=>'নববর্ষের পূর্বরাত্রি','name_en'=>'New Year Eve','start'=>'2026-12-31','end'=>'2026-12-31','logo'=>'new_year_eve.png','priority'=>70],
-
-            ['key'=>'new_year_2027','name'=>'ইংরেজি নববর্ষ','name_en'=>'English New Year','start'=>'2027-01-01','end'=>'2027-01-01','logo'=>'new_year.png','priority'=>70],
-            ['key'=>'netaji_2027','name'=>'নেতাজি জয়ন্তী','name_en'=>'Netaji Jayanti','start'=>'2027-01-23','end'=>'2027-01-23','logo'=>'netaji.png','priority'=>65],
-            ['key'=>'rep_day_2027','name'=>'Republic Day','name_en'=>'Republic Day','start'=>'2027-01-26','end'=>'2027-01-26','logo'=>'republic_day.png','priority'=>70],
-            ['key'=>'sarawati_2027','name'=>'সরস্বতী পূজা','name_en'=>'Saraswati Puja','start'=>'2027-02-11','end'=>'2027-02-11','logo'=>'saraswati.png','priority'=>75],
-            ['key'=>'pohela_falgun_2027','name'=>'পহেলা ফাল্গুন','name_en'=>'Pohela Falgun','start'=>'2027-02-13','end'=>'2027-02-13','logo'=>'pohela_falgun.png','priority'=>80],
-            ['key'=>'dol_2027','name'=>'দোলযাত্রা','name_en'=>'Dol Yatra','start'=>'2027-03-22','end'=>'2027-03-22','logo'=>'dol_yatra.png','priority'=>75],
-            ['key'=>'chaitra_sankranti_2027','name'=>'চৈত্র সংক্রান্তি','name_en'=>'Chaitra Sankranti','start'=>'2027-04-14','end'=>'2027-04-14','logo'=>'chaitra_sankranti.png','priority'=>80],
-            ['key'=>'pohela_boishakh_1434','name'=>'পহেলা বৈশাখ','name_en'=>'Pohela Boishakh (Bengali New Year)','start'=>'2027-04-15','end'=>'2027-04-15','logo'=>'pohela_boishakh.png','priority'=>100],
-            ['key'=>'rabindra_jayanti_2027','name'=>'রবীন্দ্র জয়ন্তী','name_en'=>'Rabindra Jayanti','start'=>'2027-05-09','end'=>'2027-05-09','logo'=>'rabindra_jayanti.png','priority'=>85],
-            ['key'=>'rath_yatra_2027','name'=>'রথযাত্রা','name_en'=>'Rath Yatra','start'=>'2027-06-24','end'=>'2027-06-24','logo'=>'rath_yatra.png','priority'=>75],
-            ['key'=>'independence_2027','name'=>'Independence Day','name_en'=>'Independence Day','start'=>'2027-08-15','end'=>'2027-08-15','logo'=>'independence_day.png','priority'=>70],
-            ['key'=>'janmashtami_2027','name'=>'জন্মাষ্টমী','name_en'=>'Janmashtami','start'=>'2027-08-25','end'=>'2027-08-25','logo'=>'janmashtami.png','priority'=>70],
-            ['key'=>'mahalaya_2027','name'=>'মহালয়া','name_en'=>'Mahalaya','start'=>'2027-09-29','end'=>'2027-09-29','logo'=>'mahalaya.png','priority'=>85],
-            ['key'=>'durga_ashtami_2027','name'=>'মা দুর্গা অষ্টমী','name_en'=>'Durga Ashtami','start'=>'2027-10-08','end'=>'2027-10-08','logo'=>'durga_ashtami.png','priority'=>95],
-            ['key'=>'durga_nabami_2027','name'=>'মা দুর্গা নবমী','name_en'=>'Durga Nabami','start'=>'2027-10-09','end'=>'2027-10-09','logo'=>'durga_nabami.png','priority'=>95],
-            ['key'=>'bijoya_dashami_2027','name'=>'বিজয়া দশমী','name_en'=>'Bijoya Dashami','start'=>'2027-10-10','end'=>'2027-10-10','logo'=>'bijoya_dashami.png','priority'=>98],
-            ['key'=>'durga_puja_2027','name'=>'দুর্গাপূজা','name_en'=>'Durga Puja','start'=>'2027-10-08','end'=>'2027-10-10','logo'=>'durga_puja.png','priority'=>100],
-            ['key'=>'lakshmi_puja_2027','name'=>'কোজাগরী লক্ষ্মী পূজা','name_en'=>'Kojagari Lakshmi Puja','start'=>'2027-10-17','end'=>'2027-10-17','logo'=>'lakshmi_puja.png','priority'=>85],
-            ['key'=>'kali_puja_2027','name'=>'কালী পূজা','name_en'=>'Kali Puja','start'=>'2027-10-31','end'=>'2027-10-31','logo'=>'kali_puja.png','priority'=>90],
-            ['key'=>'diwali_2027','name'=>'দীপাবলি','name_en'=>'Diwali','start'=>'2027-10-31','end'=>'2027-10-31','logo'=>'diwali.png','priority'=>90],
-            ['key'=>'bhatridwitiya_2027','name'=>'ভাই ফোঁটা','name_en'=>'Bhai Phonta','start'=>'2027-11-02','end'=>'2027-11-02','logo'=>'bhai_phonta.png','priority'=>75],
-            ['key'=>'christmas_2027','name'=>'বড়দিন','name_en'=>'Christmas','start'=>'2027-12-25','end'=>'2027-12-25','logo'=>'christmas.png','priority'=>80],
-        ];
-    }
-
-    public static function getMonthFestivals($year, $month) {
-        $festivals = self::getAllFestivals();
-        $matched = [];
-        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-        for ($d = 1; $d <= $daysInMonth; $d++) {
-            $dateStr = sprintf('%04d-%02d-%02d', $year, $month, $d);
-            foreach ($festivals as $f) {
-                if ($dateStr >= $f['start'] && $dateStr <= $f['end']) {
-                    if (!isset($matched[$d])) $matched[$d] = $f;
-                }
-            }
-        }
-        return $matched;
-    }
-
-    public static function getActiveFestivals($date = null) {
-        if ($date === null) $date = date('Y-m-d');
-        elseif (is_numeric($date)) $date = date('Y-m-d', $date);
-        elseif (is_string($date)) $date = date('Y-m-d', strtotime($date));
-
-        $festivals = self::getAllFestivals();
-        $matched = [];
-        foreach ($festivals as $f) {
-            if ($date >= $f['start'] && $date <= $f['end']) $matched[] = $f;
-        }
-        usort($matched, function($a, $b) { return $b['priority'] - $a['priority']; });
-        return $matched;
-    }
-
-    public static function getActiveFestival($date = null) {
-        $active = self::getActiveFestivals($date);
-        return !empty($active) ? $active[0] : null;
-    }
-}
 // ========================================== Bengali Calendar Class Ends ==========================================
 
 
@@ -946,6 +785,11 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .topbar-btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:6px;font-size:12.5px;font-weight:600;transition:all .2s}
 .topbar-btn-primary{background:var(--accent);color:#fff}.topbar-btn-primary:hover{background:var(--accent-dark);transform:translateY(-1px);box-shadow:0 4px 12px rgba(196,30,58,.3)}
 .topbar-btn-outline{border:1.5px solid var(--border);color:var(--fg);background:var(--card)}.topbar-btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+
+.bn-date-widget { background: var(--accent-light); padding: 6px 14px; border-radius: 8px; text-align: right; border: 1px solid var(--accent); color: var(--accent-dark); font-family: 'Noto Serif Bengali', serif; line-height:1.4; }
+.bn-date-widget .formatted-date { font-size: 14px; font-weight: 700; }
+.bn-date-widget .season { font-size: 11px; color: var(--gold); font-weight: 600; }
+
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:24px}
 .stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;align-items:center;gap:14px;transition:all .3s;position:relative;overflow:hidden}
 .stat-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.08)}
@@ -1083,6 +927,8 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .tag-pill .remove-tag:hover { opacity: 1; transform: scale(1.2); }
 .tag-input-field { border: none; background: transparent; outline: none; flex: 1; min-width: 120px; font-size: 13.5px; color: var(--fg); padding: 5px 0; font-family: inherit; }
 .tag-input-field::placeholder { color: var(--muted); font-weight: 400; }
+
+.festival-badge { display: inline-block; background: var(--accent); color: #fff; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 14px; box-shadow: 0 2px 5px rgba(196,30,58,.3); }
 </style>
 </head>
 <body>
@@ -1150,7 +996,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?= secLink("password","fa-key","Change Password") ?>
 <?php endif; ?>
 <div class="sb-nav-divider"></div>
-<a href="https://songbadsongolon.infinityfree.me/?" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
+<a href="http://localhost/Newspaper/index.php#" target="_blank" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#22c55e;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-globe" style="width:18px;text-align:center"></i> Newspaper Portal</a>
 <div class="sb-nav-divider"></div>
 <a href="?page=admin_login&action=logout" style="display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:12.5px;font-weight:500;color:#ef4444;border-left:3px solid transparent;margin:1px 0"><i class="fas fa-right-from-bracket" style="width:18px;text-align:center"></i> Logout</a>
 </nav>
@@ -1158,7 +1004,21 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <main class="admin-main">
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Dashboard</h1><div class="topbar-actions"><a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a><?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?></div></div>
+<div class="admin-topbar"> 
+    <h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> আডমিন ড্যাশবোর্ড</h1> 
+    <div style="display:flex; gap:12px; align-items:center;">
+        <!-- Bengali Date Widget Included Here -->
+        <div class="bn-date-widget">
+            <div class="formatted-date"><?php echo $todayBengali['formatted_full']; ?></div>
+            <div class="season">ঋতু: <?php echo $todayBengali['season_bn']; ?></div>
+        </div>
+        <div class="topbar-actions">
+            <a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a>
+            <?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?>
+        </div>
+    </div>
+</div>
+
 <?php if ($manageSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= $manageSuccess ?></div><?php endif; ?>
 <?php if ($pendingUsersCount > 0 && hasPerm('users')): ?>
 <div class="alert alert-warning"><i class="fas fa-user-clock"></i> You have <strong><?= $pendingUsersCount ?></strong> user(s) pending approval. <a href="?page=admin_dashboard&section=users" style="text-decoration:underline;font-weight:700">Review now →</a></div>
@@ -1166,6 +1026,40 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php if ($pendingDateRequestsCount > 0 && $currentUserPerms === null): ?>
 <div class="alert alert-warning"><i class="fas fa-calendar-day"></i> You have <strong><?= $pendingDateRequestsCount ?></strong> date change request(s) pending. <a href="?page=admin_dashboard&section=date_requests" style="text-decoration:underline;font-weight:700">Review now →</a></div>
 <?php endif; ?>
+
+<!-- Festival Notification Card Included Here -->
+<div class="panel" style="border-left: 5px solid var(--accent);">
+    <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-calendar-day"></i> আজকের উৎসব ও ইভেন্ট</div>
+    </div>
+    <div class="panel-body">
+        <?php if ($activeFestival): ?>
+            <p style="font-size: 16px; margin-bottom: 12px; color:var(--fg);">আজ একটি বিশেষ দিন: </p>
+            <span class="festival-badge">
+                <?php echo $activeFestival['name']; ?> 🎉
+            </span>
+            
+            <?php if(count($allActiveFestivals) > 1): ?>
+                <div style="margin-top: 15px; font-size: 13px; color: var(--muted);">
+                    <strong style="color:var(--fg);">আরও চলমান ইভেন্ট:</strong>
+                    <ul style="margin-top:5px; padding-left:20px;">
+                        <?php 
+                        for($i=1; $i < count($allActiveFestivals); $i++): 
+                        ?>
+                            <li><?php echo $allActiveFestivals[$i]['name']; ?></li>
+                        <?php endfor; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+        <?php else: ?>
+            <div class="empty-state" style="padding:20px; text-align:left;">
+                <i class="fas fa-calendar-times" style="font-size:24px; color:var(--muted); opacity:0.4;"></i>
+                <p style="font-size:13px; display:inline; margin-left:10px;">আজ কোনো নির্দিষ্ট উৎসব বা ইভেন্ট নেই।</p>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+
 <div class="stats-grid">
 <div class="stat-card sc-red"><div class="stat-icon"><i class="fas fa-newspaper"></i></div><div><div class="stat-num"><?= $totalNews ?></div><div class="stat-label">Total News</div></div></div>
 <div class="stat-card sc-green"><div class="stat-icon"><i class="fas fa-circle-check"></i></div><div><div class="stat-num"><?= $publishedNews ?></div><div class="stat-label">Published</div></div></div>

@@ -561,10 +561,20 @@ if ($section === "edit") {
             if (empty($editData["slug"])) $editData["slug"] = generateSlug($editData["title"]);
             $editData["slug"] = makeUniqueSlug($pdo, $editData["slug"], $eid);
             
-            if (empty($editData["title"])) { $editError = "Please provide a title."; } elseif (empty($editData["content"])) { $editError = "Please write a description."; }
-            else {
+            if (empty($editData["title"])) { 
+                $editError = "Please provide a title."; 
+            } elseif (empty($editData["content"])) { 
+                $editError = "Please write a description."; 
+            } else {
                 $ur = handleUpload("news_image");
-                if ($ur !== null) { if (isset($ur["error"])) { $editError = $ur["error"]; } else { if (!empty($editData["image"]) && file_exists(__DIR__ . '/' . $editData["image"])) @unlink(__DIR__ . '/' . $editData["image"]); $editData["image"] = $ur["path"]; } }
+                if ($ur !== null) { 
+                    if (isset($ur["error"])) { 
+                        $editError = $ur["error"]; 
+                    } else { 
+                        if (!empty($editData["image"]) && file_exists(__DIR__ . '/' . $editData["image"])) @unlink(__DIR__ . '/' . $editData["image"]); 
+                        $editData["image"] = $ur["path"]; 
+                    } 
+                }
                 if (empty($editError)) {
                     try {
                         $firstSubId = !empty($editData["subcategories"]) ? (int)$editData["subcategories"][0] : null;
@@ -592,8 +602,9 @@ if ($section === "edit") {
                         if ($editData["status"] === "published") {
                             sendWebSocketNotification($eid, $editData["title"]);
                         }
-                        
-                    } catch (PDOException $e) { $editError = "Failed: " . $e->getMessage(); }
+                    } catch (PDOException $e) { 
+                        $editError = "Failed: " . $e->getMessage(); 
+                    }
                 }
             }
         }
@@ -1283,14 +1294,6 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php endif; ?>
 
 <div class="form-row"><div class="form-group"><label class="form-label">Category</label><select name="category_id" class="form-select" id="catSelect"><option value="">— Select —</option><?php foreach ($categories as $c): ?><option value="<?= $c["id"] ?>" <?= ($fD["category_id"] == $c["id"]) ? 'selected' : '' ?>><?= htmlspecialchars($c["name"]) ?></option><?php endforeach; ?></select></div><div class="form-group"><label class="form-label">Subcategories</label><select name="subcategories[]" class="form-select" id="subCatSelect" multiple style="min-height:42px"><option value="">— Select Category First —</option></select><div class="form-hint">Ctrl+Click to select multiple</div></div></div>
-<div class="form-group">
-    <label class="form-label">Tags <span style="font-size:10px; color:var(--muted); font-weight:400">(Type and press Enter)</span></label>
-    <div class="tags-wrapper" id="tagsWrapper" onclick="document.getElementById('tagInputField').focus()">
-        <span id="tagPillsContainer"></span>
-        <input type="text" id="tagInputField" class="tag-input-field" placeholder="Add a tag and press Enter...">
-        <input type="hidden" name="tags" id="hiddenTagsInput" value="<?= htmlspecialchars($fD["tags"]) ?>">
-    </div>
-</div>
 
 <!-- YouTube Video Embed Input (Outside CKEditor) -->
 <div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
@@ -1343,6 +1346,16 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 </div>
 
 <div class="form-group"><label class="form-label">Content <span style="color:var(--accent)">*</span></label><textarea name="content" id="editor1" rows="12" class="form-input" style="height:400px" required><?= htmlspecialchars($fD["content"]) ?></textarea></div>
+
+<div class="form-group">
+    <label class="form-label">Tags <span style="font-size:10px; color:var(--muted); font-weight:400">(Type and press Enter)</span></label>
+    <div class="tags-wrapper" id="tagsWrapper" onclick="document.getElementById('tagInputField').focus()">
+        <span id="tagPillsContainer"></span>
+        <input type="text" id="tagInputField" class="tag-input-field" placeholder="Add a tag and press Enter...">
+        <input type="hidden" name="tags" id="hiddenTagsInput" value="<?= htmlspecialchars($fD["tags"]) ?>">
+    </div>
+</div>
+
 <div class="form-row" style="align-items:center"><div class="form-group" style="margin-bottom:0"><label class="form-label">Status</label><div class="radio-group"><div class="radio-item <?= $fD["status"] === 'draft' ? 'selected' : '' ?>"><input type="radio" name="status" value="draft" <?= $fD["status"] === 'draft' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Draft</label></div><div class="radio-item <?= $fD["status"] === 'published' ? 'selected' : '' ?>"><input type="radio" name="status" value="published" <?= $fD["status"] === 'published' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Published</label></div></div></div><div class="form-group" style="margin-bottom:0"><label class="form-label">Featured</label><label class="switch"><input type="checkbox" name="is_featured" value="1" <?= $fD["is_featured"] ? 'checked' : '' ?>><span class="switch-slider"></span></label></div></div>
 </div><div class="form-actions-bar"><?php if (hasPerm('manage_news')): ?><a href="?page=admin_dashboard&section=manage" class="btn btn-outline"><i class="fas fa-times"></i> Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> <?= $section === 'edit' ? 'Update' : 'Save' ?></button></div></div></form>
 <script>
@@ -1595,9 +1608,9 @@ if (tagPillsContainer) {
 <div class="panel"><div class="panel-header">
 <div class="filter-tabs"><?php foreach (["all"=>"All","published"=>"Published","draft"=>"Draft","featured"=>"Featured"] as $f => $l): ?><a href="?page=admin_dashboard&section=manage&filter=<?= $f ?>" class="filter-tab <?= $manageFilter === $f ? 'active' : '' ?>"><?= $l ?></a><?php endforeach; ?></div>
 <form method="GET" style="display:flex;gap:6px"><input type="hidden" name="page" value="admin_dashboard"><input type="hidden" name="section" value="manage"><input type="hidden" name="filter" value="<?= $manageFilter ?>"><input type="text" name="sq" class="form-input" style="width:200px;padding:6px 10px;font-size:12px" placeholder="Search..." value="<?= htmlspecialchars($manageSearch) ?>"><button type="submit" class="btn btn-sm btn-outline"><i class="fas fa-search"></i></button></form>
-</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>#</th><th>Title</th><th>Category</th><th>Status</th><th>Publish Date & Time</th><th>Last Updated</th><th>Action</th></tr></thead><tbody>
-<?php foreach ($manageNews as $i => $mn): $rn = $offset + $i + 1; ?>
-<tr><td style="color:var(--muted);font-size:11px"><?= $rn ?></td><td><div style="display:flex;align-items:center;gap:8px"><?php if (!empty($mn["image"])): ?><img src="<?= htmlspecialchars($mn["image"]) ?>" class="img-thumb" alt=""><?php endif; ?><div class="tbl-title"><?= htmlspecialchars($mn["title"]) ?></div></div></td><td style="font-size:12px"><?= htmlspecialchars($mn["category_name"] ?? "—") ?></td><td><span class="status-badge status-<?= $mn["status"] ?>"><i class="fas fa-circle"></i> <?= $mn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= !empty($mn["created_at"]) ? date("d M Y, h:i A", strtotime($mn["created_at"])) : '—' ?></td><td style="font-size:11px;color:var(--blue);white-space:nowrap"><?= !empty($mn["updated_at"]) ? date("d M Y, h:i A", strtotime($mn["updated_at"])) : '—' ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=edit&id=<?= $mn["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=manage&toggle=<?= $mn["id"] ?>&ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $mn["status"] === 'published' ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=manage&delete=<?= $mn["id"] ?>&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Are you sure you want to delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
+</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>ID</th><th>Title</th><th>Category</th><th>Status</th><th>Publish Date & Time</th><th>Last Updated</th><th>Action</th></tr></thead><tbody>
+<?php foreach ($manageNews as $mn): ?>
+<tr><td style="color:var(--muted);font-size:11px"><?= $mn["id"] ?></td><td><div style="display:flex;align-items:center;gap:8px"><?php if (!empty($mn["image"])): ?><img src="<?= htmlspecialchars($mn["image"]) ?>" class="img-thumb" alt=""><?php endif; ?><div class="tbl-title"><?= htmlspecialchars($mn["title"]) ?></div></div></td><td style="font-size:12px"><?= htmlspecialchars($mn["category_name"] ?? "—") ?></td><td><span class="status-badge status-<?= $mn["status"] ?>"><i class="fas fa-circle"></i> <?= $mn["status"] === "published" ? "Published" : "Draft" ?></span></td><td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= !empty($mn["created_at"]) ? date("d M Y, h:i A", strtotime($mn["created_at"])) : '—' ?></td><td style="font-size:11px;color:var(--blue);white-space:nowrap"><?= !empty($mn["updated_at"]) ? date("d M Y, h:i A", strtotime($mn["updated_at"])) : '—' ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=edit&id=<?= $mn["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=manage&toggle=<?= $mn["id"] ?>&ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $mn["status"] === 'published' ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=manage&delete=<?= $mn["id"] ?>&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&filter=<?= $manageFilter ?>&p=<?= $currentPage ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Are you sure you want to delete?')"><i class="fas fa-trash"></i></a></div></td></tr>
 <?php endforeach; ?>
 <?php if (empty($manageNews)): ?><tr><td colspan="7"><div class="empty-state"><i class="fas fa-inbox"></i><p>No news found</p></div></td></tr><?php endif; ?>
 </tbody></table></div>

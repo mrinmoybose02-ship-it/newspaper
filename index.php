@@ -23,7 +23,8 @@ try {
 if (isset($_GET['tts_proxy'])) {
     $text = $_GET['text'] ?? '';
     if (empty($text)) exit;
-    $text = substr($text, 0, 190); // Google TTS limit is around 200 chars
+    // FIX: Use mb_substr for Bengali UTF-8 characters to prevent half-character cuts
+    $text = mb_substr($text, 0, 140, 'UTF-8'); 
     $url = 'https://translate.google.com/translate_tts?ie=UTF-8&q=' . urlencode($text) . '&tl=bn&client=tw-ob';
     header('Content-Type: audio/mpeg');
     header('Cache-Control: no-cache');
@@ -735,8 +736,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-si{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.2);color:#fff;font-size:10px;transition:all .2s}
 .kol-si:hover{background:rgba(255,255,255,.3);transform:translateY(-1px)}
 .kol-si.si-fb:hover{background:#1877F2}.kol-si.si-tw:hover{background:#000}.kol-si.si-yt:hover{background:#FF0000}.kol-si.si-ig:hover{background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)}.kol-si.si-tg:hover{background:#0088cc}
-.kol-login{font-size:11px;color:rgba(255,255,255,.7);padding:4px 10px;border:1px solid rgba(255,255,255,.2);border-radius:3px;transition:all .2s}
-.kol-login:hover{color:#fff;background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3)}
+.kol-login{font-family:'Hind Siliguri',sans-serif;background:var(--red);color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .2s}
+.kol-login:hover{background:var(--red-dark)}
 
 .lang-switcher{position:relative;margin-right:8px}
 .lang-btn{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:none;transition:all .2s;font-family:inherit}
@@ -906,7 +907,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .cpc-img{height:120px;overflow:hidden}
 .cpc-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
 .cat-panel-card:hover .cpc-img img{transform:scale(1.08)}
-.cpc-body{padding:14px 12px 10px}
+.cpc-body{padding:25px 16px 12px}
 .cpc-body h3{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--fg)}
 .cpc-time{font-size:11px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:4px}
 .cpc-time i{font-size:10px}
@@ -920,13 +921,15 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .feat-main .ov h2{font-size:20px;font-weight:700;line-height:1.35}
 .feat-main .ov p{font-size:13px;line-height:1.6;color:rgba(255,255,255,.78);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .feat-side{display:flex;flex-direction:column;gap:0;overflow:hidden;border-radius:8px;background:var(--card);border:1px solid var(--border)}
+.feat-side-title{background:var(--nav-bg);color:#fff;padding:10px 15px;font-family:'Noto Serif Bengali',serif;font-size:16px;font-weight:700;border-bottom:2px solid var(--red);display:flex;align-items:center;gap:8px}
+.feat-side-title i{color:var(--gold)}
 .feat-si{display:flex;gap:0;border-left:3px solid var(--red);overflow:hidden;transition:background .2s}
 .feat-si+.feat-si{border-top:1px solid var(--border)}
-.feat-si:first-child{border-radius:8px 0 0 0}
+.feat-si:first-child{border-radius:0}
 .feat-si:last-child{border-radius:0 0 0 8px}
 .feat-si:hover{background:#fdf6f6}
 .feat-si img{width:110px;height:90px;object-fit:cover;flex-shrink:0}
-.feat-si .pi{padding:10px 12px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.feat-si .pi{padding:12px 14px;display:flex;flex-direction:column;justify-content:center;min-width:0}
 .feat-si .fcs{font-size:10px;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
 .feat-si h3{font-size:12.5px;font-weight:600;line-height:1.35;margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .feat-si .fdt{font-size:10px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:4px}
@@ -951,7 +954,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .vid-card:hover .vid-thumb img{transform:scale(1.06)}
 .vid-sm-play{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;background:rgba(183,28,28,.85);border-radius:50%;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;z-index:3;transition:all .2s}
 .vid-card:hover .vid-sm-play{background:var(--red);transform:translate(-50%,-50%) scale(1.15)}
-.vid-card .vc-info{padding:12px 12px 10px;display:flex;flex-direction:column;justify-content:center;min-width:0;flex:1}
+.vid-card .vc-info{padding:20px 14px 12px;display:flex;flex-direction:column;justify-content:center;min-width:0;flex:1}
 .vid-card .vc-cat{font-size:10px;color:var(--red);font-weight:700}
 .vid-card h4{font-size:12.5px;font-weight:600;line-height:1.4;margin:2px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .vid-card .vc-time{font-size:10px;color:var(--muted);margin-top:4px}
@@ -964,7 +967,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .nc .nc-img{height:160px;overflow:hidden}
 .nc .nc-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
 .nc:hover .nc-img img{transform:scale(1.06)}
-.nc .nc-body{padding:16px 12px 12px}
+.nc .nc-body{padding:28px 16px 14px}
 .nc .nc-cat{font-size:10px;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
 .nc h3{font-size:14px;font-weight:700;margin-top:3px;line-height:1.4}
 .nc p{font-size:12px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -1004,7 +1007,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .vp-card{background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 4px 10px rgba(0,0,0,0.05);transition:all .2s;border:1px solid var(--border)}
 .vp-card:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,0.1);border-color:rgba(183,28,28,0.3)}
 .vp-card .video-embed{border-bottom:3px solid var(--red)}
-.vp-card .vp-body{padding:16px 15px 15px}
+.vp-card .vp-body{padding:26px 16px 16px}
 .vp-card .vp-title{font-size:16px;font-weight:700;color:#1a1a1a;line-height:1.4;margin:0 0 8px 0;font-family:'Noto Serif Bengali',serif}
 .vp-card .vp-date{font-size:12px;color:#888;margin:0}
 .vp-card .vp-date i{margin-right:5px;color:var(--red)}
@@ -1677,16 +1680,17 @@ echo '<div class="single-content">' . $out . '</div>';
 </a>
 <?php if (!empty($fsItems)): ?>
 <div class="feat-side">
-<?php foreach ($fsItems as $fsi): ?>
-<a href="?page=single&id=<?= $fsi['id'] ?>" class="feat-si">
-<img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
-<div class="fi">
-<div class="fcs"><?= htmlspecialchars($fsi['category']) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
-<h3><?= htmlspecialchars($fsi['title']) ?></h3>
-<div class="fdt"><i class="far fa-clock"></i> <?= timeAgo($fsi['created_at']) ?></div>
-</div>
-</a>
-<?php endforeach; ?>
+    <div class="feat-side-title"><i class="fas fa-star"></i> শীর্ষ সংবাদ</div>
+    <?php foreach ($fsItems as $fsi): ?>
+    <a href="?page=single&id=<?= $fsi['id'] ?>" class="feat-si">
+    <img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
+    <div class="pi">
+    <div class="fcs"><?= htmlspecialchars($fsi['category']) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
+    <h3><?= htmlspecialchars($fsi['title']) ?></h3>
+    <div class="fdt"><i class="far fa-clock"></i> <?= timeAgo($fsi['created_at']) ?></div>
+    </div>
+    </a>
+    <?php endforeach; ?>
 </div>
 <?php endif; ?>
 </div>
@@ -2270,17 +2274,17 @@ if(langBtn) {
 var ttsPlayBtn = document.getElementById('ttsPlayBtn');
 var ttsIcon = ttsPlayBtn ? ttsPlayBtn.querySelector('i') : null;
 var isSpeaking = false;
-var ttsAudio = null;
 var ttsChunks = [];
 var ttsIndex = 0;
+var currentTtsAudio = null;
 
 function stopTTS() {
     isSpeaking = false;
     ttsChunks = [];
     ttsIndex = 0;
-    if (ttsAudio) {
-        ttsAudio.pause();
-        ttsAudio = null;
+    if (currentTtsAudio) {
+        currentTtsAudio.pause();
+        currentTtsAudio = null;
     }
     if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
 }
@@ -2291,12 +2295,24 @@ function splitTextIntoChunks(text, maxLength) {
     var currentChunk = '';
     
     sentences.forEach(function(sentence) {
-        if ((currentChunk + sentence).length > maxLength) {
-            if (currentChunk) chunks.push(currentChunk.trim());
-            while (sentence.length > maxLength) {
-                chunks.push(sentence.substring(0, maxLength).trim());
-                sentence = sentence.substring(maxLength);
+        if (sentence.length > maxLength) {
+            if (currentChunk) {
+                chunks.push(currentChunk.trim());
+                currentChunk = '';
             }
+            var words = sentence.split(' ');
+            var wordChunk = '';
+            words.forEach(function(word) {
+                if ((wordChunk + ' ' + word).length > maxLength) {
+                    if (wordChunk) chunks.push(wordChunk.trim());
+                    wordChunk = word;
+                } else {
+                    wordChunk += ' ' + word;
+                }
+            });
+            if (wordChunk) currentChunk = wordChunk;
+        } else if ((currentChunk + sentence).length > maxLength) {
+            if (currentChunk) chunks.push(currentChunk.trim());
             currentChunk = sentence;
         } else {
             currentChunk += sentence;
@@ -2335,39 +2351,43 @@ if (ttsPlayBtn) {
         isSpeaking = true;
         if (ttsIcon) ttsIcon.className = 'fas fa-stop';
 
-        // PROXY ENGINE: Guarantees Google Bengali Female Voice on all devices (iOS, Android, Windows, Linux)
-        ttsChunks = splitTextIntoChunks(textToRead, 150); // 150 is safe limit for Google API
+        // PROXY ENGINE: Guarantees Google Bengali Female Voice on all devices
+        ttsChunks = splitTextIntoChunks(textToRead, 140); // 140 is safe limit for Google API
         ttsIndex = 0;
-        ttsAudio = new Audio();
 
         function playNextProxy() {
             if (!isSpeaking || ttsIndex >= ttsChunks.length) {
                 stopTTS();
                 return;
             }
+            
             var textChunk = ttsChunks[ttsIndex];
             if (!textChunk) {
                 ttsIndex++;
                 playNextProxy();
                 return;
             }
+            
             var url = '?tts_proxy=1&text=' + encodeURIComponent(textChunk);
-            ttsAudio.src = url;
-            ttsAudio.play().catch(function(e) {
+            currentTtsAudio = new Audio(url);
+            
+            currentTtsAudio.onended = function() {
+                ttsIndex++;
+                setTimeout(playNextProxy, 150);
+            };
+            
+            currentTtsAudio.onerror = function() {
+                // If error, skip to next chunk so it doesn't stop entirely
+                console.error("TTS Audio Error for chunk:", textChunk);
+                ttsIndex++;
+                setTimeout(playNextProxy, 150);
+            };
+            
+            currentTtsAudio.play().catch(function(e) {
                 console.error("TTS Playback Error:", e);
                 stopTTS();
             });
         }
-
-        ttsAudio.addEventListener('ended', function() {
-            ttsIndex++;
-            setTimeout(playNextProxy, 100);
-        });
-        
-        ttsAudio.addEventListener('error', function() {
-            console.error("TTS Audio Error");
-            stopTTS();
-        });
 
         playNextProxy();
     });

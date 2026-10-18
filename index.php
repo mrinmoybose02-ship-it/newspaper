@@ -661,38 +661,106 @@ if (file_exists($nseCacheFile)) {
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
 
-// ====== NEW FESTIVAL LOGIC INTEGRATED ======
-// ডাটাবেস থেকে কাস্টম সেটিংস লোড করুন (যদি অ্যাডমিন কাস্টম ইমেজ দিয়ে থাকেন)
- $customVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
- $custom_img = $customVals['festival_logo_img'] ?? '';
- $custom_text = $customVals['festival_logo_text'] ?? '';
+// ====== FESTIVAL LOGIC — DURGA PUJA 2026 (v3: smart folder auto-detect) ======
+// তারিখ অনুযায়ী প্রতিদিনের সঠিক লোগো + গ্রিটিং ব্যানার অটোমেটিক দেখায়।
+// ⚠ প্রতি বছর শুধু নিচের তারিখগুলো আপডেট করলেই হবে (ফরম্যাট: 'YYYY-MM-DD')।
+// ★ স্মার্ট ফোল্ডার ডিটেকশন (v3): "festivals" ফোল্ডারটি যেখানেই রাখুন না কেন, কোড নিজেই খুঁজে নেবে।
+//    সমর্থিত লোকেশন (ক্রমানুসারে খোঁজা হয়):
+//    1) uploads/festivals/              ← আদর্শ লোকেশন
+//    2) festivals/                      ← সাইট রুটে সরাসরি (index.php-এর পাশে) রাখলেও চলবে
+//    3) uploads/festival/ বা festival/  ← একবচন নাম হলেও চলবে
+$FEST_CANDIDATES = ['uploads/festivals', 'festivals', 'uploads/festival', 'festival'];
+$FEST_BASE = '';
+foreach ($FEST_CANDIDATES as $__fc) {
+    if (is_dir(__DIR__ . '/' . $__fc)) { $FEST_BASE = $__fc; break; }
+}
+$FEST_BANNER_BASE = '';
+foreach ($FEST_CANDIDATES as $__fc) {
+    if (is_dir(__DIR__ . '/' . $__fc . '/banners')) { $FEST_BANNER_BASE = $__fc; break; }
+}
+if ($FEST_BASE === '')        $FEST_BASE        = 'uploads/festivals'; // কিছু পাওয়া না গেলে আদর্শ পাথ ধরে রাখা হয়
+if ($FEST_BANNER_BASE === '') $FEST_BANNER_BASE = $FEST_BASE;
 
-// আজকের অটোমেটিক ইভেন্ট চেক করুন
- $activeEvent = null;
-if (class_exists('BengaliFestivalCalendar')) {
-    $activeEvent = BengaliFestivalCalendar::getActiveFestival();
+$FESTIVAL_LOGOS = [
+    // ---- দুর্গাপুজো ২০২৬ (দ্রুপদ পঞ্জিকা অনুযায়ী) ----
+    '2026-10-15' => ['name' => 'শুভ দুর্গাপুজো',   'logo' => 'durgapujo.png',      'banner' => 'banners/durgapujo.png'],
+    '2026-10-16' => ['name' => 'শুভ মহাষষ্ঠী',     'logo' => 'maha_shashthi.png',  'banner' => 'banners/shashthi.png'],
+    '2026-10-17' => ['name' => 'শুভ মহাসপ্তমী',    'logo' => 'maha_saptami.png',   'banner' => 'banners/saptami.png'],
+    '2026-10-18' => ['name' => 'শুভ মহাষ্টমী',     'logo' => 'maha_ashtami.png',   'banner' => 'banners/ashtami.png'],
+    '2026-10-19' => ['name' => 'শুভ মহানবমী',      'logo' => 'maha_navami.png',    'banner' => 'banners/navami.png'],
+    '2026-10-20' => ['name' => 'শুভ বিজয়া দশমী',  'logo' => 'bijoya_dashami.png', 'banner' => 'banners/dashami.png'],
+];
+
+// হেল্পার: ফাইলটি সার্ভারে সত্যিই আছে কিনা যাচাই করে পাথ দেয় (না থাকলে খালি স্ট্রিং)
+$festResolve = function ($rel) use ($FEST_BASE, $FEST_BANNER_BASE, $FEST_CANDIDATES) {
+    $rel = trim((string)$rel);
+    if ($rel === '') return '';
+    if (filter_var($rel, FILTER_VALIDATE_URL)) return $rel;
+    // প্রথমে অটো-ডিটেক্ট করা ফোল্ডারে খোঁজা হয়, তারপর বাকি সম্ভাব্য লোকেশনগুলোতে
+    $__bases = array_values(array_unique(array_merge(
+        [$FEST_BASE, $FEST_BANNER_BASE],
+        $FEST_CANDIDATES
+    )));
+    foreach ($__bases as $__b) {
+        if ($__b === '') continue;
+        $__full = $__b . '/' . $rel;
+        if (file_exists(__DIR__ . '/' . $__full)) return $__full;
+    }
+    // পুরো রিলেটিভ পাথ দেওয়া থাকলে (যেমন অ্যাডমিন/DB সেটিং) সেভাবেই একবার যাচাই করা হয়
+    return file_exists(__DIR__ . '/' . $rel) ? $rel : '';
+};
+
+// অ্যাডমিন কাস্টম সেটিংস (ডাটাবেস)
+$customVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
+$custom_img = $customVals['festival_logo_img'] ?? '';
+$custom_text = $customVals['festival_logo_text'] ?? '';
+
+// আজকের তারিখ মিলিয়ে দেখুন (উপরে Asia/Kolkata টাইমজোন সেট করা আছে)
+$activeEvent = $FESTIVAL_LOGOS[date('Y-m-d')] ?? null;
+
+// ফল-ব্যাক: কনফিগ.php-তে পুরোনো BengaliFestivalCalendar ক্লাস থাকলে সেটিও কাজ করবে
+if (!$activeEvent && class_exists('BengaliFestivalCalendar')) {
+    $legacyEvent = BengaliFestivalCalendar::getActiveFestival();
+    if (!empty($legacyEvent) && !empty($legacyEvent['logo'])) {
+        $activeEvent = [
+            'name'   => $legacyEvent['name'],
+            'logo'   => $legacyEvent['logo'],
+            'banner' => '',
+        ];
+    }
 }
 
- $festival_logo_img = '';
- $festival_logo_text = '';
- $hasFestivalLogo = false;
+$festival_logo_img = '';
+$festival_logo_text = '';
+$festival_banner_img = '';
+$hasFestivalLogo = false;
 
 if ($activeEvent) {
-    // যদি অ্যাডমিন কাস্টম ইমেজ সেট করে থাকেন, তবে সেটি দেখাবে, নাহলে ডিফল্ট ইভেন্টের ইমেজ দেখাবে
-    $festival_logo_img = !empty($custom_img) ? $custom_img : 'uploads/festivals/' . $activeEvent['logo'];
-    $festival_logo_text = !empty($custom_text) ? $custom_text : $activeEvent['name'];
-    
-    $fileExists = file_exists(__DIR__ . '/' . $festival_logo_img) || filter_var($festival_logo_img, FILTER_VALIDATE_URL);
-    if ($fileExists || !empty($festival_logo_text)) {
-        $hasFestivalLogo = true;
-    }
-} elseif (!empty($custom_img) || !empty($custom_text)) {
-    // ফল-ব্যাক: ইভেন্ট না থাকলেও অ্যাডমিন কাস্টম ইমেজ বা টেক্সট সেট করলে দেখাবে
-    $festival_logo_img = $custom_img;
-    $festival_logo_text = $custom_text;
+    // দিনের লোগো না পাওয়া গেলে জেনেরিক দুর্গাপুজো লোগো — সেটিও না পেলে টেক্সট ফল-ব্যাক
+    $festival_logo_img = $festResolve($activeEvent['logo']);
+    if ($festival_logo_img === '') $festival_logo_img = $festResolve('durgapujo.png');
+    $festival_logo_text = $activeEvent['name'];
+    // দিনের ব্যানার না পাওয়া গেলে জেনেরিক ব্যানার ফল-ব্যাক
+    $festival_banner_img = $festResolve($activeEvent['banner']);
+    if ($festival_banner_img === '') $festival_banner_img = $festResolve('banners/durgapujo.png');
     $hasFestivalLogo = true;
 }
-// ==========================================
+
+// অ্যাডমিন কাস্টম ইমেজ — ফাইল/URL বৈধ হলে তবেই অটোমেটিক লোগোর বদলে দেখাবে।
+// ★ নতুন ফিক্স: ডাটাবেসে পুরোনো/ভাঙা পাথ সেট থাকলে সেটিকে উপেক্ষা করে
+//   অটোমেটিক দুর্গাপুজো লোগোই দেখাবে (আগে এখানেই ছবি হারিয়ে যাচ্ছিল)।
+if (!empty($custom_img)) {
+    $resolvedCustomImg = $festResolve($custom_img);
+    if ($resolvedCustomImg !== '') {
+        $festival_logo_img = $resolvedCustomImg;
+        $hasFestivalLogo = true;
+    }
+}
+if (!empty($custom_text)) {
+    $festival_logo_text = $custom_text;
+    if (!$activeEvent) $hasFestivalLogo = true;
+}
+// ==============================================================
 ?>
 <!DOCTYPE html>
 <html lang="bn" dir="ltr">
@@ -771,8 +839,13 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .logo-pendulum{position:absolute;top:-15px;left:20px;display:flex;flex-direction:column;align-items:center;transform-origin:top center;animation:swing 3s ease-in-out infinite alternate;z-index:10}
 .pendulum-string{width:2px;height:20px;background:#777;margin-bottom:-2px}
 .logo-box{width:170px;height:120px;background:#fff;border:4px solid var(--red);box-shadow:0 5px 15px rgba(0,0,0,.2);overflow:hidden;border-radius:8px;display:flex;justify-content:center;align-items:center}
-.festival-logo-img{width:100%;height:100%;object-fit:cover}
+.festival-logo-img{width:100%;height:100%;object-fit:contain;background:#fff;padding:6px}
 .festival-logo-text{font-family:'Noto Serif Bengali',serif;color:var(--red);font-weight:700;font-size:16px;text-align:center;padding:5px}
+/* ====== FESTIVAL GREETING BANNER (transparent Bengali text art) ====== */
+.festival-greeting{display:flex;justify-content:center;align-items:center;background:linear-gradient(180deg,#FFFDF7 0%,#F8F0DC 100%);border-bottom:2px solid var(--gold);position:relative;padding:14px 20px}
+.festival-greeting img{max-width:min(560px,86vw);height:auto;filter:drop-shadow(0 2px 4px rgba(127,0,0,.15))}
+.festival-greeting .fg-close{position:absolute;top:4px;right:10px;background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1;padding:2px 6px}
+.festival-greeting .fg-close:hover{color:var(--red)}
 
 @keyframes swing {
     0% { transform: rotate(-12deg); }
@@ -1316,7 +1389,7 @@ body { top: 0 !important; }
                 <?php 
                 $fileExists = file_exists(__DIR__ . '/' . $festival_logo_img) || filter_var($festival_logo_img, FILTER_VALIDATE_URL);
                 if (!empty($festival_logo_img) && $fileExists): ?>
-                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img" loading="lazy" decoding="async">
+                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img" loading="eager" decoding="async">
                 <?php else: ?>
                     <div class="festival-logo-text"><?= htmlspecialchars($festival_logo_text) ?></div>
                 <?php endif; ?>
@@ -1330,6 +1403,15 @@ body { top: 0 !important; }
         </div>
     </div>
 </header>
+
+<?php if (!empty($festival_banner_img)): ?>
+<!-- FESTIVAL GREETING BANNER (তারিখ অনুযায়ী অটোমেটিক আসে, × চেপে বন্ধ করা যায়) -->
+<div class="festival-greeting" id="festivalGreeting">
+    <button type="button" class="fg-close" onclick="document.getElementById('festivalGreeting').style.display='none'" aria-label="বন্ধ করুন">&times;</button>
+    <img src="<?= htmlspecialchars($festival_banner_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" decoding="async">
+</div>
+<?php endif; ?>
+
 
 <?php if (!empty($adHeaderBanner)) echo $adHeaderBanner; ?>
 

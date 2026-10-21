@@ -661,7 +661,7 @@ if (file_exists($nseCacheFile)) {
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
 
-// ====== FESTIVAL LOGIC — DURGA PUJA 2026 (v3: smart folder auto-detect) ======
+// ====== FESTIVAL LOGIC (v4: bengali_calendar.php কানেক্টেড + smart folder auto-detect) ======
 // তারিখ অনুযায়ী প্রতিদিনের সঠিক লোগো + গ্রিটিং ব্যানার অটোমেটিক দেখায়।
 // ⚠ প্রতি বছর শুধু নিচের তারিখগুলো আপডেট করলেই হবে (ফরম্যাট: 'YYYY-MM-DD')।
 // ★ স্মার্ট ফোল্ডার ডিটেকশন (v3): "festivals" ফোল্ডারটি যেখানেই রাখুন না কেন, কোড নিজেই খুঁজে নেবে।
@@ -681,17 +681,71 @@ foreach ($FEST_CANDIDATES as $__fc) {
 if ($FEST_BASE === '')        $FEST_BASE        = 'uploads/festivals'; // কিছু পাওয়া না গেলে আদর্শ পাথ ধরে রাখা হয়
 if ($FEST_BANNER_BASE === '') $FEST_BANNER_BASE = $FEST_BASE;
 
+// ★ v4: bengali_calendar.php কানেকশন — এই একটি ফাইলেই সব উৎসবের তারিখ ও লোগোর তালিকা থাকে।
+//   ফাইলটি index.php-এর পাশে (সাইট রুটে) রাখলেই সব উৎসব অটোমেটিক কাজ করবে;
+//   ফাইল না থাকলেও সমস্যা নেই — নিচের হাতে-লেখা $FESTIVAL_LOGOS তালিকা আগের মতোই চলবে।
+//   (config.php-তে একই নামের ক্লাস আগে থেকে থাকলে দ্বিগুণ ঘোষণার এরর এড়াতে গার্ড লাগানো আছে)
+$bengaliCalendarFile = __DIR__ . '/bengali_calendar.php';
+if (file_exists($bengaliCalendarFile) && !class_exists('BengaliFestivalCalendar') && !class_exists('BengaliCalendar')) {
+    ob_start();
+    require_once $bengaliCalendarFile;
+    ob_end_clean(); // ফাইলটি সরাসরি খুললে যে টেস্ট-আউটপুট আসে, পেজে যেন না আসে
+}
+
+// ★ v4: বাংলা তারিখ — BengaliCalendar ক্লাস পেলেই topbar-এ ইংরেজি তারিখের পাশে বাংলা তারিখ দেখাবে
+$bengaliDateStr = '';
+if (class_exists('BengaliCalendar')) {
+    try {
+        $__bnDate = BengaliCalendar::toBengaliDate();
+        $bengaliDateStr = $__bnDate['formatted'] ?? '';
+    } catch (Throwable $ex) { $bengaliDateStr = ''; }
+}
+
 $FESTIVAL_LOGOS = [
-    // ---- দুর্গাপুজো ২০২৬ (দ্রুপদ পঞ্জিকা অনুযায়ী) ----
-    '2026-10-15' => ['name' => 'শুভ দুর্গাপুজো',   'logo' => 'durgapujo.png',      'banner' => 'banners/durgapujo.png'],
-    '2026-10-16' => ['name' => 'শুভ মহাষষ্ঠী',     'logo' => 'maha_shashthi.png',  'banner' => 'banners/shashthi.png'],
-    '2026-10-17' => ['name' => 'শুভ মহাসপ্তমী',    'logo' => 'maha_saptami.png',   'banner' => 'banners/saptami.png'],
-    '2026-10-18' => ['name' => 'শুভ মহাষ্টমী',     'logo' => 'maha_ashtami.png',   'banner' => 'banners/ashtami.png'],
-    '2026-10-19' => ['name' => 'শুভ মহানবমী',      'logo' => 'maha_navami.png',    'banner' => 'banners/navami.png'],
-    '2026-10-20' => ['name' => 'শুভ বিজয়া দশমী',  'logo' => 'bijoya_dashami.png', 'banner' => 'banners/dashami.png'],
+    // ---- দুর্গাপুজো ২০২৬ (সংশোধিত পঞ্জিকা অনুযায়ী (★ v4.1): অষ্টমী ১৯ অক্টোবর, নবমী ২০, বিজয়া দশমী ২১ — এই তারিখগুলোর অগ্রাধিকার সবার উপরে) ----
+    // 'durga' => true মানে: ব্যানার ফাইল না পাওয়া গেলে জেনেরিক দুর্গাপুজো ব্যানার ফল-ব্যাক চলবে
+    '2026-10-16' => ['name' => 'শুভ দুর্গাপুজো',   'logo' => 'durgapujo.png',      'banner' => 'banners/durgapujo.png', 'durga' => true],
+    '2026-10-17' => ['name' => 'শুভ মহাষষ্ঠী',     'logo' => 'maha_shashthi.png',  'banner' => 'banners/shashthi.png',  'durga' => true],
+    '2026-10-18' => ['name' => 'শুভ মহাসপ্তমী',    'logo' => 'maha_saptami.png',   'banner' => 'banners/saptami.png',   'durga' => true],
+    '2026-10-19' => ['name' => 'শুভ মহা অষ্টমী',   'logo' => 'maha_ashtami.png',   'banner' => 'banners/ashtami.png',   'durga' => true],
+    '2026-10-20' => ['name' => 'শুভ মহানবমী',      'logo' => 'maha_navami.png',    'banner' => 'banners/navami.png',    'durga' => true],
+    '2026-10-21' => ['name' => 'শুভ বিজয়া দশমী',  'logo' => 'bijoya_dashami.png', 'banner' => 'banners/dashami.png',   'durga' => true],
 ];
 
+// ★ v4: bengali_calendar.php-এর সব উৎসব $FESTIVAL_LOGOS-এ অটো যোগ হয়
+//   (দুর্গাপুজো, কালীপুজো, লক্ষ্মীপুজো, সরস্বতীপুজো, রথযাত্রা, পহেলা বৈশাখ, বড়দিন সহ ২৫+ উৎসব;
+//    হাতে-লেখা এন্ট্রি থাকলে সেটারই অগ্রাধিকার — উৎসবের নাম/লোগো bengali_calendar.php থেকেই আসে)
+if (class_exists('BengaliFestivalCalendar')) {
+    try {
+        $__calAll = BengaliFestivalCalendar::getAllFestivals();
+        foreach ($__calAll as $__cf) {
+            if (empty($__cf['logo']) || empty($__cf['start']) || empty($__cf['end'])) continue;
+            $__cs = strtotime($__cf['start']);
+            $__ce = strtotime($__cf['end']);
+            if ($__cs === false || $__ce === false || $__ce < $__cs) continue;
+            $__isDurga = preg_match('/(durga|maha_|bijoya_|mahalaya)/i', (string)$__cf['logo']) === 1;
+            for ($__ct = $__cs; $__ct <= $__ce; $__ct += 86400) {
+                $__ck = date('Y-m-d', $__ct);
+                if (isset($FESTIVAL_LOGOS[$__ck])) continue; // হাতে-লেখা এন্ট্রির অগ্রাধিকার
+                $FESTIVAL_LOGOS[$__ck] = [
+                    'name'   => $__cf['name'],
+                    'logo'   => $__cf['logo'],
+                    'banner' => 'banners/' . $__cf['logo'],
+                    'durga'  => $__isDurga,
+                ];
+            }
+        }
+        unset($__calAll, $__cf, $__cs, $__ce, $__ct, $__ck, $__isDurga);
+    } catch (Throwable $ex) { /* ক্যালেন্ডার ফাইলে সমস্যা থাকলেও সাইট স্বাভাবিক চলবে */ }
+}
+
 // হেল্পার: ফাইলটি সার্ভারে সত্যিই আছে কিনা যাচাই করে পাথ দেয় (না থাকলে খালি স্ট্রিং)
+// ★ v5 ফিক্স-১: একই ফাইলের একাধিক কপি (uploads/festivals ও festivals) থাকলে
+//   "সবচেয়ে নতুন" (filemtime) কপিটি জেতে — আগে প্রথম ফোল্ডারের পুরোনো কপিই দেখাত,
+//   ফলে নতুন আপলোড করা ছবি সাইটে বদলাচ্ছিল না।
+// ★ v5 ফিক্স-২: ভিন্ন নামে আপলোড করা নতুন ভ্যারিয়েন্টও অটো-ডিটেক্ট হয়
+//   (যেমন maha_ashtami_new.png / ashtami_fixed.png — নামে "ashtami" থাকলেই হবে;
+//    জন্মাষ্টমী (janmashtami) ইচ্ছাকৃতভাবে বাদ — ভুল উৎসবের ছবি যেন না আসে)।
 $festResolve = function ($rel) use ($FEST_BASE, $FEST_BANNER_BASE, $FEST_CANDIDATES) {
     $rel = trim((string)$rel);
     if ($rel === '') return '';
@@ -701,13 +755,48 @@ $festResolve = function ($rel) use ($FEST_BASE, $FEST_BANNER_BASE, $FEST_CANDIDA
         [$FEST_BASE, $FEST_BANNER_BASE],
         $FEST_CANDIDATES
     )));
+    $__winner = '';
+    $__winnerM = -1;
     foreach ($__bases as $__b) {
         if ($__b === '') continue;
-        $__full = $__b . '/' . $rel;
-        if (file_exists(__DIR__ . '/' . $__full)) return $__full;
+        $__cand = $__b . '/' . $rel;
+        if (file_exists(__DIR__ . '/' . $__cand)) {
+            $__m = @filemtime(__DIR__ . '/' . $__cand) ?: 0;
+            if ($__m > $__winnerM) { $__winnerM = $__m; $__winner = $__cand; }
+        }
     }
-    // পুরো রিলেটিভ পাথ দেওয়া থাকলে (যেমন অ্যাডমিন/DB সেটিং) সেভাবেই একবার যাচাই করা হয়
-    return file_exists(__DIR__ . '/' . $rel) ? $rel : '';
+    if ($__winner === '') $__winner = file_exists(__DIR__ . '/' . $rel) ? $rel : '';
+    if ($__winner === '') return '';
+    // ★ v5: সব ক্যান্ডিডেট ফোল্ডারে নতুন ভ্যারিয়েন্ট খোঁজা হয় — সবচেয়ে নতুন ফাইলই জেতে
+    $__stem = preg_replace('/\.(png|jpe?g|gif|webp)$/i', '', basename($rel));
+    if ($__stem !== 'durgapujo') {
+        $__kw = preg_replace('/^(maha_|durga_|bijoya_)/i', '', $__stem);
+        $__sub = dirname($rel) === '.' ? '' : '/' . dirname($rel); // ব্যানার হলে banners/ সাব-ফোল্ডারেও খোঁজা হয়
+        foreach ($__bases as $__b) {
+            if ($__b === '' || !is_dir(__DIR__ . '/' . $__b . $__sub)) continue;
+            foreach ((glob(__DIR__ . '/' . $__b . $__sub . '/*' . $__kw . '*') ?: []) as $__f) {
+                $__bn = basename($__f);
+                if (!is_file($__f)) continue;
+                if (stripos($__bn, 'janmashtami') !== false) continue;
+                if (!preg_match('/\.(png|jpe?g|gif|webp)$/i', $__bn)) continue;
+                $__m = @filemtime($__f) ?: 0;
+                if ($__m > $__winnerM) {
+                    $__winnerM = $__m;
+                    $__winner  = $__b . $__sub . '/' . $__bn;
+                }
+            }
+        }
+    }
+    return $__winner;
+};
+
+// ★ v5: ব্রাউজার-ক্যাশ বাস্টার — একই নামে ছবি রিপ্লেস করলে শুধু রিফ্রেশেই নতুন ছবি
+// দেখাবে (আগে ব্রাউজার পুরোনো ক্যাশ-করা ছবিই দেখাত, Ctrl+F5ও অনেক সময় লাগত)।
+$festUrl = function ($p) {
+    $p = trim((string)$p);
+    if ($p === '' || filter_var($p, FILTER_VALIDATE_URL)) return $p;
+    $m = @filemtime(__DIR__ . '/' . $p);
+    return $m ? $p . '?v=' . $m : $p;
 };
 
 // অ্যাডমিন কাস্টম সেটিংস (ডাটাবেস)
@@ -742,7 +831,11 @@ if ($activeEvent) {
     $festival_logo_text = $activeEvent['name'];
     // দিনের ব্যানার না পাওয়া গেলে জেনেরিক ব্যানার ফল-ব্যাক
     $festival_banner_img = $festResolve($activeEvent['banner']);
-    if ($festival_banner_img === '') $festival_banner_img = $festResolve('banners/durgapujo.png');
+    // ★ v4: শুধু দুর্গাপুজো-সেটের দিনে ব্যানার না পাওয়া গেলে জেনেরিক দুর্গাপুজো ব্যানার দেখাবে;
+    //   অন্য উৎসবে (কালীপুজো, বড়দিন ইত্যাদি) ভুল দিনের ব্যানার দেখানো হবে না — ব্যানার বাদ থাকবে।
+    if ($festival_banner_img === '' && !empty($activeEvent['durga'])) {
+        $festival_banner_img = $festResolve('banners/durgapujo.png');
+    }
     $hasFestivalLogo = true;
 }
 
@@ -1341,6 +1434,12 @@ body { top: 0 !important; }
     .vid-info h3{font-size:16px}
     .vid-info{padding:12px 15px}
 }
+
+/* ===== App Download Icons (Google Play + App Store) ★ v6.3 — শুধু আইকন, কোনো ছবি/ফোল্ডার লাগে না ===== */
+.ft-app-badges{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.app-badge{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9px;background:#000;border:1px solid rgba(255,255,255,.22);color:#fff;font-size:19px;line-height:1;transition:transform .15s,box-shadow .15s,border-color .15s;text-decoration:none}
+.app-badge:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.5);box-shadow:0 6px 18px rgba(0,0,0,.45)}
+.app-badge .fa-google-play{background:linear-gradient(135deg,#00d7fe,#00f076 45%,#ffd500 70%,#ff3a44);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 </style>
 </head>
 <body>
@@ -1352,7 +1451,7 @@ body { top: 0 !important; }
 <div class="container">
 <div class="tl">
 <span class="clock" id="liveClock">--:--:--</span>
-<span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr) ?></span>
+<span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr . (!empty($bengaliDateStr) ? ' । ' . $bengaliDateStr : '')) ?></span>
 </div>
 <div class="tr">
     <!-- Language Switcher (Bengali Only) -->
@@ -1389,7 +1488,7 @@ body { top: 0 !important; }
                 <?php 
                 $fileExists = file_exists(__DIR__ . '/' . $festival_logo_img) || filter_var($festival_logo_img, FILTER_VALIDATE_URL);
                 if (!empty($festival_logo_img) && $fileExists): ?>
-                    <img src="<?= htmlspecialchars($festival_logo_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img" loading="eager" decoding="async">
+                    <img src="<?= htmlspecialchars($festUrl($festival_logo_img)) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" class="festival-logo-img" loading="eager" decoding="async">
                 <?php else: ?>
                     <div class="festival-logo-text"><?= htmlspecialchars($festival_logo_text) ?></div>
                 <?php endif; ?>
@@ -1408,10 +1507,14 @@ body { top: 0 !important; }
 <!-- FESTIVAL GREETING BANNER (তারিখ অনুযায়ী অটোমেটিক আসে, × চেপে বন্ধ করা যায়) -->
 <div class="festival-greeting" id="festivalGreeting">
     <button type="button" class="fg-close" onclick="document.getElementById('festivalGreeting').style.display='none'" aria-label="বন্ধ করুন">&times;</button>
-    <img src="<?= htmlspecialchars($festival_banner_img) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" decoding="async">
+    <img src="<?= htmlspecialchars($festUrl($festival_banner_img)) ?>" alt="<?= htmlspecialchars($festival_logo_text) ?>" decoding="async">
 </div>
 <?php endif; ?>
 
+<?php if (!empty($bengaliDateStr)): ?>
+<!-- ★ v4: বাংলা তারিখ — লাইভ ঘড়ির JS এটিকে ইংরেজি তারিখের পাশে জুড়ে দেয় -->
+<script>window.__bengaliDateStr = <?= json_encode($bengaliDateStr, JSON_UNESCAPED_UNICODE) ?>;</script>
+<?php endif; ?>
 
 <?php if (!empty($adHeaderBanner)) echo $adHeaderBanner; ?>
 
@@ -1962,6 +2065,22 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 
 <?php if (!empty($adFooterBanner)) echo $adFooterBanner; ?>
 
+<?php
+// ====== APP DOWNLOAD ICONS (Google Play + App Store) ★ v6.3 ======
+// ★★ আপনার অ্যাপ পাবলিশ হলে শুধু নিচের ২টি লাইন বদলাবেন (অন্য কিছু ধরতে হবে না):
+$PLAY_STORE_URL = '#';   // যেমন: 'https://play.google.com/store/apps/details?id=com.yoursite.app'
+$APP_STORE_URL  = '#';   // যেমন: 'https://apps.apple.com/app/id123456789'
+// আইকন দুটি সরাতে চাইলে false করুন:
+$SHOW_APP_DOWNLOAD = true;
+// --- নিচের অংশ অটোমেটিক; আইকন সাইটের Font Awesome ৬.৫ থেকে আসে, কোনো ছবি/ফোল্ডার লাগে না ---
+$mkAppBadge = function ($href, $iconClass, $label) {
+    $href = trim((string)$href);
+    if (!$href) return '';
+    return '<a class="app-badge" href="' . htmlspecialchars($href) . '" target="_blank" rel="noopener" aria-label="' . $label . '"><i class="' . $iconClass . '"></i></a>';
+};
+$playBadgeHTML  = $SHOW_APP_DOWNLOAD ? $mkAppBadge($PLAY_STORE_URL, 'fab fa-google-play', 'Google Play') : '';
+$appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-apple',       'App Store') : '';
+?>
 <footer class="kol-footer">
 <div class="container">
 <div class="ft-grid">
@@ -1975,6 +2094,9 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
 <a href="#" class="si" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
 <a href="#" class="st" aria-label="Telegram"><i class="fab fa-telegram-plane"></i></a>
 </div>
+<?php if ($playBadgeHTML !== '' || $appleBadgeHTML !== ''): ?>
+<div class="ft-app-badges"><?= $playBadgeHTML ?><?= $appleBadgeHTML ?></div>
+<?php endif; ?>
 </div>
 <div>
 <h3>বিভাগসমূহ</h3>
@@ -2186,6 +2308,7 @@ window.addEventListener('load', function() {
         var day = dayNames[istDate.getUTCDay()];
         var month = monthNames[istDate.getUTCMonth()];
         var dateStr = pad(istDate.getUTCDate()) + ' ' + month + ' ' + istDate.getUTCFullYear() + ', ' + day;
+        if (window.__bengaliDateStr) dateStr += ' । ' + window.__bengaliDateStr;
         dateEl.innerHTML = '<i class="far fa-calendar-alt"></i> ' + dateStr;
       }
     } catch (e) {}

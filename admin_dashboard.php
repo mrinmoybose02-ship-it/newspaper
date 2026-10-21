@@ -9,6 +9,77 @@ require_once __DIR__ . '/bengali_calendar.php';
  $activeFestival = BengaliFestivalCalendar::getActiveFestival();
  $allActiveFestivals = BengaliFestivalCalendar::getActiveFestivals(); // Sob active festival er list
 
+// ========================================== ★ v4.1 Date-Safety Fix (Admin) ==========================================
+// সঠিক পঞ্জিকা-তারিখ (index.php v4.1-এর সাথে হুবহু ম্যাচ): অষ্টমী ১৯ / নবমী ২০ / দশমী ২১ অক্টোবর ২০২৬।
+// bengali_calendar.php পুরনো কপি থাকলেও দুর্গাপুজোর এই ৬ দিন কখনো ভুল দেখাবে না — এই ম্যাপের অগ্রাধিকার সবার উপরে।
+$ADMIN_FEST_OVERRIDES = [
+    '2026-10-16' => ['name' => 'শুভ দুর্গাপুজো',   'name_en' => 'Durga Puja',     'logo' => 'durgapujo.png',      'start' => '2026-10-16', 'end' => '2026-10-16', 'priority' => 1000],
+    '2026-10-17' => ['name' => 'শুভ মহাষষ্ঠী',    'name_en' => 'Maha Shashthi',  'logo' => 'maha_shashthi.png',  'start' => '2026-10-17', 'end' => '2026-10-17', 'priority' => 1000],
+    '2026-10-18' => ['name' => 'শুভ মহাসপ্তমী',   'name_en' => 'Maha Saptami',   'logo' => 'maha_saptami.png',   'start' => '2026-10-18', 'end' => '2026-10-18', 'priority' => 1000],
+    '2026-10-19' => ['name' => 'শুভ মহা অষ্টমী',  'name_en' => 'Maha Ashtami',   'logo' => 'maha_ashtami.png',   'start' => '2026-10-19', 'end' => '2026-10-19', 'priority' => 1000],
+    '2026-10-20' => ['name' => 'শুভ মহানবমী',     'name_en' => 'Maha Navami',    'logo' => 'maha_navami.png',    'start' => '2026-10-20', 'end' => '2026-10-20', 'priority' => 1000],
+    '2026-10-21' => ['name' => 'শুভ বিজয়া দশমী', 'name_en' => 'Bijoya Dashami', 'logo' => 'bijoya_dashami.png', 'start' => '2026-10-21', 'end' => '2026-10-21', 'priority' => 1000],
+];
+$__adminToday = (new DateTime('today', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d');
+if (isset($ADMIN_FEST_OVERRIDES[$__adminToday])) {
+    $__ov = $ADMIN_FEST_OVERRIDES[$__adminToday];
+    $__ovEn = $__ov['name_en'];
+    // override দিনটির ডুপ্লিকেট/দুর্গা এন্ট্রি লিস্ট থেকে বাদ
+    $allActiveFestivals = array_merge([$__ov], array_values(array_filter((array)$allActiveFestivals, function ($f) use ($__ovEn) {
+        $en = (string)($f['name_en'] ?? '');
+        return stripos($en, $__ovEn) === false && stripos($en, 'durga') === false;
+    })));
+    $activeFestival = $__ov;
+}
+
+// ========================================== ★ v5 Live Image Preview (Admin) ==========================================
+// ফোল্ডারে নতুন ছবি আপলোড করলে সেটাই অ্যাডমিনেও দেখাবে:
+//  • একই ফাইলের একাধিক কপি (uploads/festivals ও festivals) থাকলে নতুন (mtime) কপি জেতে
+//  • ভিন্ন নামের নতুন ভ্যারিয়েন্টও অটো-ডিটেক্ট (janmashtami বাদ)
+//  • সব ছবির URL-এ ক্যাশ-বাস্টার (?v=mtime) — রিপ্লেস করলেই নতুন ছবি দেখায়
+if (!function_exists('adminFestResolve')) {
+    function adminFestResolve($rel) {
+        $rel = trim((string)$rel);
+        if ($rel === '' || filter_var($rel, FILTER_VALIDATE_URL)) return $rel;
+        $bases = array_values(array_unique(['uploads/festivals', 'festivals', 'uploads/festival', 'festival']));
+        $winner = ''; $winnerM = -1;
+        foreach ($bases as $b) {
+            $cand = $b . '/' . $rel;
+            if (is_file(__DIR__ . '/' . $cand)) {
+                $m = @filemtime(__DIR__ . '/' . $cand) ?: 0;
+                if ($m > $winnerM) { $winnerM = $m; $winner = $cand; }
+            }
+        }
+        if ($winner === '') $winner = is_file(__DIR__ . '/' . $rel) ? $rel : '';
+        if ($winner === '') return '';
+        $stem = preg_replace('/\.(png|jpe?g|gif|webp)$/i', '', basename($rel));
+        if ($stem !== 'durgapujo') {
+            $kw = preg_replace('/^(maha_|durga_|bijoya_)/i', '', $stem);
+            $sub = dirname($rel) === '.' ? '' : '/' . dirname($rel); // ব্যানার হলে banners/ সাব-ফোল্ডারেও খোঁজা হয়
+            foreach ($bases as $b) {
+                if (!is_dir(__DIR__ . '/' . $b . $sub)) continue;
+                foreach ((glob(__DIR__ . '/' . $b . $sub . '/*' . $kw . '*') ?: []) as $f) {
+                    $bn = basename($f);
+                    if (!is_file($f)) continue;
+                    if (stripos($bn, 'janmashtami') !== false) continue;
+                    if (!preg_match('/\.(png|jpe?g|gif|webp)$/i', $bn)) continue;
+                    $m = @filemtime($f) ?: 0;
+                    if ($m > $winnerM) { $winnerM = $m; $winner = $b . $sub . '/' . $bn; }
+                }
+            }
+        }
+        return $winner;
+    }
+}
+if (!function_exists('adminFestUrl')) {
+    function adminFestUrl($p) {
+        $p = trim((string)$p);
+        if ($p === '' || preg_match('~^https?://~i', $p)) return $p;
+        $m = @filemtime(__DIR__ . '/' . ltrim($p, '/'));
+        return $m ? $p . '?v=' . $m : $p;
+    }
+}
+// ========================================== Live Image Preview Ends ==========================================
 // ========================================== Bengali Calendar Class Ends ==========================================
 
 
@@ -1634,15 +1705,40 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
         $festivalVals = loadSettings($pdo, ['festival_logo_img', 'festival_logo_text']);
         $current_logo_img = $festivalVals['festival_logo_img'] ?? '';
         $current_logo_text = $festivalVals['festival_logo_text'] ?? '';
+
+        // ★ v5 সতর্কতা: কাস্টম লোগো সেভ থাকলে সেটিই সাইটের অটো দিনের-লোগোর বদলে দেখায় —
+        // এজন্যই ফোল্ডারে নতুন ছবি আপলোড করার পরও সাইটে পুরোনো ছবিই দেখাত।
+        if (!empty($current_logo_img)) {
+            echo "<div class='alert alert-warning' style='margin-bottom:15px'><i class='fas fa-triangle-exclamation'></i> <b>কাস্টম লোগো চালু আছে!</b> সেটিংসে সেভ করা ছবিটি (<code>" . htmlspecialchars($current_logo_img) . "</code>) অটো দিনের-লোগোর বদলে সাইটে দেখানো হচ্ছে। ফোল্ডারে নতুন ছবি আপলোড করলেও তা দেখাবে না — অটো লোগোতে ফিরতে নিচের <b>Reset to Default</b> বাটনে চাপুন।</div>";
+        }
         
-        // Check if there's an active festival today
-        $activeFestival = BengaliFestivalCalendar::getActiveFestival();
+        // Check if there's an active festival today (v4.1: উপরে Date-Safety override থাকলে সেটাই থাকবে)
+        if (!isset($activeFestival)) { $activeFestival = BengaliFestivalCalendar::getActiveFestival(); }
         ?>
 
         <?php if ($activeFestival): ?>
+        <?php
+        // ★ v5: আজকের অটো লোগো/ব্যানার সরাসরি ফোল্ডার থেকে রেজলভ করে প্রিভিউ দেখানো হয়
+        $__autoLogo   = adminFestResolve($activeFestival['logo']);
+        $__autoBanner = adminFestResolve('banners/' . $activeFestival['logo']);
+        ?>
         <div class="alert alert-success" style="margin-bottom: 15px;">
             <i class="fas fa-calendar-check"></i> <strong>Currently Active Event:</strong> <?= htmlspecialchars($activeFestival['name']) ?> <br>
-            <small>Default Image: <code>uploads/festivals/<?= htmlspecialchars($activeFestival['logo']) ?></code></small>
+            <small>Default Image: <code><?= htmlspecialchars($__autoLogo !== '' ? $__autoLogo : 'festivals/' . $activeFestival['logo']) ?></code>
+            <?php if ($__autoLogo !== ''): ?>
+                 <span style="color:#2e7d32;font-weight:600"><i class="fas fa-check-circle"></i> ফাইল পাওয়া গেছে</span>
+            <?php else: ?>
+                 <span style="color:#c62828;font-weight:600"><i class="fas fa-exclamation-triangle"></i> ফাইল খুঁজে পাওয়া যায়নি</span>
+            <?php endif; ?></small>
+            <?php if ($__autoLogo !== ''): ?>
+            <div style="margin-top:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px">
+                <img src="<?= htmlspecialchars(adminFestUrl($__autoLogo)) ?>" alt="" style="max-width:110px;max-height:110px;border-radius:6px">
+                <?php if ($__autoBanner !== ''): ?>
+                <img src="<?= htmlspecialchars(adminFestUrl($__autoBanner)) ?>" alt="" style="max-height:55px;border-radius:6px">
+                <?php endif; ?>
+                <small style="color:#555;max-width:330px">↑ আজকের অটো লোগো + গ্রিটিং ব্যানার (সবচেয়ে নতুন ফাইল)। ফোল্ডারে নতুন ছবি আপলোড করলে এখানে এবং সাইটে সাথে সাথেই বদলে যাবে — নতুন করে কিছু সেভ করতে হবে না।</small>
+            </div>
+            <?php endif; ?>
         </div>
         <?php else: ?>
         <div class="alert alert-warning" style="margin-bottom: 15px;">
@@ -1656,7 +1752,7 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
                 <div class="img-upload-area <?= !empty($current_logo_img) ? 'has-image' : '' ?>" id="festLogoImgArea" style="max-width: 300px; padding: 15px;">
                     <input type="file" name="festival_logo_file" id="festival_logo_file" accept="image/jpeg,image/png,image/gif/image/webp" style="position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 2;">
                     <?php if (!empty($current_logo_img)): ?>
-                        <img src="<?= htmlspecialchars($current_logo_img) ?>" class="img-preview" id="festLogoImgPreview" alt="" style="max-height: 100px;">
+                        <img src="<?= htmlspecialchars(adminFestUrl($current_logo_img)) ?>" class="img-preview" id="festLogoImgPreview" alt="" style="max-height: 100px;">
                         <div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Saved Image exists</div>
                     <?php else: ?>
                         <div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>

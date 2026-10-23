@@ -1416,120 +1416,396 @@ if (fi) fi.onchange = function() { if (this.files && this.files[0]) { var r = ne
 
 // CKEditor Initialization
 if (typeof CKEDITOR !== 'undefined') {
-    CKEDITOR.replace('editor1', { 
-        height: 400, 
-        extraPlugins: 'justify,colorbutton,font,iframe',
-        extraAllowedContent: 'iframe[*]; div[*]; p[*]; span[*]; img[*]; video[*]; source[*]; blockquote[*]',
-        removeButtons: 'Save,NewPage,Preview,Print,Templates,PasteFromWord', 
-        toolbar: [ 
-            { name: 'document', items: ['Source','-','NewPage','DocProps','Preview','Print'] }, 
-            { name: 'clipboard', items: ['Cut','Copy','Paste','PasteText','PasteFromWord','-','Undo','Redo'] }, 
-            { name: 'editing', items: ['Find','Replace','-','SelectAll','-','SpellChecker', 'Scayt'] }, 
-            { name: 'forms', items: ['Form', 'Checkbox', 'Radio', 'TextField', 'Textarea', 'Select', 'Button', 'ImageButton', 'HiddenField'] }, 
-            '/', 
-            { name: 'basicstyles', items: ['Bold','Italic','Underline','Strike','Subscript','Superscript','-','RemoveFormat'] }, 
-            { name: 'paragraph', items: ['NumberedList','BulletedList','-','Outdent','Indent','-','Blockquote','CreateDiv','-','JustifyLeft','JustifyCenter','JustifyRight','JustifyBlock','-','BidiLtr','BidiRtl','Language'] }, 
-            { name: 'links', items: ['Link','Unlink','Anchor'] }, 
-            { name: 'insert', items: ['Image','Flash','Table','HorizontalRule','Smiley','SpecialChar','PageBreak','Iframe'] }, 
-            '/', 
-            { name: 'styles', items: ['Styles','Format','Font','FontSize'] }, 
-            { name: 'colors', items: ['TextColor','BGColor'] }, 
-            { name: 'tools', items: ['Maximize', 'ShowBlocks','-','About'] } 
-        ] 
+    CKEDITOR.replace('editor1', {
+        height: 400,
+        // ===== Added 18 new plugins for a much richer toolbar =====
+        //   emoji            -> emoji panel picker (type :smile)
+        //   uploadimage      -> drag-and-drop image upload (inline base64)
+        //   copyformatting   -> paint-format brush (copy styles between elements)
+        //   codesnippet      -> syntax-highlighted code blocks (JS/PHP/Python/etc.)
+        //   mathjax          -> LaTeX math formulas (inline + display)
+        //   magicline        -> magic red line for cursor placement in tricky spots
+        //   autogrow         -> editor grows automatically with content (400-900px)
+        //   tableresize      -> drag table column borders to resize
+        //   tableselection   -> multi-cell selection in tables
+        //   tabletools       -> row/column/cell operations toolbar
+        //   sourcedialog     -> Source editor as a popup dialog (alternative)
+        //   colordialog      -> full color picker dialog (any RGB/HEX)
+        //   a11yhelp         -> accessibility help dialog (Alt+0)
+        //   liststyle        -> list properties (Roman, Alpha, custom start number)
+        //   placeholder      -> insert named placeholder token
+        //   templates        -> pre-defined content templates
+        //   preview,print    -> preview & print current content
+        //   pastefromword    -> cleaned paste from Microsoft Word
+        extraPlugins: 'justify,colorbutton,font,iframe,emoji,uploadimage,copyformatting,codesnippet,mathjax,magicline,autogrow,tableresize,tableselection,tabletools,sourcedialog,colordialog,a11yhelp,liststyle,placeholder,templates,preview,print,pastefromword',
+        extraAllowedContent: 'iframe[*]; div[*]; p[*]; span[*]; img[*]; video[*]; source[*]; blockquote[*]; pre[*]; code[*]; figure[*]; figcaption[*]; table[*]; tr[*]; td[*]; th[*]; thead[*]; tbody[*]; span(!math-tex,cke_mathjax); p(oembed-content); iframe[oembed]',
+        // Only remove Save (handled by form submit button) and NewPage (would wipe content)
+        removeButtons: 'Save,NewPage',
+        toolbar: [
+            { name: 'document', items: ['Source','-','Sourcedialog','-','Templates','DocProps','Preview','Print'] },
+            { name: 'clipboard', items: ['Cut','Copy','Paste','PasteText','PasteFromWord','-','Undo','Redo','-','CopyFormatting'] },
+            { name: 'editing', items: ['Find','Replace','-','SelectAll','-','SpellChecker','Scayt','-','A11yHelp'] },
+            { name: 'forms', items: ['Form','Checkbox','Radio','TextField','Textarea','Select','Button','ImageButton','HiddenField'] },
+            '/',
+            { name: 'basicstyles', items: ['Bold','Italic','Underline','Strike','Subscript','Superscript','-','CopyFormatting','-','RemoveFormat'] },
+            { name: 'paragraph', items: ['NumberedList','BulletedList','-','Outdent','Indent','-','Blockquote','CreateDiv','-','JustifyLeft','JustifyCenter','JustifyRight','JustifyBlock','-','BidiLtr','BidiRtl','Language'] },
+            { name: 'links', items: ['Link','Unlink','Anchor'] },
+            { name: 'insert', items: ['Image','Flash','Table','HorizontalRule','Smiley','EmojiPanel','SpecialChar','PageBreak','Iframe','CodeSnippet','Mathjax','Placeholder'] },
+            '/',
+            { name: 'styles', items: ['Styles','Format','Font','FontSize'] },
+            { name: 'colors', items: ['TextColor','BGColor','Colordialog'] },
+            { name: 'tools', items: ['Maximize','ShowBlocks','-','About'] }
+        ],
+        // ===== Plugin-specific configuration =====
+        // Emoji: trigger picker after 2+ chars following a colon (e.g. :smi)
+        emoji_minChars: 2,
+        // MathJax: load MathJax 2.7 from CDN for LaTeX rendering in editor & on page
+        mathJaxLib: 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.9/MathJax.js?config=TeX-AMS_HTML',
+        mathJaxClass: 'math-tex',
+        // Code Snippet: dark syntax highlighting theme (matches VS Code Monokai)
+        codeSnippet_theme: 'monokai_sublime',
+        // Auto-grow: editor expands from 400px up to 900px as content grows
+        autoGrow_onStartup: true,
+        autoGrow_minHeight: 400,
+        autoGrow_maxHeight: 900,
+        // Image upload via drag-drop (uploadimage plugin) - embeds as base64 by default
+        uploadimage_supportedTypes: /(png|jpe?g|gif|webp)$/i,
+        // Copy Formatting: Ctrl+Shift+C copy / Ctrl+Shift+V paste styles
+        copyFormatting_allowRules: true,
+        copyFormatting_disallowRules: 'script;style;*[id,onclick,onmouseover]',
+        // Source dialog indentation
+        sourceAreaTabSize: 4,
+        // Allow toolbar collapse on small screens
+        toolbarCanCollapse: true,
+        toolbarStartupExpanded: true,
+        // Hide rarely-used advanced tabs to keep dialogs simple
+        removeDialogTabs: 'image:advanced;link:target;link:advanced'
     });
 
-    // Show/Hide Custom Image Toolbar on Selection
-    CKEDITOR.instances.editor1.on('selectionChange', function(e) {
-        var selectedElement = e.editor.getSelection().getSelectedElement();
-        var toolbar = document.getElementById('imgAlignToolbar');
-        if (selectedElement && selectedElement.is('img')) {
-            if (toolbar) toolbar.style.display = 'flex';
-        } else {
-            if (toolbar) toolbar.style.display = 'none';
-        }
-    });
-}
+    // ========================================== ★ FIXED Picture Toolbar v11 (PARENT BLOCK APPROACH) ==========================================
+    // v11: Center alignment — image এর parent paragraph খুঁজে সেটার উপর text-align:center set করি
+    // কোনো wrap/unwrap নয়, কোনো insertHtml নয় — সবচেয়ে নির্ভরযোগ্য পদ্ধতি
+    // ==================================================================================================================
 
-// Function to manipulate selected image inside CKEditor
-function alignImg(type) {
-    if (typeof CKEDITOR === 'undefined' || !CKEDITOR.instances.editor1) return;
-    var editor = CKEDITOR.instances.editor1;
-    var sel = editor.getSelection();
-    var img = sel.getSelectedElement();
-    
-    // If the image is wrapped inside a link or another element, try finding it inside the selected block
-    if (!img || !img.is('img')) {
-        var ranges = sel.getRanges();
-        if (ranges.length > 0) {
-            img = ranges[0].findOne(function(node) { return node.type == CKEDITOR.NODE_ELEMENT && node.getName() == 'img'; });
+    window.__selectedImg = null;
+
+    function __bindImgSelectionListener(editor) {
+        if (!editor || editor.__imgListenerBound) return;
+        editor.__imgListenerBound = true;
+
+        editor.on('selectionChange', function(e) {
+            var ed = e.editor;
+            var sel = ed.getSelection();
+            var selectedElement = sel ? sel.getSelectedElement() : null;
+            var img = null;
+            if (selectedElement && selectedElement.is && selectedElement.is('img')) {
+                img = selectedElement;
+            } else if (selectedElement && selectedElement.findOne) {
+                try { img = selectedElement.findOne('img'); } catch (e) {}
+            }
+            if (!img) {
+                try {
+                    var ranges = sel.getRanges();
+                    if (ranges && ranges.length > 0) {
+                        var node = ranges[0].startContainer;
+                        if (node && node.type == CKEDITOR.NODE_TEXT && node.getParent()) {
+                            node = node.getParent();
+                        }
+                        for (var i = 0; i < 6 && node; i++) {
+                            if (node.type == CKEDITOR.NODE_ELEMENT) {
+                                if (node.is && node.is('img')) { img = node; break; }
+                                try {
+                                    var found = node.findOne ? node.findOne('img') : null;
+                                    if (found) { img = found; break; }
+                                } catch (e) {}
+                            }
+                            node = node.getParent ? node.getParent() : null;
+                        }
+                    }
+                } catch (err) {}
+            }
+            var toolbar = document.getElementById('imgAlignToolbar');
+            if (!toolbar) return;
+            if (img) {
+                window.__selectedImg = img;
+                toolbar.style.display = 'flex';
+            } else {
+                if (!window.__selectedImg) {
+                    toolbar.style.display = 'none';
+                }
+            }
+        });
+
+        var editable = editor.editable();
+        if (editable) {
+            editable.on('click', function(ev) {
+                setTimeout(function() {
+                    var sel = editor.getSelection();
+                    var selectedElement = sel ? sel.getSelectedElement() : null;
+                    var img = null;
+                    if (selectedElement && selectedElement.is && selectedElement.is('img')) {
+                        img = selectedElement;
+                    } else if (selectedElement && selectedElement.findOne) {
+                        try { img = selectedElement.findOne('img'); } catch (e) {}
+                    }
+                    var toolbar = document.getElementById('imgAlignToolbar');
+                    if (!toolbar) return;
+                    if (img) {
+                        window.__selectedImg = img;
+                        toolbar.style.display = 'flex';
+                    } else {
+                        window.__selectedImg = null;
+                        toolbar.style.display = 'none';
+                    }
+                }, 50);
+            });
         }
     }
 
-    if (img && img.is('img')) {
-        if (type === 'left' || type === 'right' || type === 'center') {
+    __bindImgSelectionListener(CKEDITOR.instances.editor1);
+    CKEDITOR.instances.editor1.on('instanceReady', function() {
+        __bindImgSelectionListener(CKEDITOR.instances.editor1);
+    });
+}
+
+function __findImgFromCurrentSelection(editor) {
+    var sel = editor.getSelection();
+    if (!sel) return null;
+    var selectedElement = sel.getSelectedElement();
+    if (selectedElement && selectedElement.is && selectedElement.is('img')) {
+        return selectedElement;
+    }
+    if (selectedElement && selectedElement.findOne) {
+        try {
+            var inner = selectedElement.findOne('img');
+            if (inner) return inner;
+        } catch (e) {}
+    }
+    try {
+        var ranges = sel.getRanges();
+        if (ranges && ranges.length > 0) {
+            var node = ranges[0].startContainer;
+            if (node && node.type == CKEDITOR.NODE_TEXT && node.getParent()) {
+                node = node.getParent();
+            }
+            for (var i = 0; i < 6 && node; i++) {
+                if (node.type == CKEDITOR.NODE_ELEMENT) {
+                    if (node.is && node.is('img')) return node;
+                    try {
+                        var found = node.findOne ? node.findOne('img') : null;
+                        if (found) return found;
+                    } catch (e) {}
+                }
+                node = node.getParent ? node.getParent() : null;
+            }
+        }
+    } catch (err) {}
+    return null;
+}
+
+// ★ v11: image এর parent block (p/div/h1-h6) খুঁজে দেয়
+function __findParentBlock(img) {
+    try {
+        var node = img.getParent();
+        for (var i = 0; i < 8 && node; i++) {
+            if (node.type == CKEDITOR.NODE_ELEMENT) {
+                var name = node.getName ? node.getName() : '';
+                if (name === 'p' || name === 'div' || name === 'h1' || name === 'h2' ||
+                    name === 'h3' || name === 'h4' || name === 'h5' || name === 'h6' ||
+                    name === 'blockquote' || name === 'li' || name === 'td' || name === 'figure') {
+                    return node;
+                }
+            }
+            node = node.getParent ? node.getParent() : null;
+        }
+    } catch (e) {}
+    return null;
+}
+
+// ★ Function to manipulate selected image inside CKEditor (FIXED v11)
+function alignImg(type) {
+    if (typeof CKEDITOR === 'undefined' || !CKEDITOR.instances.editor1) {
+        alert('Editor is not loaded yet. Please wait and try again.');
+        return;
+    }
+    var editor = CKEDITOR.instances.editor1;
+
+    var img = window.__selectedImg;
+    if (img) {
+        try {
+            var p = img.getParent ? img.getParent() : null;
+            if (!p || !img.is || !img.is('img')) {
+                img = null;
+                window.__selectedImg = null;
+            }
+        } catch (e) {
+            img = null;
+            window.__selectedImg = null;
+        }
+    }
+    if (!img) {
+        img = __findImgFromCurrentSelection(editor);
+    }
+
+    if (!img) {
+        alert('Please click on an image inside the editor first.');
+        return;
+    }
+
+    editor.focus();
+
+    try {
+        // ★ v11 CENTER: parent block এ text-align:center set করি
+        if (type === 'center') {
+            // Image এর alignment styles পরিষ্কার করি
             img.removeStyle('float');
-            img.removeStyle('display');
             img.removeStyle('margin-left');
             img.removeStyle('margin-right');
+            img.removeStyle('margin-top');
+            img.removeStyle('margin-bottom');
             img.removeStyle('vertical-align');
-            
-            if (type === 'left') {
-                img.setStyle('float', 'left');
-                img.setStyle('margin-right', '15px');
-                img.setStyle('margin-bottom', '10px');
-            } else if (type === 'right') {
-                img.setStyle('float', 'right');
-                img.setStyle('margin-left', '15px');
-                img.setStyle('margin-bottom', '10px');
-            } else if (type === 'center') {
-                img.setStyle('display', 'block');
-                img.setStyle('margin-left', 'auto');
-                img.setStyle('margin-right', 'auto');
-                img.setStyle('margin-bottom', '10px');
+            img.removeStyle('clear');
+            img.removeAttribute('align');
+            // Image কে inline-block করি যাতে parent এর text-align কাজ করে
+            img.setStyle('display', 'inline-block');
+            // Parent block খুঁজি
+            var parentBlock = __findParentBlock(img);
+            if (parentBlock) {
+                // ★ parent block এ text-align:center set করি
+                parentBlock.setStyle('text-align', 'center');
+            } else {
+                // Parent না পেলে image কে centered paragraph এ wrap করার চেষ্টা করি
+                try {
+                    var imgHtml = img.getOuterHtml();
+                    editor.getSelection().selectElement(img);
+                    editor.insertHtml('<p style="text-align:center;">' + imgHtml + '</p>');
+                } catch (e) {}
             }
-        } else if (type === 'top' || type === 'middle' || type === 'bottom' || type === 'none') {
+        }
+        // ★ LEFT: parent text-align clear করি, image এ float:left
+        else if (type === 'left') {
             img.removeStyle('float');
             img.removeStyle('display');
             img.removeStyle('margin-left');
             img.removeStyle('margin-right');
-            
-            if (type === 'top') img.setStyle('vertical-align', 'top');
-            else if (type === 'middle') img.setStyle('vertical-align', 'middle');
-            else if (type === 'bottom') img.setStyle('vertical-align', 'bottom');
-            else if (type === 'none') {
-                img.removeStyle('vertical-align');
+            img.removeStyle('margin-top');
+            img.removeStyle('margin-bottom');
+            img.removeStyle('vertical-align');
+            img.removeStyle('clear');
+            img.removeAttribute('align');
+            // Parent এর text-align clear করি (যাতে center থেকে left হয়)
+            var pb1 = __findParentBlock(img);
+            if (pb1) pb1.removeStyle('text-align');
+            // float left set করি
+            img.setStyle('float', 'left');
+            img.setAttribute('align', 'left');
+            img.setStyle('margin-right', '15px');
+            img.setStyle('margin-bottom', '10px');
+        }
+        // ★ RIGHT: parent text-align clear, image এ float:right
+        else if (type === 'right') {
+            img.removeStyle('float');
+            img.removeStyle('display');
+            img.removeStyle('margin-left');
+            img.removeStyle('margin-right');
+            img.removeStyle('margin-top');
+            img.removeStyle('margin-bottom');
+            img.removeStyle('vertical-align');
+            img.removeStyle('clear');
+            img.removeAttribute('align');
+            var pb2 = __findParentBlock(img);
+            if (pb2) pb2.removeStyle('text-align');
+            img.setStyle('float', 'right');
+            img.setAttribute('align', 'right');
+            img.setStyle('margin-left', '15px');
+            img.setStyle('margin-bottom', '10px');
+        }
+        // ★ VERTICAL ALIGNMENT: top/middle/bottom/none
+        else if (type === 'top' || type === 'middle' || type === 'bottom' || type === 'none') {
+            img.removeStyle('float');
+            img.removeStyle('display');
+            img.removeStyle('margin-left');
+            img.removeStyle('margin-right');
+            img.removeStyle('margin-top');
+            img.removeStyle('margin-bottom');
+            img.removeStyle('vertical-align');
+            img.removeStyle('clear');
+            img.removeAttribute('align');
+            img.removeAttribute('valign');
+            // Parent এর text-align clear করি
+            var pb3 = __findParentBlock(img);
+            if (pb3) pb3.removeStyle('text-align');
+            // ★ inline-block required for vertical-align to work
+            img.setStyle('display', 'inline-block');
+            if (type === 'top') {
+                img.setStyle('vertical-align', 'top');
+                img.setAttribute('valign', 'top');
+            } else if (type === 'middle') {
+                img.setStyle('vertical-align', 'middle');
+                img.setAttribute('valign', 'middle');
+            } else if (type === 'bottom') {
+                img.setStyle('vertical-align', 'bottom');
+                img.setAttribute('valign', 'bottom');
             }
-        } else if (type === 'zoomin' || type === 'zoomout') {
+        }
+        // ★ ZOOM: in/out
+        else if (type === 'zoomin' || type === 'zoomout') {
             var currentWidth = img.getStyle('width') || img.getAttribute('width');
             if (!currentWidth) {
-                currentWidth = img.$.naturalWidth || img.getSize('width');
+                currentWidth = (img.$ && img.$.width) ? img.$.width :
+                               (img.$ && img.$.naturalWidth) ? img.$.naturalWidth : 300;
             }
             var numWidth = parseInt(currentWidth, 10);
             if (!isNaN(numWidth)) {
                 if (type === 'zoomin') {
-                    numWidth = Math.round(numWidth * 1.1); // Increase by 10%
+                    numWidth = Math.round(numWidth * 1.1);
                 } else {
-                    numWidth = Math.max(50, Math.round(numWidth * 0.9)); // Decrease by 10%, min 50px
+                    numWidth = Math.max(50, Math.round(numWidth * 0.9));
                 }
                 img.setStyle('width', numWidth + 'px');
                 img.setStyle('height', 'auto');
-                img.removeAttribute('width'); // remove attribute to enforce style
+                img.removeAttribute('width');
                 img.removeAttribute('height');
             }
-        } else if (type === 'drag') {
-            editor.getSelection().selectElement(img);
-            img.setAttribute('draggable', 'true');
-            img.once('dragstart', function(ev) {
-                if (ev.data && ev.data.$ && ev.data.$.dataTransfer) {
-                    ev.data.$.dataTransfer.setData('text/html', img.getOuterHtml());
-                    ev.data.$.dataTransfer.effectAllowed = 'move';
-                }
-                img.addClass('cke_draggable_img');
-            });
-            alert('Drag mode enabled! এখন ছবির উপর মাউসের বাম বোতাম চেপে ধরে রেখে যেকোনো জায়গায় নিয়ে ছেড়ে দিন।');
         }
-    } else {
-        alert('Please click on an image inside the editor first.');
+        // ★ DRAG MODE: True toggle
+        else if (type === 'drag') {
+            var isCurrentlyDraggable = img.getAttribute('draggable') === 'true';
+            if (isCurrentlyDraggable) {
+                img.removeAttribute('draggable');
+                img.removeStyle('outline');
+                img.removeStyle('cursor');
+                img.removeClass('cke_draggable_img');
+                try { editor.getSelection().selectElement(img); } catch (e) {}
+                alert('✓ Drag mode DISABLED');
+            } else {
+                editor.getSelection().selectElement(img);
+                img.setAttribute('draggable', 'true');
+                img.setStyle('outline', '2px dashed #C41E3A');
+                img.setStyle('cursor', 'move');
+                img.addClass('cke_draggable_img');
+                img.on('dragstart', function(ev) {
+                    try {
+                        if (ev.data && ev.data.$ && ev.data.$.dataTransfer) {
+                            ev.data.$.dataTransfer.setData('text/html', img.getOuterHtml());
+                            ev.data.$.dataTransfer.effectAllowed = 'move';
+                        }
+                    } catch (e) {}
+                });
+                alert('✓ Drag mode ENABLED!\n\nছবির উপর মাউসের বাম বোতাম চেপে ধরে রেখে যেকোনো জায়গায় নিয়ে যান।\nআবার Drag বাটনে চাপলে disable হবে।');
+            }
+        }
+        else {
+            return;
+        }
+
+        try {
+            editor.getSelection().selectElement(img);
+        } catch (e) {}
+        window.__selectedImg = img;
+        try { editor.fire('selectionChange'); } catch (e) {}
+    } catch (err) {
+        alert('Picture tool failed: ' + (err && err.message ? err.message : 'unknown error'));
     }
 }
 

@@ -211,7 +211,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "breaking", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
+ $validSections = ["dashboard", "add", "edit", "manage", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -396,11 +396,17 @@ if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st
 try { $pdo->exec("ALTER TABLE news ADD COLUMN subcategory_id INT DEFAULT NULL AFTER category_id"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE news ADD COLUMN updated_at DATETIME DEFAULT NULL"); } catch (PDOException $e) {}
 try { $pdo->exec("ALTER TABLE news ADD COLUMN headline VARCHAR(255) DEFAULT NULL AFTER title"); } catch (PDOException $e) {}
+// ========================================== Breaking News from Add News Section ==========================================
+// Add is_breaking column to news table - checkbox in Add News form toggles breaking tracker on frontend
+try { $pdo->exec("ALTER TABLE news ADD COLUMN is_breaking TINYINT(1) NOT NULL DEFAULT 0 AFTER is_featured"); } catch (PDOException $e) {}
+// Add news_id column to breaking_news table - links breaking entries to their source news for auto sync
+try { $pdo->exec("ALTER TABLE breaking_news ADD COLUMN news_id INT DEFAULT NULL"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE breaking_news ADD INDEX idx_brk_news_id (news_id)"); } catch (PDOException $e) {}
 
  $categories = [];
 try { $categories = $pdo->query("SELECT id, name FROM categories ORDER BY name ASC")->fetchAll(); } catch (Exception $e) {}
 
- $addError = ""; $addSuccess = ""; $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "created_at" => ""];
+ $addError = ""; $addSuccess = ""; $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "is_breaking" => 0, "created_at" => ""];
 
 if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
     if (!verifyCSRF()) { $addError = "Token mismatch."; }
@@ -415,6 +421,7 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
         $addData["author"] = trim($_POST["author"] ?? $fullName);
         $addData["status"] = ($_POST["status"] === "published") ? "published" : "draft";
         $addData["is_featured"] = isset($_POST["is_featured"]) ? 1 : 0;
+        $addData["is_breaking"] = isset($_POST["is_breaking"]) ? 1 : 0;
         $addData["created_at"] = trim($_POST["news_created_at"] ?? "");
         
         $addData["slug"] = generateSlug($addData["title"]);
@@ -429,17 +436,25 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
                 try {
                     $firstSubId = !empty($addData["subcategories"]) ? (int)$addData["subcategories"][0] : null;
                     $news_created_at = !empty($addData["created_at"]) ? date('Y-m-d H:i:s', strtotime($addData["created_at"])) : date('Y-m-d H:i:s');
-                    $pdo->prepare("INSERT INTO news (title, headline, slug, content, image, tags, category_id, subcategory_id, author, status, is_featured, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                        ->execute([$addData["title"], $addData["headline"], $addData["slug"], $addData["content"], $addData["image"], $addData["tags"], !empty($addData["category_id"]) ? (int)$addData["category_id"] : null, $firstSubId, $addData["author"], $addData["status"], $addData["is_featured"], $news_created_at, date('Y-m-d H:i:s')]);
+                    $pdo->prepare("INSERT INTO news (title, headline, slug, content, image, tags, category_id, subcategory_id, author, status, is_featured, is_breaking, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        ->execute([$addData["title"], $addData["headline"], $addData["slug"], $addData["content"], $addData["image"], $addData["tags"], !empty($addData["category_id"]) ? (int)$addData["category_id"] : null, $firstSubId, $addData["author"], $addData["status"], $addData["is_featured"], $addData["is_breaking"], $news_created_at, date('Y-m-d H:i:s')]);
                     $nid = $pdo->lastInsertId();
                     saveNewsSubcategories($pdo, $nid, $addData["subcategories"]);
+                    
+                    // Breaking News Sync (Add): if checkbox is on, insert news title into breaking_news table so frontend ticker shows it instantly
+                    if ($addData["is_breaking"]) {
+                        try {
+                            $pdo->prepare("INSERT INTO breaking_news (text, news_id, created_at) VALUES (?, ?, ?)")
+                                ->execute([$addData["title"], $nid, $news_created_at]);
+                        } catch (PDOException $bErr) {}
+                    }
                     
                     if ($addData["status"] === "published") {
                         sendWebSocketNotification($nid, $addData["title"]);
                     }
                     
-                    $addSuccess = "Saved successfully.";
-                    $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "created_at" => ""];
+                    $addSuccess = "Saved successfully." . ($addData["is_breaking"] ? " Breaking News tracker-এও যোগ হয়েছে।" : "");
+                    $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "is_breaking" => 0, "created_at" => ""];
                     $section = "manage";
                 } catch (PDOException $e) { $addError = "Failed: " . $e->getMessage(); }
             }
@@ -453,7 +468,12 @@ if ($section === "edit") {
     $er = $pdo->prepare("SELECT * FROM news WHERE id=?"); $er->execute([$eid]); $er = $er->fetch();
     if (!$er) { header("Location: ?page=admin_dashboard&section=manage"); exit; }
     $esi = getNewsSubcategoryIds($pdo, $eid);
-    $editData = ["id" => $er["id"], "title" => $er["title"], "headline" => $er["headline"] ?? "", "slug" => $er["slug"], "content" => $er["content"], "image" => $er["image"] ?? "", "tags" => $er["tags"] ?? "", "category_id" => $er["category_id"] ?? "", "subcategories" => $esi, "author" => $er["author"] ?? $fullName, "status" => $er["status"], "is_featured" => $er["is_featured"] ?? 0, "created_at" => $er["created_at"] ?? ""];
+    // Pre-check breaking news state for edit form: combine news.is_breaking flag with breaking_news table lookup
+    $__brkCheck = (int)($er["is_breaking"] ?? 0);
+    if ($__brkCheck === 0) {
+        try { $__brkRow = $pdo->prepare("SELECT id FROM breaking_news WHERE news_id=? LIMIT 1"); $__brkRow->execute([$eid]); if ($__brkRow->fetch()) $__brkCheck = 1; } catch (Exception $e) {}
+    }
+    $editData = ["id" => $er["id"], "title" => $er["title"], "headline" => $er["headline"] ?? "", "slug" => $er["slug"], "content" => $er["content"], "image" => $er["image"] ?? "", "tags" => $er["tags"] ?? "", "category_id" => $er["category_id"] ?? "", "subcategories" => $esi, "author" => $er["author"] ?? $fullName, "status" => $er["status"], "is_featured" => $er["is_featured"] ?? 0, "is_breaking" => $__brkCheck, "created_at" => $er["created_at"] ?? ""];
     if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (!verifyCSRF()) { $editError = "Token mismatch."; }
         else {
@@ -467,6 +487,7 @@ if ($section === "edit") {
             $editData["author"] = trim($_POST["author"] ?? $fullName);
             $editData["status"] = ($_POST["status"] === "published") ? "published" : "draft";
             $editData["is_featured"] = isset($_POST["is_featured"]) ? 1 : 0;
+            $editData["is_breaking"] = isset($_POST["is_breaking"]) ? 1 : 0;
             
             if (empty($editData["slug"])) $editData["slug"] = generateSlug($editData["title"]);
             $editData["slug"] = makeUniqueSlug($pdo, $editData["slug"], $eid);
@@ -505,9 +526,32 @@ if ($section === "edit") {
                             }
                         }
                         
-                        $pdo->prepare("UPDATE news SET title=?, headline=?, slug=?, content=?, image=?, tags=?, category_id=?, subcategory_id=?, author=?, status=?, is_featured=?, created_at=?, updated_at=? WHERE id=?")
-                            ->execute([$editData["title"], $editData["headline"], $editData["slug"], $editData["content"], $editData["image"], $editData["tags"], !empty($editData["category_id"]) ? (int)$editData["category_id"] : null, $firstSubId, $editData["author"], $editData["status"], $editData["is_featured"], $news_created_at, date('Y-m-d H:i:s'), $eid]);
+                        $pdo->prepare("UPDATE news SET title=?, headline=?, slug=?, content=?, image=?, tags=?, category_id=?, subcategory_id=?, author=?, status=?, is_featured=?, is_breaking=?, created_at=?, updated_at=? WHERE id=?")
+                            ->execute([$editData["title"], $editData["headline"], $editData["slug"], $editData["content"], $editData["image"], $editData["tags"], !empty($editData["category_id"]) ? (int)$editData["category_id"] : null, $firstSubId, $editData["author"], $editData["status"], $editData["is_featured"], $editData["is_breaking"], $news_created_at, date('Y-m-d H:i:s'), $eid]);
                         saveNewsSubcategories($pdo, $eid, $editData["subcategories"]);
+                        
+                        // Breaking News Sync (Edit): keep breaking_news table in sync with checkbox state and title changes
+                        try {
+                            $__brkExist = $pdo->prepare("SELECT id FROM breaking_news WHERE news_id=? LIMIT 1");
+                            $__brkExist->execute([$eid]);
+                            $__brkExistRow = $__brkExist->fetch();
+                            if ($editData["is_breaking"]) {
+                                if ($__brkExistRow) {
+                                    // Already exists - update text in case title changed so frontend shows new text
+                                    $pdo->prepare("UPDATE breaking_news SET text=?, created_at=? WHERE news_id=?")
+                                        ->execute([$editData["title"], $news_created_at, $eid]);
+                                } else {
+                                    // Newly checked - insert into breaking_news
+                                    $pdo->prepare("INSERT INTO breaking_news (text, news_id, created_at) VALUES (?, ?, ?)")
+                                        ->execute([$editData["title"], $eid, $news_created_at]);
+                                }
+                            } else {
+                                if ($__brkExistRow) {
+                                    // Checkbox unchecked - remove from breaking_news
+                                    $pdo->prepare("DELETE FROM breaking_news WHERE news_id=?")->execute([$eid]);
+                                }
+                            }
+                        } catch (PDOException $bErr2) {}
                         
                         if ($editData["status"] === "published") {
                             sendWebSocketNotification($eid, $editData["title"]);
@@ -527,6 +571,8 @@ if ($section === "manage") {
         if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["dtoken"])) { 
             $di = (int)$_GET["delete"]; 
             $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$di]); 
+            // Delete linked breaking_news entry when news is deleted (auto cleanup)
+            try { $pdo->prepare("DELETE FROM breaking_news WHERE news_id=?")->execute([$di]); } catch (PDOException $bDelErr) {}
             $dr = $pdo->prepare("SELECT image FROM news WHERE id=?"); 
             $dr->execute([$di]); 
             $dw = $dr->fetch(); 
@@ -547,7 +593,7 @@ if ($section === "manage") {
 
  $brkSuccess = ""; $brkError = ""; $brkList = [];
 try { $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll(); } catch (Exception $e) {}
-if ($section === "breaking" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $brkError = "Token mismatch."; } else { $ba = $_POST["breaking_action"] ?? ""; if ($ba === "add") { $bt = trim($_POST["breaking_text"] ?? ""); if (empty($bt)) { $brkError = "Please provide text."; } else { $pdo->prepare("INSERT INTO breaking_news (text) VALUES (?)")->execute([$bt]); $brkSuccess = "Added successfully."; $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll(); } } if ($ba === "delete") { $pdo->prepare("DELETE FROM breaking_news WHERE id=?")->execute([(int)($_POST["breaking_id"] ?? 0)]); $brkSuccess = "Deleted successfully."; $brkList = $pdo->query("SELECT * FROM breaking_news ORDER BY created_at DESC")->fetchAll(); } } }
+ // Breaking News section removed - now controlled via Add News checkbox (is_breaking column on news table)
 
  $catSuccess = ""; $catError = ""; $catList = [];
 try { $catList = $pdo->query("SELECT * FROM categories ORDER BY name ASC")->fetchAll(); } catch (Exception $e) {}
@@ -1025,7 +1071,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="sb-nav-label">Configuration</div>
 <?php endif; ?>
 <?php if (hasPerm('breaking')): ?>
-<?= secLink("breaking","fa-bolt","Breaking News",$totalBreaking) ?>
+<?php /* Breaking News section removed - now managed via Add News checkbox */ ?>
 <?php endif; ?>
 <?php if (hasPerm('categories')): ?>
 <?= secLink("categories","fa-folder-tree","Categories / Subcategories",$totalCats) ?>
@@ -1156,7 +1202,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 </div></div>
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-bolt"></i> Quick Actions</div></div><div class="panel-body" style="display:flex;flex-direction:column;gap:8px">
 <?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="quick-action"><i class="fas fa-plus"></i> Write New News</a><?php endif; ?>
-<?php if (hasPerm('breaking')): ?><a href="?page=admin_dashboard&section=breaking" class="quick-action"><i class="fas fa-bolt"></i> Add Breaking News</a><?php endif; ?>
+<?php /* Breaking News quick action removed - now managed via Add News checkbox */ ?>
 <?php if (hasPerm('categories')): ?><a href="?page=admin_dashboard&section=categories" class="quick-action"><i class="fas fa-folder-tree"></i> Manage Categories</a><?php endif; ?>
 <?php if (hasPerm('home_panels')): ?><a href="?page=admin_dashboard&section=home_panels" class="quick-action"><i class="fas fa-table-cells"></i> Home Page Panels</a><?php endif; ?>
 <?php if (hasPerm('videos')): ?><a href="?page=admin_dashboard&section=videos" class="quick-action"><i class="fas fa-video"></i> Manage Videos</a><?php endif; ?>
@@ -1322,6 +1368,27 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 </div>
 
 <div class="form-row" style="align-items:center"><div class="form-group" style="margin-bottom:0"><label class="form-label">Status</label><div class="radio-group"><div class="radio-item <?= $fD["status"] === 'draft' ? 'selected' : '' ?>"><input type="radio" name="status" value="draft" <?= $fD["status"] === 'draft' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Draft</label></div><div class="radio-item <?= $fD["status"] === 'published' ? 'selected' : '' ?>"><input type="radio" name="status" value="published" <?= $fD["status"] === 'published' ? 'checked' : '' ?> onchange="this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Published</label></div></div></div><div class="form-group" style="margin-bottom:0"><label class="form-label">Featured</label><label class="switch"><input type="checkbox" name="is_featured" value="1" <?= $fD["is_featured"] ? 'checked' : '' ?>><span class="switch-slider"></span></label></div></div>
+<div class="form-group" style="margin-bottom:0;background:linear-gradient(135deg,rgba(196,30,58,.06),rgba(212,160,23,.06));padding:14px;border:2px solid var(--accent);border-radius:10px;margin-top:14px">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <label class="form-label" style="color:var(--accent);font-size:14px;margin:0;flex:1"><i class="fas fa-bolt" style="color:var(--gold);margin-right:6px"></i> Breaking News Tracker</label>
+        <label class="switch" title="Mark as Breaking News"><input type="checkbox" name="is_breaking" value="1" <?= $fD["is_breaking"] ? 'checked' : '' ?>><span class="switch-slider"></span></label>
+        <span style="font-size:12px;font-weight:600;color:<?= $fD["is_breaking"] ? 'var(--accent)' : 'var(--muted)' ?>" id="brkStatusLabel"><i class="fas fa-<?= $fD["is_breaking"] ? 'bolt' : 'minus-circle' ?>"></i> <?= $fD["is_breaking"] ? 'Breaking News ON' : 'Breaking News OFF' ?></span>
+    </div>
+</div>
+<script>
+(function(){
+    var cb = document.querySelector('input[name="is_breaking"]');
+    if(!cb) return;
+    var lbl = document.getElementById('brkStatusLabel');
+    function upd(){
+        if(lbl){
+            lbl.innerHTML = cb.checked ? '<i class="fas fa-bolt"></i> Breaking News ON' : '<i class="fas fa-minus-circle"></i> Breaking News OFF';
+            lbl.style.color = cb.checked ? 'var(--accent)' : 'var(--muted)';
+        }
+    }
+    cb.addEventListener('change', upd);
+})();
+</script>
 </div><div class="form-actions-bar"><?php if (hasPerm('manage_news')): ?><a href="?page=admin_dashboard&section=manage" class="btn btn-outline"><i class="fas fa-times"></i> Cancel</a><?php endif; ?><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> <?= $section === 'edit' ? 'Update' : 'Save' ?></button></div></div></form>
 <script>
 var cs = document.getElementById('catSelect'), ss = document.getElementById('subCatSelect'), sel = <?= json_encode(array_map('intval', $fD["subcategories"] ?? [])) ?>;
@@ -1585,18 +1652,6 @@ if (tagPillsContainer) {
 <?php for ($p = max(1, $currentPage - 2); $p <= min($totalPages, $currentPage + 2); $p++): ?><a href="?page=admin_dashboard&section=manage&filter=<?= $manageFilter ?>&p=<?= $p ?>" class="pagination-btn <?= $p === $currentPage ? 'active' : '' ?>"><?= $p ?></a><?php endfor; ?>
 <?php if ($currentPage < $totalPages): ?><a href="?page=admin_dashboard&section=manage&filter=<?= $manageFilter ?>&p=<?= $currentPage + 1 ?>" class="pagination-btn"><i class="fas fa-chevron-right"></i></a><?php endif; ?>
 </div></div><?php endif; ?></div>
-
-<?php elseif ($section === "breaking" && hasPerm('breaking')): ?>
-<div class="admin-topbar"><h1><i class="fas fa-bolt" style="color:var(--gold)"></i> Breaking News</h1></div>
-<?php if ($brkError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($brkError) ?></div><?php endif; ?>
-<?php if ($brkSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($brkSuccess) ?></div><?php endif; ?>
-<div class="panel"><div class="panel-body"><form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="breaking_action" value="add"><div style="display:flex;gap:10px"><input type="text" name="breaking_text" class="form-input" placeholder="Breaking news text..." style="flex:1" required><button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Add</button></div></form></div></div>
-<div class="panel"><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>#</th><th>Text</th><th>Date</th><th></th></tr></thead><tbody>
-<?php foreach ($brkList as $i => $br): ?>
-<tr><td style="color:var(--muted);font-size:11px"><?= $i + 1 ?></td><td><?= htmlspecialchars($br["text"]) ?></td><td style="font-size:11px;color:var(--muted)"><?= date("d M Y, h:i A", strtotime($br["created_at"])) ?></td><td><form method="POST" onsubmit="return confirm('Are you sure you want to delete?')"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="breaking_action" value="delete"><input type="hidden" name="breaking_id" value="<?= $br["id"] ?>"><button type="submit" class="tbl-btn tbl-btn-delete"><i class="fas fa-trash"></i></button></form></td></tr>
-<?php endforeach; ?>
-<?php if (empty($brkList)): ?><tr><td colspan="4"><div class="empty-state"><p>No breaking news</p></div></td></tr><?php endif; ?>
-</tbody></table></div></div>
 
 <?php elseif ($section === "categories" && hasPerm('categories')): ?>
 <div class="admin-topbar"><h1><i class="fas fa-folder-tree" style="color:var(--blue)"></i> Categories & Subcategories</h1></div>

@@ -211,7 +211,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
+ $validSections = ["dashboard", "add", "edit", "manage", "articles", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -1095,7 +1095,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="sb-nav-label">Others</div>
 <?php endif; ?>
 <?php if (hasPerm('manage_news')): ?>
-<a href="?page=admin_dashboard&section=manage" class="<?= $section === 'manage' ? 'active' : '' ?>"><i class="fas fa-file-lines" style="width:18px;text-align:center"></i> Articles</a>
+<a href="?page=admin_dashboard&section=articles" class="<?= $section === 'articles' ? 'active' : '' ?>"><i class="fas fa-file-lines" style="width:18px;text-align:center"></i> Articles</a>
 <?php endif; ?>
 <?php if (hasPerm('videos')): ?>
 <?= secLink("videos","fa-video","Videos") ?>
@@ -2365,6 +2365,80 @@ loadNSE();
 <script>
 function cps(v){var b=document.getElementById('psB'),t=document.getElementById('psT'),s=0;if(v.length>=4)s++;if(v.length>=8)s++;if(/[A-Z]/.test(v))s++;if(/[0-9]/.test(v))s++;if(/[^A-Za-z0-9]/.test(v))s++;var l=[{w:'0%',c:'var(--border)',x:'At least 4 characters'},{w:'20%',c:'#dc2626',x:'Very Weak'},{w:'40%',c:'#f97316',x:'Weak'},{w:'60%',c:'#eab308',x:'Medium'},{w:'80%',c:'#22c55e',x:'Good'},{w:'100%',c:'#16a34a',x:'Strong'}];var r=l[s];b.style.width=r.w;b.style.background=r.c;t.textContent=r.x;t.style.color=r.c;}
 </script>
+
+<?php elseif ($section === "articles" && hasPerm('manage_news')): ?>
+<div class="admin-topbar"><h1><i class="fas fa-file-lines" style="color:var(--accent)"></i> Articles</h1><div class="topbar-actions"><a href="?page=admin_dashboard&section=manage" class="topbar-btn topbar-btn-outline"><i class="fas fa-newspaper"></i> Go to Manage News</a></div></div>
+
+<!-- ★ Under Construction Section with Image -->
+<div class="panel" style="border:2px dashed var(--accent); background:linear-gradient(135deg, rgba(255,193,7,0.05), rgba(196,30,58,0.05));">
+    <div class="panel-body" style="text-align:center; padding:50px 25px;">
+        <!-- Inline SVG Illustration (self-contained, no external file) -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="320" height="260" viewBox="0 0 320 260" style="margin:0 auto 25px; display:block; max-width:100%; height:auto;">
+            <defs>
+                <linearGradient id="hatGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#FFD54F"/>
+                    <stop offset="100%" style="stop-color:#FF8F00"/>
+                </linearGradient>
+                <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:#FFF8E1"/>
+                    <stop offset="100%" style="stop-color:#FFECB3"/>
+                </linearGradient>
+                <pattern id="stripes" patternUnits="userSpaceOnUse" width="24" height="12" patternTransform="rotate(45)">
+                    <rect width="12" height="12" fill="#FFC107"/>
+                    <rect x="12" width="12" height="12" fill="#1A1A1A"/>
+                </pattern>
+            </defs>
+            <!-- Background circle -->
+            <circle cx="160" cy="125" r="120" fill="url(#bgGrad)" stroke="#FFC107" stroke-width="3"/>
+            <!-- Hard hat -->
+            <path d="M 95 150 Q 95 105 160 105 Q 225 105 225 150 L 235 165 L 85 165 Z" fill="url(#hatGrad)" stroke="#E65100" stroke-width="2"/>
+            <ellipse cx="160" cy="165" rx="75" ry="10" fill="#FF8F00" stroke="#E65100" stroke-width="1.5"/>
+            <!-- Hat top button -->
+            <rect x="153" y="92" width="14" height="20" fill="#FF8F00" stroke="#E65100" stroke-width="1.5" rx="2"/>
+            <!-- Hat ridge line -->
+            <path d="M 160 105 L 160 165" stroke="#E65100" stroke-width="2" opacity="0.4"/>
+            <!-- Tools crossed (wrench + hammer) -->
+            <g transform="translate(160, 200)">
+                <!-- Wrench -->
+                <g transform="rotate(-25)">
+                    <rect x="-55" y="-4" width="55" height="8" fill="#546E7A" rx="2"/>
+                    <path d="M -55 -8 L -70 -8 L -75 0 L -70 8 L -55 8 L -50 4 L -50 -4 Z" fill="#37474F"/>
+                </g>
+                <!-- Hammer -->
+                <g transform="rotate(25)">
+                    <rect x="0" y="-4" width="55" height="8" fill="#8B4513" rx="2"/>
+                    <rect x="50" y="-12" width="20" height="24" fill="#546E7A" rx="2"/>
+                    <rect x="50" y="-2" width="20" height="4" fill="#37474F"/>
+                </g>
+            </g>
+            <!-- Warning stripes at bottom -->
+            <rect x="20" y="230" width="280" height="18" fill="url(#stripes)" rx="3"/>
+            <!-- Sparkle stars -->
+            <text x="55" y="55" font-size="20" fill="#FFA000">✦</text>
+            <text x="260" y="65" font-size="16" fill="#FFA000">✦</text>
+            <text x="270" y="120" font-size="14" fill="#FFA000">✦</text>
+            <text x="45" y="180" font-size="12" fill="#FFA000">✦</text>
+        </svg>
+        
+        <h2 style="font-family:'Noto Serif Bengali',serif; font-size:30px; color:var(--accent); margin-bottom:12px; font-weight:800; letter-spacing:1px;">
+            <i class="fas fa-tools" style="color:var(--gold); margin-right:8px;"></i>Under Construction<i class="fas fa-tools" style="color:var(--gold); margin-left:8px;"></i>
+        </h2>
+        <p style="font-size:20px; color:var(--fg); margin-bottom:8px; font-weight:700; font-family:'Noto Serif Bengali',serif;">
+            এই সেকশনটি নির্মাণাধীন রয়েছে
+        </p>
+        <p style="font-size:14px; color:var(--muted); margin-bottom:25px; max-width:500px; margin-left:auto; margin-right:auto; line-height:1.6;">
+            Articles section is currently under development. Our team is working hard to bring you a better experience. Please check back soon!
+        </p>
+        <div style="display:inline-flex; align-items:center; gap:10px; background:var(--accent-light); padding:12px 24px; border-radius:10px; border:1.5px solid var(--accent); margin-bottom:25px;">
+            <i class="fas fa-clock" style="color:var(--accent); font-size:18px;"></i>
+            <span style="color:var(--accent-dark); font-weight:700; font-size:15px; font-family:'Noto Serif Bengali',serif;">শীঘ্রই আসছে</span>
+        </div>
+        <div style="margin-top:15px;">
+            <a href="?page=admin_dashboard&section=dashboard" class="btn btn-primary" style="margin-right:8px;"><i class="fas fa-home"></i> Back to Dashboard</a>
+            <a href="?page=admin_dashboard&section=manage" class="btn btn-outline"><i class="fas fa-newspaper"></i> Manage News</a>
+        </div>
+    </div>
+</div>
 
 <?php else: ?>
 <div class="admin-topbar"><h1><i class="fas fa-ban" style="color:var(--accent)"></i> Access Denied</h1></div>

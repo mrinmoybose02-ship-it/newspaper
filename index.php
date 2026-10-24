@@ -138,7 +138,13 @@ if (isset($_GET['ajax_nse'])) {
 
 // ====== AJAX ENDPOINT FOR NEW NEWS NOTIFICATION & AUTO FETCH ======
 if (isset($_GET['ajax_check_new_news'])) {
-    header('Content-Type: application/json');
+    // ★ v6.8 FIX: PHP warning/notice রেসপন্সে ঢুকে গেলে ব্রাউজারের JSON.parse ফেল করে এবং
+    // নতুন খবর এলেও নোটিফিকেশন চুপচাপ মিস হয়ে যেত — তাই রেসপন্স সম্পূর্ণ পরিষ্কার করা হচ্ছে।
+    @ini_set('display_errors', '0');
+    @error_reporting(0);
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store, max-age=0');
     $last_id = isset($_GET['last_id']) ? (int)$_GET['last_id'] : 0;
     try {
         $stmt = $pdo->prepare("SELECT n.id, n.title, n.excerpt, n.image, n.created_at, n.views, c.name as category_name, sc.name as subcategory_name 
@@ -354,7 +360,7 @@ if ($page === 'admin_login') {
     exit;
 }
 
- $otherAdminPages = ['admin_dashboard','admin_add','admin_edit','admin_manage','admin_breaking','admin_categories','admin_cat_edit','admin_password'];
+ $otherAdminPages = ['admin_dashboard','admin_add','admin_edit','admin_manage','admin_breaking','admin_categories','admin_cat_edit','admin_password','admin_epaper'];
 if (in_array($page, $otherAdminPages)) {
     if (!isset($_SESSION['user_id'])) { header('Location: ?page=admin_login'); exit; }
     $filePath = __DIR__ . '/' . $page . '.php';
@@ -405,17 +411,28 @@ if ($currentSub) {
     if ($currentSubData) { $currentCat = $currentSubData['category_name']; } else { $currentSub = 0; }
 }
 
-// Date Limit Logic: 30 days limit, bypassed ONLY for Archive Category. NEVER show future-dated news.
+// Date Limit Logic ★ v6.7: প্রতিটি খবর ৩০ দিন valid — ৩০ দিনের বেশি পুরোনো হলে সেটি শুধুমাত্র
+// আর্কাইভে (আর্কাইভ ক্যাটাগরি + আর্কাইভ মাস-ভিউ) দেখাবে। আর্কাইভে ৩০ দিনের কম পুরোনো কোনো খবর
+// কখনোই দেখাবে না — অ্যাডমিন ভুলে নতুন খবর আর্কাইভ ক্যাটাগরিতে দিলেও না (30 days na hole আর্কাইভ e jabe na)。
+// NEVER show future-dated news.
  $show_all_news = isset($_COOKIE['show_all_news']) && $_COOKIE['show_all_news'] === 'yes';
  $is_archive_cat = ($currentCat === 'আর্কাইভ');
+ $is_archive_view = $is_archive_cat || ($archYear > 0); // ?y=&m= মাস-ভিউগুলোও আর্কাইভের অংশ
  $futureLimit = " AND n.created_at <= NOW()";
- $pastLimit = ($show_all_news || $is_archive_cat) ? "" : " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+if ($show_all_news) {
+    $pastLimit = ""; // মালিকের escape-hatch cookie: সব খবর সব জায়গায়
+} elseif ($is_archive_view) {
+    $pastLimit = " AND n.created_at < (NOW() - INTERVAL 30 DAY)"; // আর্কাইভে শুধু ৩০ দিনের বেশি পুরোনো খবর
+} else {
+    $pastLimit = " AND n.created_at >= (NOW() - INTERVAL 30 DAY)"; // সাধারণ ভিউ: শেষ ৩০ দিনের খবর
+}
  $dateLimitSQL = $futureLimit . $pastLimit;
 
-// Archive Dropdown: Show only months that have data within the allowed limits
+// Archive Dropdown ★ v6.7: শুধু সেই মাসগুলো দেখাবে যেখানে ৩০ দিনের বেশি পুরোনো খবর আছে —
+// বর্তমান মাস (এখনো ৩০ দিন হয়নি এমন খবর) কখনো তালিকায় আসবে না
  $archiveDates = [];
 try {
-    $archStmt = $pdo->query("SELECT YEAR(n.created_at) as y, MONTH(n.created_at) as m FROM news n WHERE n.status = 'published'{$dateLimitSQL} GROUP BY y, m ORDER BY y DESC, m DESC");
+    $archStmt = $pdo->query("SELECT YEAR(n.created_at) as y, MONTH(n.created_at) as m FROM news n WHERE n.status = 'published' AND n.created_at < (NOW() - INTERVAL 30 DAY) AND n.created_at <= NOW() GROUP BY y, m ORDER BY y DESC, m DESC");
     $archiveDates = $archStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
  $bnMonths = [1=>'জানুয়ারি', 2=>'ফেব্রুয়ারি', 3=>'মার্চ', 4=>'এপ্রিল', 5=>'মে', 6=>'জুন', 7=>'জুলাই', 8=>'আগস্ট', 9=>'সেপ্টেম্বর', 10=>'অক্টোবর', 11=>'নভেম্বর', 12=>'ডিসেম্বর'];
@@ -428,12 +445,22 @@ foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $ca
  $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= (NOW() - INTERVAL 30 DAY) AND created_at <= NOW() ORDER BY created_at DESC")->fetchAll());
 
 // ====== PERFORMANCE FIX: Fetch Latest News ID directly instead of loading all news ======
- $latestNewsId = (int) $pdo->query("SELECT id FROM news WHERE status='published' ORDER BY created_at DESC LIMIT 1")->fetchColumn();
+// ★ v6.6: id + title দুটোই নেওয়া হচ্ছে — পেজ লোডেই সর্বশেষ খবরের পপ-আপ দেখানোর জন্য।
+// created_at <= NOW() যোগ করা হয়েছে — ফিউচার-ডেটেড খবর seed হিসেবে ধরা হবে না
+// (নাহলে সেটা প্রকাশের সময় নোটিফিকেশন মিস হয়ে যেত)।
+$latestNewsId = 0; $latestNewsTitle = '';
+try {
+    $lnRow = $pdo->query("SELECT id, title FROM news WHERE status='published' AND created_at <= NOW() ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if ($lnRow) { $latestNewsId = (int)$lnRow['id']; $latestNewsTitle = (string)$lnRow['title']; }
+} catch (Exception $e) {}
+// ★ v6.6: true = পেজ খুললেই (৪ সেকেন্ড পর) সর্বশেষ খবরের পপ-আপ দেখাবে; false = শুধু নতুন খবর এলে দেখাবে
+$NEWS_POPUP_ON_LOAD = true;
+$latestNewsTitleJS = json_encode(($latestNewsTitle !== '' ? $latestNewsTitle : 'নতুন খবর এসেছে'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
 
 // ====== PERFORMANCE FIX: Fetch Popular Posts directly with LIMIT ======
  $popularPosts = [];
 try {
-    $ppStmt = $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published' ORDER BY n.is_featured DESC, n.created_at DESC LIMIT 6");
+    $ppStmt = $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) AND n.created_at <= NOW() ORDER BY n.is_featured DESC, n.created_at DESC LIMIT 6");
     $popularPosts = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $ppStmt->fetchAll()));
 } catch (Exception $e) {}
 
@@ -888,12 +915,15 @@ body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--fg)
 body.top-margin { top: 0px !important; }
 a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-topbar{background:var(--red);color:#fff;padding:6px 0;font-size:12px;border-bottom:1px solid rgba(0,0,0,.2)}
-.kol-topbar .container{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;max-width:100%;padding:0 12px 0 0}
+.kol-topbar .container{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;max-width:100%;padding:0 12px 0 0}
 .kol-topbar .tl{display:flex;align-items:center;gap:10px;flex:1;min-width:0;margin-left:0;padding-left:0}
-.kol-topbar .tr{display:flex;align-items:center;gap:8px;padding-right:12px}
+.kol-topbar .tr{display:flex;align-items:center;gap:8px;padding-right:12px;justify-content:flex-end}
 .kol-topbar .clock{font-family:monospace;font-size:13px;color:var(--gold);font-weight:700;letter-spacing:.5px;min-width:90px;display:inline-flex;align-items:center;justify-content:center;margin-left:12px;padding:3px 10px;background:var(--red-dark);border:1px solid rgba(212,149,10,.3);border-radius:4px;height:24px}
 .kol-topbar .date{color:rgba(255,255,255,.85);font-size:12px;border-left:1px solid rgba(255,255,255,.2);padding-left:12px}
 .kol-topbar .date i{margin-right:4px;opacity:.7}
+.kol-topbar .kol-epaper{justify-self:center;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 14px;border-radius:20px;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.28);color:#fff;font-size:12px;font-weight:600;text-decoration:none;transition:all .2s}
+.kol-topbar .kol-epaper i{color:var(--gold);font-size:11px}
+.kol-topbar .kol-epaper:hover{background:#fff;color:var(--red);border-color:#fff}
 .kol-si{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.2);color:#fff;font-size:10px;transition:all .2s}
 .kol-si:hover{background:rgba(255,255,255,.3);transform:translateY(-1px)}
 .kol-si.si-fb:hover{background:#1877F2}.kol-si.si-tw:hover{background:#000}.kol-si.si-yt:hover{background:#FF0000}.kol-si.si-ig:hover{background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)}.kol-si.si-tg:hover{background:#0088cc}
@@ -1400,7 +1430,8 @@ body { top: 0 !important; }
     .pendulum-string{height:15px}
 }
 @media(max-width:640px){
-    .kol-topbar .container{flex-direction:column;gap:5px;align-items:center}
+    .kol-topbar .container{display:flex;flex-direction:column;gap:5px;align-items:center}
+    .kol-topbar .kol-epaper{order:-1}
     .kol-topbar .tl, .kol-topbar .tr{width:100%;justify-content:center;flex-wrap:wrap;padding:0}
     .kol-topbar .clock{margin-left:0}
     .kol-topbar .date{display:none}
@@ -1447,12 +1478,21 @@ body { top: 0 !important; }
 <div id="google_translate_element" style="display:none;"></div>
 <iframe id="google_esf" name="google_esf" src="https://googleads.g.doubleclick.net/pagead/html/r20260929/r20190131/zrt_lookup_fy2021.html" style="display: none;" loading="lazy"></iframe>
 
+<?php
+// ====== ই-পেপার (ePaper) লিংক ★ v6.4 ======
+// আপনার ePaper পেজ রেডি হলে এখানে লিংক বসান (যেমন: 'epaper.php')।
+// খালি স্ট্রিং ('') দিলে বাটনটি লুকিয়ে যাবে। **
+$EPAPER_URL = 'epaper.php';
+?>
 <div class="kol-topbar">
 <div class="container">
 <div class="tl">
 <span class="clock" id="liveClock">--:--:--</span>
 <span class="date" id="liveDate"><i class="far fa-calendar-alt"></i> <?= htmlspecialchars($todayStr . (!empty($bengaliDateStr) ? ' । ' . $bengaliDateStr : '')) ?></span>
 </div>
+<?php if (trim($EPAPER_URL) !== ''): ?>
+<a href="<?= htmlspecialchars($EPAPER_URL) ?>" class="kol-epaper" target="_blank" rel="noopener" aria-label="ই-পেপার"><i class="far fa-newspaper"></i> ই-পেপার</a>
+<?php endif; ?>
 <div class="tr">
     <!-- Language Switcher (Bengali Only) -->
     <div class="lang-switcher">
@@ -1523,6 +1563,8 @@ body { top: 0 !important; }
 <a href="?" class="kn-link kn-home"><i class="fas fa-home"></i> হোম</a>
 <div class="kn-sep"></div>
 <a href="?page=videos" class="kn-link<?= ($page === 'videos' || $page === 'video') ? ' active' : '' ?>"><i class="fas fa-video"></i> ভিডিও</a>
+<div class="kn-sep"></div>
+<a href="<?= htmlspecialchars($EPAPER_URL) ?>" class="kn-link" target="_blank" rel="noopener"><i class="far fa-newspaper"></i> ই-পেপার</a>
 <div class="kn-sep"></div>
 <?php foreach ($navInlineCats as $nci): ?>
 <?php
@@ -2027,9 +2069,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <?php if (!empty($adVals['ad_bottom_1_embed'])): ?>
                 <?= $adVals['ad_bottom_1_embed'] ?>
             <?php else: ?>
-                <a href="#" target="_blank" rel="noopener noreferrer">
-                    <img src="https://via.placeholder.com/728x90?text=Bottom+Advertisement+1" alt="Advertisement" loading="lazy" decoding="async">
-                </a>
+                <div style="width:100%;max-width:728px;height:90px;margin:0 auto;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(45deg,#f3efe9,#f3efe9 12px,#ece7df 12px,#ece7df 24px);border:1px dashed #c9c2b6;border-radius:6px;color:#8a8378;font-size:14px;font-weight:600;letter-spacing:1px;">বিজ্ঞাপনের জায়গা</div>
             <?php endif; ?>
         </div>
     </div>
@@ -2040,9 +2080,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <?php if (!empty($adVals['ad_bottom_2_embed'])): ?>
                 <?= $adVals['ad_bottom_2_embed'] ?>
             <?php else: ?>
-                <a href="#" target="_blank" rel="noopener noreferrer">
-                    <img src="https://via.placeholder.com/300x250?text=Bottom+Advertisement+2" alt="Advertisement" loading="lazy" decoding="async">
-                </a>
+                <div style="width:100%;max-width:300px;height:250px;margin:0 auto;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(45deg,#f3efe9,#f3efe9 12px,#ece7df 12px,#ece7df 24px);border:1px dashed #c9c2b6;border-radius:6px;color:#8a8378;font-size:14px;font-weight:600;letter-spacing:1px;">বিজ্ঞাপনের জায়গা</div>
             <?php endif; ?>
         </div>
     </div>
@@ -2110,6 +2148,7 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 <h3>দ্রুত লিংক</h3>
 <ul class="ft-links">
 <li><a href="?">হোম</a></li>
+<li><a href="<?= htmlspecialchars($EPAPER_URL) ?>" target="_blank" rel="noopener"><i class="far fa-newspaper"></i> ই-পেপার</a></li>
 <li><a href="?cat=জাতীয়">জাতীয়</a></li>
 <li><a href="?cat=আন্তর্জাতিক">আন্তর্জাতিক</a></li>
 <li><a href="?cat=খেলাধুলা">খেলাধুলা</a></li>
@@ -2152,11 +2191,11 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
         <div style="width:70px;height:70px;background:#FFF0F0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
             <i class="fas fa-bell" style="font-size:32px;color:var(--red);"></i>
         </div>
-        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">Enable Notifications</h3>
-        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">Would you like to receive news notifications?</p>
+        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">নোটিফিকেশন চালু করবেন?</h3>
+        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">নতুন খবর প্রকাশিত হলে সিস্টেমে (Windows-এ) নোটিফিকেশন পাবেন।</p>
         <div style="display:flex;justify-content:center;gap:15px;">
-            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">Yes</button>
-            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">No</button>
+            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
+            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">না</button>
         </div>
     </div>
 </div>
@@ -2168,12 +2207,23 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
             <i class="fas fa-bell" style="color:var(--red);font-size:18px;"></i>
         </div>
         <div style="flex:1;">
-            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;">New News Published!</h4>
+            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;">নতুন খবর প্রকাশিত হয়েছে!</h4>
             <p id="newNewsTitleFallback" style="font-size:13px;color:#666;margin:0;line-height:1.4;"></p>
         </div>
         <button id="btnCloseNewNews" style="background:none;border:none;color:#999;cursor:pointer;font-size:16px;padding:5px;">&times;</button>
     </div>
     <a id="newNewsLinkFallback" href="#" style="display:block;text-align:center;padding:10px;background:var(--red);color:#fff;text-decoration:none;font-weight:bold;font-size:13px;font-family:'Hind Siliguri',sans-serif;">Read Now</a>
+</div>
+
+<!-- ★ v6.8: নোটিফিকেশন বেল বাটন — সিস্টেম নোটিফিকেশন চালু না থাকলে বাম-নিচে কর্নারে ভাসবে;
+     ক্লিক করলে পারমিশন পপ-আপ খুলবে (JS শর্ত অনুযায়ী দেখানো/লুকানো হয়) -->
+<style>
+@keyframes nnBellPulse { 0% { box-shadow: 0 0 0 0 rgba(183,28,28,.45); } 70% { box-shadow: 0 0 0 14px rgba(183,28,28,0); } 100% { box-shadow: 0 0 0 0 rgba(183,28,28,0); } }
+#notifyBellBtn { animation: nnBellPulse 2s infinite; transition: transform .2s ease; }
+#notifyBellBtn:hover { transform: scale(1.08); }
+</style>
+<div id="notifyBellBtn" style="display:none;position:fixed;bottom:20px;left:20px;width:48px;height:48px;background:var(--red);color:#fff;border-radius:50%;z-index:99999;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 15px rgba(0,0,0,.3);">
+    <i class="fas fa-bell" style="font-size:20px;"></i>
 </div>
 
 <?php if (!empty($adPopup)): ?>
@@ -2657,56 +2707,42 @@ var btnCloseNewNews = document.getElementById('btnCloseNewNews');
 var currentNewNewsId = 0;
 var newsInterval;
 
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-        navigator.serviceWorker.register('sw.js').then(function(registration) {
-            console.log('ServiceWorker registration successful');
-        }).catch(function(err) {
-            console.log('ServiceWorker registration failed: ', err);
-        });
-    });
-}
+// ★ v6.5: sw.js ফাইল নেই — service worker registration বাদ (পেজ-লেভেল Notification যথেষ্ট, localhost-এ কাজ করে)
 
 function showSystemNotification(title, body, url) {
-    if (!("Notification" in window)) return false;
-    if (Notification.permission === "granted") {
-        var options = {
-            body: body,
-            icon: 'https://via.placeholder.com/150/B71C1C/FFFFFF?text=News',
-            tag: 'new-news-' + url,
-            data: { url: url }
+    if (!("Notification" in window) || Notification.permission !== "granted") return false;
+    var options = {
+        body: body,
+        icon: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="96" height="96"%3E%3Crect width="96" height="96" rx="18" fill="%23B71C1C"/%3E%3Ctext x="50%25" y="54%25" dominant-baseline="middle" text-anchor="middle" font-size="46" fill="%23fff" font-family="sans-serif"%3E%E0%A6%B8%E0%A6%82%3C/text%3E%3C/svg%3E',
+        tag: 'new-news-' + url,
+        data: { url: url }
+    };
+    try {
+        // ★ v6.5: সরাসরি পেজ-লেভেল Notification (async SW-এর অপেক্ষায় আটকে থাকত না — এটাই ছিল মূল বাগ)
+        var notification = new Notification(title, options);
+        notification.onclick = function() {
+            window.focus();
+            window.location.href = url;
+            notification.close();
         };
-        try {
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.ready.then(function(registration) {
-                    registration.showNotification(title, options);
-                });
-            } else {
-                var notification = new Notification(title, options);
-                notification.onclick = function() {
-                    window.focus();
-                    window.location.href = url;
-                    notification.close();
-                };
-            }
-            return true;
-        } catch(e) {
-            console.error("Notification error:", e);
-            return false;
-        }
+        return true;
+    } catch (e) {
+        console.error("Notification error:", e);
+        return false;
     }
-    return false;
 }
 
+// ★ v6.8 FIX: আগে পপ-আপ আগেই খোলা থাকলে (যেমন লোড-পপ-আপ) নতুন খবরের পপ-আপ সম্পূর্ণ স্কিপ হয়ে যেত।
+// এখন খোলা থাকলেও নতুন শিরোনাম আপডেট হবে ও হাইড টাইমার রিসেট হবে।
 function showHtmlPopup(title, url) {
-    if (newNewsPopup && newNewsPopup.style.display !== 'block') {
-        if (newNewsTitleFallback) newNewsTitleFallback.textContent = title;
-        if (newNewsLinkFallback) newNewsLinkFallback.href = url;
-        newNewsPopup.style.display = 'block';
-        setTimeout(function() {
-            if (newNewsPopup) newNewsPopup.style.display = 'none';
-        }, 10000);
-    }
+    if (!newNewsPopup) return;
+    if (newNewsTitleFallback) newNewsTitleFallback.textContent = title;
+    if (newNewsLinkFallback) newNewsLinkFallback.href = url;
+    newNewsPopup.style.display = 'block';
+    if (window.__nnPopupHideTimer) clearTimeout(window.__nnPopupHideTimer);
+    window.__nnPopupHideTimer = setTimeout(function() {
+        if (newNewsPopup) newNewsPopup.style.display = 'none';
+    }, 10000);
 }
 
 if (btnCloseNewNews) {
@@ -2715,37 +2751,81 @@ if (btnCloseNewNews) {
     });
 }
 
+// ★ v6.9 (সিস্টেম নোটিফিকেশন মোড): পেজ লোডের ৪ সেকেন্ড পর সর্বশেষ খবরটিও সিস্টেম
+// নোটিফিকেশন (Windows টোস্ট) হিসেবে যাবে — ইউজারের নির্দেশে পেজের ভিতরের পপ-আপ বাদ।
+// পারমিশন granted না হলে কিছুই দেখানো হবে না — পারমিশন পপ-আপ/বেল বাটন চালু করার পথ দেখাবে।
+var NEWS_POPUP_ON_LOAD = <?= $NEWS_POPUP_ON_LOAD ? 'true' : 'false' ?>;
+var latestNewsTitleJS = <?= $latestNewsTitleJS ?>;
+function showLatestOnLoad() {
+    if (!NEWS_POPUP_ON_LOAD || latestNewsId <= 0) return;
+    var url = '?page=single&id=' + latestNewsId;
+    var ok = showSystemNotification('নতুন খবর প্রকাশিত হয়েছে', latestNewsTitleJS, url);
+    // Notification API-হীন খুব পুরোনো ব্রাউজারে ফলব্যাক — পেজের ভিতরে পপ-আপ
+    if (!ok && !("Notification" in window)) showHtmlPopup(latestNewsTitleJS, url);
+}
+if (NEWS_POPUP_ON_LOAD) {
+    setTimeout(function() {
+        if (allowNewsPopup && allowNewsPopup.style.display === 'flex') {
+            // পারমিশন পপ-আপ খোলা থাকলে সেটা বন্ধ হওয়া পর্যন্ত অপেক্ষা (সর্বোচ্চ ~১৫ সেকেন্ড)
+            var waitTries = 0;
+            var waitIv = setInterval(function() {
+                waitTries++;
+                if (!allowNewsPopup || allowNewsPopup.style.display !== 'flex' || waitTries > 10) {
+                    clearInterval(waitIv);
+                    showLatestOnLoad();
+                }
+            }, 1500);
+        } else {
+            showLatestOnLoad();
+        }
+    }, 4000);
+}
+
+var __nnChecking = false;
 function checkForNewNews() {
-    fetch('?ajax_check_new_news=1&last_id=' + latestNewsId)
-    .then(function(response){ return response.json(); })
-    .then(function(data){
-        if (data.status === 'new' && data.last_id > latestNewsId) {
+    if (__nnChecking) return;
+    __nnChecking = true;
+    // ★ v6.8: t= cache-buster + cache:'no-store' — পুরোনো ক্যাশ হিট করে নতুন খবর মিস হওয়া বন্ধ
+    fetch('?ajax_check_new_news=1&last_id=' + latestNewsId + '&t=' + Date.now(), { cache: 'no-store' })
+    .then(function(response){ return response.text(); })
+    .then(function(txt){
+        __nnChecking = false;
+        // ★ v6.8 FIX: response.json() নয় — text→JSON.parse try/catch, রেসপন্সে warning ঢুকে গেলেও
+        // পুরো চেকার চুপচাপ মরে যাবে না
+        var data = null;
+        try { data = JSON.parse(txt); } catch (e) { console.warn('New-news check: invalid JSON response'); return; }
+        if (data && data.status === 'new' && data.last_id > latestNewsId) {
             latestNewsId = data.last_id;
             var latestItem = data.items[data.items.length - 1];
             var url = '?page=single&id=' + latestItem.id;
-            
-            var newsAllowed = null;
-            try { newsAllowed = localStorage.getItem('news_popup_allowed'); } catch(e) {}
-            
-            if (newsAllowed === 'granted') {
-                var systemShown = showSystemNotification('New News Published!', latestItem.title, url);
-                if (!systemShown) {
-                    showHtmlPopup(latestItem.title, url);
-                }
+            var newsTitle = (latestItem.title && String(latestItem.title).trim()) ? latestItem.title : 'নতুন খবর এসেছে';
+
+            // ★ v6.9 (ইউজারের নির্দেশ: "need system Notifications"): শুধুমাত্র সিস্টেম
+            // নোটিফিকেশন (Windows টোস্ট / Action Center) পাঠানো হবে — পেজের ভিতরের
+            // পপ-আপ আর দেখানো হবে না। Notification API-হীন খুব পুরোনো ব্রাউজারেই
+            // কেবল ফলব্যাক হিসেবে পেজ-পপ-আপ যাবে।
+            var systemShown = showSystemNotification('নতুন খবর প্রকাশিত হয়েছে', newsTitle, url);
+            if (!systemShown && !("Notification" in window)) {
+                showHtmlPopup(newsTitle, url);
             }
-            
-            // FIX: Reduced reload time from 3000ms to 1000ms for faster refresh
-            setTimeout(function() {
-                window.location.reload();
-            }, 1000);
+
+            // টোস্ট পাঠানো গেলে ৬ সেকেন্ড পর পেজ রিফ্রেশ (নতুন খবর হোমপেজে চলে আসবে);
+            // পারমিশন না থাকলে কিছুই পাঠানো হয়নি — অকারণ রিফ্রেশে বিভ্রান্তি হবে, তাই রিফ্রেশ নয়
+            if (systemShown) {
+                if (window.__nnReloadTimer) clearTimeout(window.__nnReloadTimer);
+                window.__nnReloadTimer = setTimeout(function(){ window.location.reload(); }, 6000);
+            }
         }
-    }).catch(function(error){ console.error('Error checking for new news:', error); });
+    }).catch(function(error){ __nnChecking = false; console.error('Error checking for new news:', error); });
 }
 
 function startNewsCheck() {
     if (!newsInterval) {
         checkForNewNews();
-        newsInterval = setInterval(checkForNewNews, 30000); 
+        newsInterval = setInterval(checkForNewNews, 20000);
+        // ★ v6.8: ব্যাকগ্রাউন্ড ট্যাবে টাইমার থ্রটল হয় — ট্যাবে ফিরে এলেই/ফোকাসে সাথে সাথে চেক হবে
+        document.addEventListener('visibilitychange', function(){ if (!document.hidden) checkForNewNews(); });
+        window.addEventListener('focus', checkForNewNews);
     }
 }
 
@@ -2754,10 +2834,40 @@ try { newsAllowed = localStorage.getItem('news_popup_allowed'); } catch(e) {}
 
 setTimeout(startNewsCheck, 5000);
 
-if (newsAllowed === null || newsAllowed === undefined) {
+// ★ v6.8 FIX: আগে একবার 'না' চাপলে আর কখনোই পারমিশন চাওয়া হত না — সিস্টেম নোটিফিকেশন
+// চালু করার পথ স্থায়ীভাবে বন্ধ হয়ে যেত। এখন: ব্রাউজার-লেভেল পারমিশন 'default' থাকলে
+// ১ ঘণ্টা পর পর আবার জিজ্ঞেস করা হবে; Chrome-এ সরাসরি ব্লক করা থাকলে আর চাওয়া হবে না।
+function shouldAskNewsPermission() {
+    if (!("Notification" in window)) return false;
+    if (Notification.permission === 'granted') return false;
+    if (Notification.permission === 'denied') return false;
+    if (newsAllowed === 'granted') return false;
+    if (newsAllowed === 'denied') {
+        var deniedAt = 0;
+        try { deniedAt = parseInt(localStorage.getItem('news_popup_denied_at'), 10) || 0; } catch(e) {}
+        return (Date.now() - deniedAt) > 3600000; // ১ ঘণ্টা পর আবার সুযোগ
+    }
+    return true;
+}
+if (shouldAskNewsPermission()) {
     setTimeout(function() {
         if (allowNewsPopup) allowNewsPopup.style.display = 'flex';
     }, 2000);
+}
+
+// ★ v6.8: ভাসমান নোটিফিকেশন বেল (বাম-নিচে) — সিস্টেম নোটিফিকেশন চালু না থাকলে সবসময়
+// দেখা যাবে; ক্লিক করলে পারমিশন পপ-আপ খুলবে। চালু হয়ে গেলে (granted) নিজে থেকেই লুকাবে।
+var notifyBellBtn = document.getElementById('notifyBellBtn');
+function refreshNotifyBell() {
+    if (!notifyBellBtn) return;
+    var showBell = ("Notification" in window) && Notification.permission === 'default';
+    notifyBellBtn.style.display = showBell ? 'flex' : 'none';
+}
+refreshNotifyBell();
+if (notifyBellBtn) {
+    notifyBellBtn.addEventListener('click', function() {
+        if (allowNewsPopup) allowNewsPopup.style.display = 'flex';
+    });
 }
 
 var btnAllowYes = document.getElementById('btnAllowYes');
@@ -2771,10 +2881,11 @@ if (btnAllowYes) {
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
                 try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
-                showSystemNotification('Notifications Enabled!', 'You will now receive new news notifications.', '?page=home');
+                showSystemNotification('নোটিফিকেশন চালু হয়েছে!', 'এখন থেকে নতুন খবর প্রকাশিত হলে জানতে পারবেন।', '?page=home');
             } else {
-                try { localStorage.setItem('news_popup_allowed', 'denied'); } catch(e){}
+                try { localStorage.setItem('news_popup_allowed', 'denied'); localStorage.setItem('news_popup_denied_at', String(Date.now())); } catch(e){}
             }
+            if (typeof refreshNotifyBell === 'function') refreshNotifyBell();
         });
     });
 }
@@ -2782,9 +2893,28 @@ if (btnAllowYes) {
 var btnAllowNo = document.getElementById('btnAllowNo');
 if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
-        try { localStorage.setItem('news_popup_allowed', 'denied'); } catch(e){}
+        try { localStorage.setItem('news_popup_allowed', 'denied'); localStorage.setItem('news_popup_denied_at', String(Date.now())); } catch(e){}
         if (allowNewsPopup) allowNewsPopup.style.display='none';
     });
+}
+
+// ★ v6.8: টেস্ট মোড — ব্রাউজারে index.php?notify_test=1 খুললে সাথে সাথে একটা টেস্ট সিস্টেম
+// নোটিফিকেশন পাঠানো হবে; Windows/Chrome যদি আটকে দায় তাহলে সেটাও মেসেজে জানানো হবে।
+if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
+    setTimeout(function() {
+        if (!("Notification" in window)) { alert('এই ব্রাউজারে Notification সাপোর্ট নেই।'); return; }
+        function __fireTestNotification() {
+            var ok = showSystemNotification('টেস্ট নোটিফিকেশন', 'সিস্টেম নোটিফিকেশন কাজ করছে! নতুন খবর এলে এভাবেই জানতে পারবেন।', '?page=home');
+            if (!ok) {
+                alert('পারমিশন granted, তবুও নোটিফিকেশন দেখানো যায়নি।\n\nWindows Settings > System > Notifications এ Google Chrome চালু আছে কিনা এবং Focus Assist অফ আছে কিনা দেখুন।');
+            }
+        }
+        if (Notification.permission === 'granted') { __fireTestNotification(); return; }
+        if (Notification.permission === 'denied') { alert('নোটিফিকেশন ব্লক করা আছে। অ্যাড্রেসবারের পাশের আইকনে ক্লিক করে Notifications > Allow করুন।'); return; }
+        Notification.requestPermission().then(function(p) {
+            if (p === 'granted') { __fireTestNotification(); } else { alert('নোটিফিকেশন পারমিশন পাওয়া যায়নি: ' + p); }
+        });
+    }, 1000);
 }
 })();
 </script>

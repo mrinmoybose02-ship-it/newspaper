@@ -1364,41 +1364,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
     display: block;
     background: #fff;
 }
-.tts-container {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    background: #f8f9fa;
-    padding: 12px 15px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    margin-top: 15px;
-    margin-bottom: 20px;
-}
-.tts-play-btn {
-    background: var(--red);
-    color: #fff;
-    border: none;
-    width: 45px;
-    height: 45px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items:center;
-    justify-content: center;
-    font-size: 18px;
-    transition: all 0.2s;
-    flex-shrink: 0;
-}
-.tts-play-btn:hover {
-    background: var(--red-dark);
-    transform: scale(1.05);
-}
-.tts-label {
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-}
+/* (Old TTS button CSS removed — now using Bengali Female Anchor widget) */
 
 /* ====== HIDE GOOGLE TRANSLATE TOP BAR & LOGO ====== */
 body { top: 0 !important; }
@@ -1471,6 +1437,90 @@ body { top: 0 !important; }
 .app-badge{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:9px;background:#000;border:1px solid rgba(255,255,255,.22);color:#fff;font-size:19px;line-height:1;transition:transform .15s,box-shadow .15s,border-color .15s;text-decoration:none}
 .app-badge:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.5);box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .app-badge .fa-google-play{background:linear-gradient(135deg,#00d7fe,#00f076 45%,#ffd500 70%,#ff3a44);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+
+/* ====== BENGALI FEMALE ANCHOR WIDGET (TTS News Reader) ====== */
+.bn-anchor-fab{position:fixed;bottom:80px;right:20px;width:60px;height:60px;border-radius:50%;background:#fff;border:3px solid var(--red);box-shadow:0 6px 20px rgba(183,28,28,.4);cursor:pointer;z-index:9998;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:all .25s ease;animation:bnAnchorPulse 2.5s infinite}
+.bn-anchor-fab:hover{transform:scale(1.08);box-shadow:0 8px 28px rgba(183,28,28,.55)}
+.bn-anchor-fab.hidden{transform:scale(0);opacity:0;pointer-events:none}
+.bn-anchor-fab svg{width:100%;height:100%;display:block}
+.bn-anchor-fab .fab-pulse-ring{position:absolute;inset:-3px;border-radius:50%;border:3px solid var(--red);opacity:0;animation:bnPulseRing 2.5s infinite}
+/* "Now playing" live indicator on FAB when panel is hidden but audio is running */
+.bn-anchor-fab.fab-playing::after{content:'';position:absolute;bottom:-1px;right:-1px;width:18px;height:18px;background:#00c853;border:3px solid #fff;border-radius:50%;z-index:5;animation:bnFabPlayingPulse 1.3s infinite}
+@keyframes bnFabPlayingPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,200,83,.75)}70%{box-shadow:0 0 0 10px rgba(0,200,83,0)}}
+.bn-anchor-fab.fab-playing{animation:bnAnchorPulse 1.5s infinite}
+.bn-anchor-fab.fab-playing .fab-pulse-ring{animation:bnPulseRing 1.3s infinite;border-color:#00c853}
+@keyframes bnAnchorPulse{0%,100%{box-shadow:0 6px 20px rgba(183,28,28,.4)}50%{box-shadow:0 6px 26px rgba(183,28,28,.65)}}
+@keyframes bnPulseRing{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.45);opacity:0}}
+
+.bn-anchor-panel{position:fixed;bottom:80px;right:20px;width:320px;max-width:calc(100vw - 30px);background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);z-index:9999;overflow:hidden;border:1px solid var(--border);transform:translateY(20px) scale(.95);opacity:0;pointer-events:none;transition:all .3s cubic-bezier(.4,0,.2,1)}
+.bn-anchor-panel.open{transform:translateY(0) scale(1);opacity:1;pointer-events:auto}
+.bn-anchor-header{background:linear-gradient(135deg,var(--red) 0%,var(--red-dark) 100%);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between}
+.bn-anchor-header .ah-title{font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
+.bn-anchor-header .ah-title i{color:var(--gold);font-size:13px}
+.bn-anchor-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:26px;height:26px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .2s}
+.bn-anchor-close:hover{background:rgba(255,255,255,.35)}
+
+.bn-anchor-body{display:flex;align-items:center;gap:12px;padding:14px;background:linear-gradient(180deg,#FFFDF7 0%,#F8F0DC 100%)}
+.bn-anchor-avatar{width:110px;height:110px;flex-shrink:0;position:relative}
+.bn-anchor-avatar svg{width:100%;height:100%;display:block}
+.bn-anchor-info{flex:1;min-width:0}
+.bn-anchor-name{font-family:'Noto Serif Bengali',serif;font-size:15px;font-weight:700;color:var(--fg);margin-bottom:2px}
+.bn-anchor-status{font-size:11.5px;color:var(--muted);line-height:1.4;margin-bottom:8px;min-height:30px}
+.bn-anchor-status .stat-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#999;margin-right:5px;vertical-align:middle}
+.bn-anchor-status.reading .stat-dot{background:#00c853;animation:bnDotBlink 1s infinite}
+.bn-anchor-status.paused .stat-dot{background:#ff9800}
+@keyframes bnDotBlink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.bn-anchor-controls{padding:8px 10px;background:var(--bg);border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:nowrap}
+.bn-act-btn{flex:1;background:#fff;border:1px solid var(--border);color:var(--fg);padding:8px 6px;border-radius:6px;cursor:pointer;font-size:11.5px;font-weight:600;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:4px;transition:all .2s;white-space:nowrap}
+.bn-act-btn:hover{background:var(--red);color:#fff;border-color:var(--red)}
+.bn-act-btn.primary{background:var(--red);color:#fff;border-color:var(--red);flex:1.3}
+.bn-act-btn.primary:hover{background:var(--red-dark);border-color:var(--red-dark)}
+.bn-act-btn:disabled{opacity:.5;cursor:not-allowed}
+.bn-act-btn i{font-size:10px}
+.bn-act-btn#bnPanelHideBtn{background:var(--nav-bg);color:#fff;border-color:var(--nav-bg)}
+.bn-act-btn#bnPanelHideBtn:hover{background:var(--red);border-color:var(--red)}
+
+.bn-anchor-text-wrap{background:#fff;border-top:1px solid var(--border);overflow:hidden}
+.bn-anchor-text-wrap.collapsed .bn-anchor-text-preview{display:none}
+.bn-anchor-text-wrap.collapsed .bn-text-toggle .fa-eye{transform:scale(1)}
+.bn-text-head{display:flex;align-items:center;justify-content:space-between;padding:7px 14px;background:var(--bg);border-bottom:1px solid var(--border)}
+.bn-text-label{font-size:11.5px;font-weight:700;color:var(--fg);display:flex;align-items:center;gap:6px;font-family:'Noto Serif Bengali',serif}
+.bn-text-label i{color:var(--red);font-size:11px}
+.bn-text-toggle{background:#fff;border:1px solid var(--border);color:var(--muted);width:28px;height:28px;border-radius:5px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;transition:all .2s;font-family:inherit}
+.bn-text-toggle:hover{background:var(--red);color:#fff;border-color:var(--red)}
+.bn-anchor-text-preview{padding:12px 16px;font-size:15px;color:#1a1a1a;line-height:1.85;max-height:240px;overflow-y:auto;scrollbar-width:thin;font-family:'Hind Siliguri',sans-serif;letter-spacing:.2px}
+.bn-anchor-text-preview::-webkit-scrollbar{width:6px}
+.bn-anchor-text-preview::-webkit-scrollbar-track{background:var(--bg)}
+.bn-anchor-text-preview::-webkit-scrollbar-thumb{background:#c9c2b6;border-radius:3px}
+.bn-chunk{display:inline;padding:1px 2px;border-radius:2px;transition:background .15s,box-shadow .15s}
+.bn-chunk.bn-chunk-active{background:#FFF3B0;box-shadow:0 0 0 1px #D4950A;border-radius:3px}
+.bn-chunk.bn-chunk-done{color:#888}
+.bn-anchor-text-wrap.collapsed{max-height:40px}
+.bn-anchor-text-wrap.collapsed .bn-text-head{border-bottom:none}
+
+/* Mouth animation while speaking */
+.bn-anchor-avatar .bn-mouth-open{display:none;transform-origin:center}
+.bn-anchor-avatar.speaking .bn-mouth-closed{display:none}
+.bn-anchor-avatar.speaking .bn-mouth-open{display:block;animation:bnMouthTalk .32s ease-in-out infinite alternate}
+@keyframes bnMouthTalk{0%{transform:scaleY(.35) scaleX(.92)}100%{transform:scaleY(1.25) scaleX(1.1)}}
+
+/* Eye blink animation */
+.bn-anchor-eye{transform-origin:center;animation:bnEyeBlink 4s infinite}
+.bn-anchor-eye.right{animation-delay:0s}
+.bn-anchor-eye.left{animation-delay:0s}
+@keyframes bnEyeBlink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.15)}}
+.bn-anchor-avatar.speaking .bn-anchor-eye{animation-duration:2.5s}
+
+/* Head subtle movement while speaking */
+.bn-anchor-avatar.speaking .bn-head-group{animation:bnHeadBob 2.2s ease-in-out infinite;transform-origin:center bottom}
+@keyframes bnHeadBob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-1px) rotate(.6deg)}}
+
+@media(max-width:640px){
+    .bn-anchor-fab{width:50px;height:50px;bottom:75px;right:14px}
+    .bn-anchor-panel{width:calc(100vw - 28px);right:14px;bottom:135px}
+}
+/* ====== END BENGALI FEMALE ANCHOR WIDGET ====== */
 </style>
 </head>
 <body>
@@ -1749,13 +1799,6 @@ $EPAPER_URL = 'epaper.php';
 
 <!-- মূল টাইটেল এখানে দেখাবে (পরিবর্তন করা হবে না) -->
 <h1 class="news-title"><?= $shareTitle ?></h1>
-
-<div class="tts-container">
-    <button id="ttsPlayBtn" class="tts-play-btn" title="Listen to this news">
-        <i class="fas fa-microphone"></i>
-    </button>
-    <span class="tts-label">Listen to this news (Audio)</span>
-</div>
 
 <!-- NEWS SHARE BUTTONS START -->
 <div class="news-share-container">
@@ -2185,6 +2228,151 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 
 <button class="sb-toggle" id="sbToggle" aria-label="Sidebar Toggle"><i class="fas fa-bars"></i></button>
 
+<!-- ====== BENGALI FEMALE ANCHOR WIDGET (TTS News Reader) ====== -->
+<!-- Floating Avatar Button -->
+<button id="bnAnchorFab" class="bn-anchor-fab" aria-label="সংবাদ শুনুন" title="সংবাদ শুনুন (বাংলা অ্যাঙ্কর)">
+    <span class="fab-pulse-ring"></span>
+    <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+            <radialGradient id="bnGradFace" cx="50%" cy="40%" r="60%">
+                <stop offset="0%" stop-color="#FBD9B6"/>
+                <stop offset="100%" stop-color="#E8B89A"/>
+            </radialGradient>
+            <linearGradient id="bnGradHair" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#3a1f10"/>
+                <stop offset="100%" stop-color="#1a0e08"/>
+            </linearGradient>
+            <linearGradient id="bnGradBlouse" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#D32F2F"/>
+                <stop offset="100%" stop-color="#7F0000"/>
+            </linearGradient>
+        </defs>
+        <!-- Bg circle -->
+        <circle cx="100" cy="100" r="98" fill="#FFFDF7" stroke="#B71C1C" stroke-width="3"/>
+        <!-- Body (saree blouse) -->
+        <path d="M 30 200 Q 30 160 80 145 Q 100 142 120 145 Q 170 160 170 200 Z" fill="url(#bnGradBlouse)"/>
+        <!-- Neck -->
+        <rect x="88" y="120" width="24" height="22" fill="#E8B89A"/>
+        <!-- Necklace -->
+        <path d="M 85 138 Q 100 145 115 138" stroke="#D4950A" stroke-width="1.5" fill="none"/>
+        <circle cx="100" cy="146" r="2.5" fill="#D4950A"/>
+        <!-- Hair back -->
+        <path d="M 55 95 Q 50 50 100 42 Q 150 50 145 95 L 145 130 Q 130 110 100 110 Q 70 110 55 130 Z" fill="url(#bnGradHair)"/>
+        <g class="bn-head-group">
+            <!-- Face -->
+            <ellipse cx="100" cy="95" rx="36" ry="42" fill="url(#bnGradFace)"/>
+            <!-- Hair front (side-swept bangs) -->
+            <path d="M 62 80 Q 70 55 100 53 Q 130 55 138 80 Q 130 70 115 72 Q 95 75 80 88 Q 70 80 62 80 Z" fill="url(#bnGradHair)"/>
+            <!-- Eyebrows -->
+            <path d="M 76 86 Q 84 83 92 86" stroke="#2a1810" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <path d="M 108 86 Q 116 83 124 86" stroke="#2a1810" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+            <!-- Eyes -->
+            <ellipse class="bn-anchor-eye left" cx="84" cy="96" rx="3.5" ry="4.5" fill="#1a1a1a"/>
+            <ellipse class="bn-anchor-eye right" cx="116" cy="96" rx="3.5" ry="4.5" fill="#1a1a1a"/>
+            <!-- Eye highlights -->
+            <circle cx="85" cy="94" r="1" fill="#fff"/>
+            <circle cx="117" cy="94" r="1" fill="#fff"/>
+            <!-- Nose -->
+            <path d="M 100 100 L 97 112 Q 100 114 103 112 Z" fill="#D4A582" opacity="0.6"/>
+            <!-- Lips (closed mouth - default state) -->
+            <g class="bn-mouth-closed">
+                <path d="M 90 122 Q 100 126 110 122 Q 100 130 90 122 Z" fill="#B03A2E"/>
+                <path d="M 90 122 Q 100 124 110 122" stroke="#7B1F1A" stroke-width="0.5" fill="none"/>
+            </g>
+            <!-- Lips (open mouth - speaking state) -->
+            <g class="bn-mouth-open">
+                <ellipse cx="100" cy="125" rx="9" ry="5" fill="#7B1F1A"/>
+                <ellipse cx="100" cy="124" rx="6" ry="3" fill="#C0392B"/>
+                <path d="M 91 122 Q 100 126 109 122" stroke="#5a1a15" stroke-width="1" fill="none"/>
+            </g>
+            <!-- Earrings -->
+            <circle cx="65" cy="108" r="2.5" fill="#D4950A"/>
+            <circle cx="65" cy="113" r="1.5" fill="#D4950A"/>
+            <circle cx="135" cy="108" r="2.5" fill="#D4950A"/>
+            <circle cx="135" cy="113" r="1.5" fill="#D4950A"/>
+            <!-- Bindi (red dot on forehead) -->
+            <circle cx="100" cy="74" r="2.5" fill="#B71C1C"/>
+        </g>
+    </svg>
+</button>
+
+<!-- Anchor Panel (expanded) -->
+<div id="bnAnchorPanel" class="bn-anchor-panel" role="dialog" aria-label="বাংলা সংবাদ অ্যাঙ্কর">
+    <div class="bn-anchor-header">
+        <div class="ah-title"><i class="fas fa-microphone"></i> বাংলা সংবাদ অ্যাঙ্কর</div>
+        <button type="button" class="bn-anchor-close" id="bnAnchorClose" aria-label="বন্ধ করুন">&times;</button>
+    </div>
+    <div class="bn-anchor-body">
+        <div class="bn-anchor-avatar" id="bnAnchorAvatar">
+            <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <defs>
+                    <radialGradient id="bnGradFace2" cx="50%" cy="40%" r="60%">
+                        <stop offset="0%" stop-color="#FBD9B6"/>
+                        <stop offset="100%" stop-color="#E8B89A"/>
+                    </radialGradient>
+                    <linearGradient id="bnGradHair2" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="#3a1f10"/>
+                        <stop offset="100%" stop-color="#1a0e08"/>
+                    </linearGradient>
+                    <linearGradient id="bnGradBlouse2" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="#D32F2F"/>
+                        <stop offset="100%" stop-color="#7F0000"/>
+                    </linearGradient>
+                </defs>
+                <circle cx="100" cy="100" r="98" fill="#FFFDF7" stroke="#B71C1C" stroke-width="3"/>
+                <path d="M 30 200 Q 30 160 80 145 Q 100 142 120 145 Q 170 160 170 200 Z" fill="url(#bnGradBlouse2)"/>
+                <rect x="88" y="120" width="24" height="22" fill="#E8B89A"/>
+                <path d="M 85 138 Q 100 145 115 138" stroke="#D4950A" stroke-width="1.5" fill="none"/>
+                <circle cx="100" cy="146" r="2.5" fill="#D4950A"/>
+                <path d="M 55 95 Q 50 50 100 42 Q 150 50 145 95 L 145 130 Q 130 110 100 110 Q 70 110 55 130 Z" fill="url(#bnGradHair2)"/>
+                <g class="bn-head-group">
+                    <ellipse cx="100" cy="95" rx="36" ry="42" fill="url(#bnGradFace2)"/>
+                    <path d="M 62 80 Q 70 55 100 53 Q 130 55 138 80 Q 130 70 115 72 Q 95 75 80 88 Q 70 80 62 80 Z" fill="url(#bnGradHair2)"/>
+                    <path d="M 76 86 Q 84 83 92 86" stroke="#2a1810" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                    <path d="M 108 86 Q 116 83 124 86" stroke="#2a1810" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+                    <ellipse class="bn-anchor-eye left" cx="84" cy="96" rx="3.5" ry="4.5" fill="#1a1a1a"/>
+                    <ellipse class="bn-anchor-eye right" cx="116" cy="96" rx="3.5" ry="4.5" fill="#1a1a1a"/>
+                    <circle cx="85" cy="94" r="1" fill="#fff"/>
+                    <circle cx="117" cy="94" r="1" fill="#fff"/>
+                    <path d="M 100 100 L 97 112 Q 100 114 103 112 Z" fill="#D4A582" opacity="0.6"/>
+                    <g class="bn-mouth-closed">
+                        <path d="M 90 122 Q 100 126 110 122 Q 100 130 90 122 Z" fill="#B03A2E"/>
+                        <path d="M 90 122 Q 100 124 110 122" stroke="#7B1F1A" stroke-width="0.5" fill="none"/>
+                    </g>
+                    <g class="bn-mouth-open">
+                        <ellipse cx="100" cy="125" rx="9" ry="5" fill="#7B1F1A"/>
+                        <ellipse cx="100" cy="124" rx="6" ry="3" fill="#C0392B"/>
+                        <path d="M 91 122 Q 100 126 109 122" stroke="#5a1a15" stroke-width="1" fill="none"/>
+                    </g>
+                    <circle cx="65" cy="108" r="2.5" fill="#D4950A"/>
+                    <circle cx="65" cy="113" r="1.5" fill="#D4950A"/>
+                    <circle cx="135" cy="108" r="2.5" fill="#D4950A"/>
+                    <circle cx="135" cy="113" r="1.5" fill="#D4950A"/>
+                    <circle cx="100" cy="74" r="2.5" fill="#B71C1C"/>
+                </g>
+            </svg>
+        </div>
+        <div class="bn-anchor-info">
+            <div class="bn-anchor-status" id="bnAnchorStatus"><span class="stat-dot"></span><span id="bnStatusText">প্রস্তুত। সংবাদ শুনতে ক্লিক করুন।</span></div>
+            <div id="bnVoiceBadge" style="display:flex;gap:6px;align-items:center;font-size:10px;color:var(--muted)"><i class="fas fa-volume-up" style="color:var(--gold)"></i> <span>বাংলা নারী কণ্ঠ</span></div>
+        </div>
+    </div>
+    <div class="bn-anchor-controls">
+        <button type="button" class="bn-act-btn primary" id="bnReadBtn"><i class="fas fa-play"></i> শুনুন</button>
+        <button type="button" class="bn-act-btn" id="bnStopBtn" disabled><i class="fas fa-stop"></i> থামান</button>
+        <button type="button" class="bn-act-btn" id="bnHideBtn" title="টেক্সট দেখান/লুকান"><i class="fas fa-eye-slash"></i> লুকান</button>
+        <button type="button" class="bn-act-btn" id="bnPanelHideBtn" title="প্যানেল হাইড করুন"><i class="fas fa-chevron-down"></i> হাইড</button>
+    </div>
+    <div class="bn-anchor-text-wrap" id="bnTextWrap" style="display:none;">
+        <div class="bn-text-head">
+            <span class="bn-text-label"><i class="fas fa-align-left"></i> পড়া হচ্ছে</span>
+            <button type="button" class="bn-text-toggle" id="bnTextToggle" aria-label="টেক্সট দেখান/লুকান" title="টেক্সট দেখান/লুকান"><i class="fas fa-eye"></i></button>
+        </div>
+        <div class="bn-anchor-text-preview" id="bnTextPreview"></div>
+    </div>
+</div>
+<!-- ====== END BENGALI FEMALE ANCHOR WIDGET ====== -->
+
 <!-- Permission Popup -->
 <div id="allowNewsPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;align-items:center;justify-content:center;">
     <div style="background:#fff;padding:40px 30px;border-radius:12px;text-align:center;max-width:380px;width:90%;box-shadow:0 10px 30px rgba(0,0,0,.3);">
@@ -2525,128 +2713,7 @@ if(langBtn) {
     });
 }
 
-// ====== FIXED TEXT-TO-SPEECH (TTS) FUNCTIONALITY ======
-var ttsPlayBtn = document.getElementById('ttsPlayBtn');
-var ttsIcon = ttsPlayBtn ? ttsPlayBtn.querySelector('i') : null;
-var isSpeaking = false;
-var ttsChunks = [];
-var ttsIndex = 0;
-var currentTtsAudio = null;
-
-function stopTTS() {
-    isSpeaking = false;
-    ttsChunks = [];
-    ttsIndex = 0;
-    if (currentTtsAudio) {
-        currentTtsAudio.pause();
-        currentTtsAudio = null;
-    }
-    if (ttsIcon) ttsIcon.className = 'fas fa-microphone';
-}
-
-function splitTextIntoChunks(text, maxLength) {
-    var sentences = text.match(/[^.!?।]+[.!?।]*\s*/g) || [text];
-    var chunks = [];
-    var currentChunk = '';
-    
-    sentences.forEach(function(sentence) {
-        if (sentence.length > maxLength) {
-            if (currentChunk) {
-                chunks.push(currentChunk.trim());
-                currentChunk = '';
-            }
-            var words = sentence.split(' ');
-            var wordChunk = '';
-            words.forEach(function(word) {
-                if ((wordChunk + ' ' + word).length > maxLength) {
-                    if (wordChunk) chunks.push(wordChunk.trim());
-                    wordChunk = word;
-                } else {
-                    wordChunk += ' ' + word;
-                }
-            });
-            if (wordChunk) currentChunk = wordChunk;
-        } else if ((currentChunk + sentence).length > maxLength) {
-            if (currentChunk) chunks.push(currentChunk.trim());
-            currentChunk = sentence;
-        } else {
-            currentChunk += sentence;
-        }
-    });
-    if (currentChunk) chunks.push(currentChunk.trim());
-    return chunks;
-}
-
-if (ttsPlayBtn) {
-    ttsPlayBtn.addEventListener('click', function() {
-        if (isSpeaking) {
-            stopTTS();
-            return;
-        }
-
-        var newsContentEl = document.querySelector('.single-content');
-        var newsTitleEl = document.querySelector('.news-title'); 
-        var newsHeadlineEl = document.querySelector('.single-headline'); 
-        var textToRead = '';
-        
-        if (newsTitleEl) textToRead += newsTitleEl.textContent + '. ';
-        if (newsHeadlineEl) textToRead += newsHeadlineEl.textContent + '. ';
-        
-        if (newsContentEl) {
-            var nodes = newsContentEl.querySelectorAll('p, h2, h3, h4, li');
-            nodes.forEach(function(node) {
-                if (!node.closest('.ad-wrapper') && !node.closest('.news-video-wrapper') && !node.closest('.twitter-embed-wrapper') && !node.closest('.ad-label')) {
-                    textToRead += node.textContent + '. ';
-                }
-            });
-        }
-
-        if (!textToRead.trim()) return;
-
-        isSpeaking = true;
-        if (ttsIcon) ttsIcon.className = 'fas fa-stop';
-
-        // PROXY ENGINE: Guarantees Google Bengali Female Voice on all devices
-        ttsChunks = splitTextIntoChunks(textToRead, 140); // 140 is safe limit for Google API
-        ttsIndex = 0;
-
-        function playNextProxy() {
-            if (!isSpeaking || ttsIndex >= ttsChunks.length) {
-                stopTTS();
-                return;
-            }
-            
-            var textChunk = ttsChunks[ttsIndex];
-            if (!textChunk) {
-                ttsIndex++;
-                playNextProxy();
-                return;
-            }
-            
-            var url = '?tts_proxy=1&text=' + encodeURIComponent(textChunk);
-            currentTtsAudio = new Audio(url);
-            
-            currentTtsAudio.onended = function() {
-                ttsIndex++;
-                setTimeout(playNextProxy, 150);
-            };
-            
-            currentTtsAudio.onerror = function() {
-                // If error, skip to next chunk so it doesn't stop entirely
-                console.error("TTS Audio Error for chunk:", textChunk);
-                ttsIndex++;
-                setTimeout(playNextProxy, 150);
-            };
-            
-            currentTtsAudio.play().catch(function(e) {
-                console.error("TTS Playback Error:", e);
-                stopTTS();
-            });
-        }
-
-        playNextProxy();
-    });
-}
+// (Old single-button TTS removed — now using Bengali Female Anchor widget)
 
 // ====== COPY LINK FUNCTIONALITY FOR SHARE BUTTONS ======
 var copyBtn = document.getElementById('copyLinkBtn');
@@ -2918,5 +2985,427 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
 }
 })();
 </script>
+
+<!-- ====== BENGALI FEMALE ANCHOR SCRIPT (TTS News Reader) ====== -->
+<script>
+(function(){
+    'use strict';
+
+    var fab       = document.getElementById('bnAnchorFab');
+    var panel    = document.getElementById('bnAnchorPanel');
+    var closeBtn = document.getElementById('bnAnchorClose');
+    var avatar   = document.getElementById('bnAnchorAvatar');
+    var statusEl = document.getElementById('bnAnchorStatus');
+    var statusTxt= document.getElementById('bnStatusText');
+    var readBtn  = document.getElementById('bnReadBtn');
+    var stopBtn  = document.getElementById('bnStopBtn');
+    var hideBtn  = document.getElementById('bnHideBtn');
+    var panelHideBtn = document.getElementById('bnPanelHideBtn');
+    var preview  = document.getElementById('bnTextPreview');
+    var textWrap = document.getElementById('bnTextWrap');
+    var textToggle = document.getElementById('bnTextToggle');
+
+    // ===== Toggle: show/hide the Bengali text being read =====
+    // Both the small eye-icon in the text-wrap header AND the prominent লুকান button sync.
+    var textCollapsed = false;
+    function applyTextCollapse() {
+        if (textCollapsed) {
+            textWrap.classList.add('collapsed');
+            if (textToggle) textToggle.innerHTML = '<i class="fas fa-eye-slash"></i>';
+            if (textToggle) textToggle.title = 'টেক্সট দেখান';
+            if (hideBtn)    hideBtn.innerHTML = '<i class="fas fa-eye"></i> দেখান';
+            if (hideBtn)    hideBtn.title = 'টেক্সট দেখান';
+        } else {
+            textWrap.classList.remove('collapsed');
+            if (textToggle) textToggle.innerHTML = '<i class="fas fa-eye"></i>';
+            if (textToggle) textToggle.title = 'টেক্সট লুকান';
+            if (hideBtn)    hideBtn.innerHTML = '<i class="fas fa-eye-slash"></i> লুকান';
+            if (hideBtn)    hideBtn.title = 'টেক্সট লুকান';
+        }
+    }
+    function toggleText() { textCollapsed = !textCollapsed; applyTextCollapse(); }
+    if (textToggle) textToggle.addEventListener('click', toggleText);
+    if (hideBtn)    hideBtn.addEventListener('click', toggleText);
+
+    // ===== Voice Engine: Prefer native Bengali voice (Web Speech API), fall back to Google TTS proxy =====
+    var bnVoice = null;
+    var speechReady = false;
+    function loadBengaliVoice() {
+        if (!('speechSynthesis' in window)) { speechReady = true; return; }
+        var voices = window.speechSynthesis.getVoices() || [];
+        // Match any Bengali voice (bn, bn-IN, bn-BD)
+        var bnVoices = voices.filter(function(v){
+            var L = (v.lang || '').toLowerCase();
+            return L === 'bn' || L === 'bn-in' || L === 'bn-bd' || L.indexOf('bn-') === 0 || L.indexOf('bn_') === 0;
+        });
+        // Prefer female-sounding names (Aditi, Kalpana, Saraswati, female)
+        var female = bnVoices.find(function(v){
+            var n = (v.name || '').toLowerCase();
+            return n.indexOf('aditi') >= 0 || n.indexOf('kalpana') >= 0 || n.indexOf('saraswati') >= 0
+                || n.indexOf('female') >= 0 || n.indexOf('tara') >= 0 || n.indexOf('sara') >= 0;
+        });
+        bnVoice = female || bnVoices[0] || null;
+        speechReady = true;
+    }
+    loadBengaliVoice();
+    if ('speechSynthesis' in window) {
+        try { window.speechSynthesis.onvoiceschanged = loadBengaliVoice; } catch(e){}
+        // Some browsers populate voices a moment later; retry once.
+        setTimeout(loadBengaliVoice, 600);
+    }
+
+    // Update the voice badge dynamically based on detected engine
+    function refreshVoiceBadge() {
+        var badge = document.getElementById('bnVoiceBadge');
+        if (!badge) return;
+        var span = badge.querySelector('span');
+        if (!span) return;
+        if (bnVoice) {
+            // Show the actual voice name (cleaned up) + native indicator
+            var nm = bnVoice.name || 'বাংলা নারী কণ্ঠ';
+            // Strip language tags like "Microsoft Hemant - Bengali (India)" → "Hemant"
+            var clean = nm.replace(/^(Microsoft|Google|Apple)\s+/i,'').replace(/\s*-\s*Bengali.*$/i,'').replace(/\s*\(.*\)\s*$/,'').trim();
+            span.textContent = clean + ' — অরিজিনাল বাংলা';
+            badge.title = 'ব্যবহৃত ভয়েস: ' + nm + ' (' + (bnVoice.lang || 'bn') + ')';
+        } else {
+            span.textContent = 'Google বাংলা নারী কণ্ঠ';
+            badge.title = 'আপনার ডিভাইসে অরিজিনাল বাংলা ভয়েস নেই — Google TTS ব্যবহৃত হচ্ছে';
+        }
+    }
+    setTimeout(refreshVoiceBadge, 700);
+
+    // Play one chunk via the best available engine.
+    // Returns an object with a .cancel() method to stop playback.
+    function playChunk(text, onEnd, onError) {
+        // ----- Path A: Native Bengali voice (Web Speech API) — original Bengali pronunciation -----
+        if (bnVoice && 'speechSynthesis' in window) {
+            try {
+                var u = new SpeechSynthesisUtterance(text);
+                u.voice = bnVoice;
+                u.lang  = bnVoice.lang || 'bn-IN';
+                u.rate  = 1.05;   // slightly faster than default
+                u.pitch = 1.0;
+                u.volume = 1.0;
+                var ended = false;
+                u.onend = function(){ if (ended) return; ended = true; onEnd(); };
+                u.onerror = function(){ if (ended) return; ended = true; onError(); };
+                // Cancel anything queued, then speak
+                try { window.speechSynthesis.cancel(); } catch(e){}
+                window.speechSynthesis.speak(u);
+                return {
+                    engine: 'webspeech',
+                    cancel: function(){ try { window.speechSynthesis.cancel(); } catch(e){} }
+                };
+            } catch (e) { /* fall through to proxy */ }
+        }
+        // ----- Path B: Google Bengali TTS proxy (fallback) -----
+        var url = '?tts_proxy=1&text=' + encodeURIComponent(text);
+        var a = new Audio(url);
+        try { a.playbackRate = 1.3; } catch(e){}
+        a.onended  = onEnd;
+        a.onerror  = onError;
+        var p = a.play();
+        if (p && typeof p.then === 'function') {
+            p.catch(function(err){ onError(err); });
+        }
+        return { engine: 'proxy', cancel: function(){ try { a.pause(); } catch(e){} } };
+    }
+
+    if (!fab || !panel) return;
+
+    // ===== State =====
+    var isSpeaking = false;
+    var chunks = [];
+    var chunkIdx = 0;
+    var currentAudio = null;
+    var mouthTimer = null;
+    var lastFetchedText = '';
+
+    // ===== Helpers =====
+    function setStatus(text, state) {
+        if (statusTxt) statusTxt.textContent = text;
+        statusEl.className = 'bn-anchor-status ' + (state || '');
+    }
+
+    function showPanel() {
+        panel.classList.add('open');
+        fab.classList.add('hidden');
+        // Panel visible again — clear the FAB playing badge (status shows in panel now)
+        fab.classList.remove('fab-playing');
+    }
+    function hidePanel() {
+        panel.classList.remove('open');
+        fab.classList.remove('hidden');
+        // ★ If audio is still playing, show a live badge on FAB so user knows voice is running
+        if (isSpeaking) fab.classList.add('fab-playing');
+    }
+
+    fab.addEventListener('click', showPanel);
+    // ★ Hide button & close button: just hide panel — audio keeps playing (per user request)
+    if (closeBtn) closeBtn.addEventListener('click', function(){ hidePanel(); });
+    if (panelHideBtn) panelHideBtn.addEventListener('click', function(){ hidePanel(); });
+
+    // ===== Split Bengali text into TTS-safe chunks (Google limit ~140 chars) =====
+    function splitIntoChunks(text, maxLen) {
+        if (!text) return [];
+        // Sentence boundaries for Bengali: । ॥ ? ! .
+        var sentences = text.match(/[^.!?।॥\n]+[.!?।॥]*\s*/g) || [text];
+        var out = [];
+        var cur = '';
+        for (var i = 0; i < sentences.length; i++) {
+            var s = sentences[i];
+            if (s.length > maxLen) {
+                if (cur) { out.push(cur.trim()); cur = ''; }
+                // Word-split long sentences
+                var words = s.split(/\s+/);
+                var wc = '';
+                for (var j = 0; j < words.length; j++) {
+                    if ((wc + ' ' + words[j]).length > maxLen) {
+                        if (wc) out.push(wc.trim());
+                        wc = words[j];
+                    } else { wc += ' ' + words[j]; }
+                }
+                if (wc) cur = wc;
+            } else if ((cur + s).length > maxLen) {
+                if (cur) out.push(cur.trim());
+                cur = s;
+            } else {
+                cur += s;
+            }
+        }
+        if (cur) out.push(cur.trim());
+        return out.filter(function(c){ return c.length > 0; });
+    }
+
+    function setSpeaking(on) {
+        isSpeaking = on;
+        if (on) avatar.classList.add('speaking');
+        else avatar.classList.remove('speaking');
+        readBtn.disabled = on;
+        stopBtn.disabled = !on;
+        readBtn.innerHTML = on ? '<i class="fas fa-spinner fa-spin"></i> পড়া হচ্ছে…' : '<i class="fas fa-play"></i> সংবাদ শুনুন';
+        // ★ Sync FAB live badge: show only when panel is hidden but audio is still playing
+        if (on && !panel.classList.contains('open')) fab.classList.add('fab-playing');
+        else if (!on) fab.classList.remove('fab-playing');
+    }
+
+    function stopSpeaking() {
+        isSpeaking = false;
+        chunks = [];
+        chunkIdx = 0;
+        if (currentAudio) {
+            try { currentAudio.cancel && currentAudio.cancel(); } catch(e){}
+            try { currentAudio.pause && currentAudio.pause(); } catch(e){}
+            currentAudio = null;
+        }
+        if ('speechSynthesis' in window) { try { window.speechSynthesis.cancel(); } catch(e){} }
+        if (mouthTimer) { clearInterval(mouthTimer); mouthTimer = null; }
+        setSpeaking(false);
+        setStatus('থামানো হয়েছে। আবার শুনতে ক্লিক করুন।', 'paused');
+    }
+
+    // ===== Play next chunk via best available engine (Web Speech API first, Google TTS proxy as fallback) =====
+    function playNext() {
+        if (!isSpeaking) return;
+        if (chunkIdx >= chunks.length) {
+            setSpeaking(false);
+            // ★ After playback: text stays visible; user can hide text (লুকান) or hide whole panel (হাইড)
+            var engineLabel = bnVoice
+                ? 'অরিজিনাল বাংলা ভয়েসে পড়া শেষ। প্যানেল হাইড করতে “হাইড”, টেক্সট লুকাতে “লুকান” বোতামে ক্লিক করুন।'
+                : 'সংবাদ শেষ। প্যানেল হাইড করতে “হাইড”, টেক্সট লুকাতে “লুকান” বোতামে ক্লিক করুন।';
+            setStatus(engineLabel, 'paused');
+            // Only the active highlight is cleared — text remains visible
+            var allChunks = preview ? preview.querySelectorAll('.bn-chunk.bn-chunk-active') : [];
+            for (var ac = 0; ac < allChunks.length; ac++) allChunks[ac].classList.remove('bn-chunk-active');
+            return;
+        }
+        var text = chunks[chunkIdx];
+        if (!text) { chunkIdx++; playNext(); return; }
+
+        // Highlight the currently-reading chunk in the full text preview
+        if (preview) {
+            var prevActive = preview.querySelector('.bn-chunk.bn-chunk-active');
+            if (prevActive) { prevActive.classList.remove('bn-chunk-active'); prevActive.classList.add('bn-chunk-done'); }
+            var activeEl = preview.querySelector('.bn-chunk[data-idx="' + chunkIdx + '"]');
+            if (activeEl) {
+                activeEl.classList.add('bn-chunk-active');
+                activeEl.classList.remove('bn-chunk-done');
+                // Scroll the active chunk into view (centered)
+                try {
+                    var pH = preview.getBoundingClientRect().height;
+                    var aH = activeEl.getBoundingClientRect().height;
+                    preview.scrollTop = preview.scrollTop + (activeEl.getBoundingClientRect().top - preview.getBoundingClientRect().top) - (pH - aH) / 2;
+                } catch(e){}
+            }
+        }
+
+        currentAudio = playChunk(
+            text,
+            function onEnd() {                       // success → next chunk
+                chunkIdx++;
+                setTimeout(playNext, 50);
+            },
+            function onError(err) {                   // skip problematic chunk, keep going
+                console.warn('[BN Anchor] chunk error, skipping:', err);
+                chunkIdx++;
+                setTimeout(playNext, 50);
+            }
+        );
+    }
+
+    // ===== Fetch latest news (existing endpoint) for homepage =====
+    function fetchLatestNewsText(cb) {
+        setStatus('সর্বশেষ সংবাদ আনা হচ্ছে…', 'paused');
+        try {
+            fetch('?action=api_latest_news&t=' + Date.now(), { cache: 'no-store' })
+                .then(function(r){ return r.json(); })
+                .then(function(data){
+                    if (!data || data.error || !data.title) {
+                        // Fallback: try breaking news ticker text
+                        var bnText = '';
+                        var firstBreak = document.querySelector('.breaking-track span');
+                        if (firstBreak) bnText = firstBreak.textContent.trim();
+                        if (!bnText) {
+                            // Last resort: site tagline + h1
+                            var h1 = document.querySelector('.kol-header h1');
+                            if (h1) bnText = h1.textContent + '। স্বাগতম।';
+                        }
+                        if (bnText) cb(bnText);
+                        else cb(null);
+                        return;
+                    }
+                    var title = (data.title || '').trim();
+                    var slug  = (data.slug || '').trim();
+                    var fullText = 'আপনাদের স্বাগতম জানাই। সংবাদ সংকলনের সর্বশেষ খবর। ' + title + (slug ? '। ' + slug : '');
+                    cb(fullText);
+                })
+                .catch(function(){
+                    // Try breaking news fallback
+                    var firstBreak = document.querySelector('.breaking-track span');
+                    if (firstBreak) cb(firstBreak.textContent.trim());
+                    else cb(null);
+                });
+        } catch (e) { cb(null); }
+    }
+
+    // ===== On single news page: read the article content =====
+    function getCurrentArticleText() {
+        var titleEl = document.querySelector('.news-title');
+        var headlineEl = document.querySelector('.single-headline');
+        var contentEl = document.querySelector('.single-content');
+        if (!titleEl && !contentEl) return null;
+
+        var text = '';
+        if (titleEl) text += titleEl.textContent + '. ';
+        if (headlineEl) text += headlineEl.textContent + '. ';
+
+        if (contentEl) {
+            var nodes = contentEl.querySelectorAll('p, h2, h3, h4, li');
+            for (var i = 0; i < nodes.length; i++) {
+                var n = nodes[i];
+                if (n.closest('.ad-wrapper') || n.closest('.news-video-wrapper') || n.closest('.twitter-embed-wrapper') || n.closest('.ad-label')) continue;
+                text += n.textContent + '. ';
+            }
+        }
+        return text.trim();
+    }
+
+    // ===== Main read button =====
+    readBtn.addEventListener('click', function(){
+        if (isSpeaking) { stopSpeaking(); return; }
+
+        // Try current article first (single news page)
+        var articleText = getCurrentArticleText();
+        if (articleText && articleText.length > 10) {
+            startReading(articleText, 'চলতি সংবাদ পড়া হচ্ছে…');
+            return;
+        }
+
+        // Otherwise fetch latest news
+        fetchLatestNewsText(function(text){
+            if (!text || !text.trim()) {
+                setStatus('কোনো সংবাদ পাওয়া যায়নি।', 'paused');
+                return;
+            }
+            // Avoid re-reading the same text twice in a row
+            if (lastFetchedText === text) {
+                text = 'আপনি এইমাত্র শেষ সংবাদটি শুনেছেন। ' + text;
+            }
+            lastFetchedText = text;
+            startReading(text, 'সর্বশেষ সংবাদ পড়া হচ্ছে…');
+        });
+    });
+
+    function startReading(fullText, statusMsg) {
+        setStatus(statusMsg, 'reading');
+        chunks = splitIntoChunks(fullText, 140);
+        chunkIdx = 0;
+        if (chunks.length === 0) {
+            setStatus('পড়ার মতো টেক্সট নেই।', 'paused');
+            return;
+        }
+        // Render the full Bengali text with per-chunk spans for highlighting
+        if (preview) {
+            var html = '';
+            for (var ci = 0; ci < chunks.length; ci++) {
+                html += '<span class="bn-chunk" data-idx="' + ci + '">' + escapeForHtml(chunks[ci]) + '</span>' + (ci < chunks.length - 1 ? ' ' : '');
+            }
+            preview.innerHTML = html;
+            preview.scrollTop = 0;
+        }
+        if (textWrap) textWrap.style.display = 'block';
+        setSpeaking(true);
+        playNext();
+    }
+
+    function escapeForHtml(s){
+        if(!s) return '';
+        return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+    }
+
+    stopBtn.addEventListener('click', stopSpeaking);
+
+    // ===== Keyboard shortcut: Ctrl+Shift+A toggles anchor =====
+    document.addEventListener('keydown', function(e){
+        if (e.ctrlKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+            e.preventDefault();
+            if (panel.classList.contains('open')) {
+                stopSpeaking();
+                hidePanel();
+            } else {
+                showPanel();
+            }
+        }
+        // Esc closes panel & stops
+        if (e.key === 'Escape' && panel.classList.contains('open')) {
+            stopSpeaking();
+            hidePanel();
+        }
+    });
+
+    // ===== Auto-pause when tab is hidden, resume on focus =====
+    document.addEventListener('visibilitychange', function(){
+        if (document.hidden && isSpeaking && currentAudio) {
+            try { currentAudio.pause(); } catch(e){}
+            setStatus('ট্যাব ব্যাকগ্রাউন্ডে — সাময়িক বিরতি।', 'paused');
+        } else if (!document.hidden && isSpeaking && currentAudio && currentAudio.paused) {
+            try { currentAudio.play().catch(function(){}); setStatus('চালু হচ্ছে…', 'reading'); } catch(e){}
+        }
+    });
+
+    // Show FAB on first scroll past 200px on home page (optional UX hint)
+    var hasPulsed = false;
+    window.addEventListener('scroll', function(){
+        if (!hasPulsed && window.scrollY > 200) {
+            hasPulsed = true;
+            // Brief attention pulse — already pulsing by default, no-op
+        }
+    }, { passive: true });
+
+    console.log('[BN Anchor] Bengali female anchor TTS widget loaded.');
+})();
+</script>
+<!-- ====== END BENGALI FEMALE ANCHOR SCRIPT ====== -->
+
 </body>
 </html>

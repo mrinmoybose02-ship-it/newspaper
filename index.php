@@ -191,6 +191,19 @@ if (!function_exists('bn_to_en_html')) {
 
         $xpath = new DOMXPath($dom);
         $textNodes = $xpath->query('//text()[normalize-space()]');
+
+        // Prewarm all text node values in parallel before translating
+        // (massive speed-up for long article content with many paragraphs).
+        $prewarmList = [];
+        foreach ($textNodes as $node) {
+            $v = $node->nodeValue;
+            if (trim($v) !== '') $prewarmList[] = $v;
+        }
+        if (!empty($prewarmList) && function_exists('prewarm_translations_parallel')) {
+            prewarm_translations_parallel($prewarmList);
+        }
+
+        // Now walk text nodes - bn_to_en() hits cache = instant
         foreach ($textNodes as $node) {
             $original = $node->nodeValue;
             if (trim($original) === '') continue;
@@ -207,6 +220,149 @@ if (!function_exists('bn_to_en_html')) {
             $innerHTML .= $dom->saveHTML($child);
         }
         return $innerHTML;
+    }
+}
+
+/**
+ * Prewarm many Bengali texts in parallel using curl_multi.
+ * After this call, bn_to_en() on the same texts hits cache = instant.
+ * Total time ~= single slowest HTTP request (instead of N x request_time).
+ *
+ * @param array $texts  Indexed array of Bengali strings to translate.
+ */
+if (!function_exists('prewarm_translations_parallel')) {
+    function prewarm_translations_parallel($texts) {
+        if (empty($texts) || !is_array($texts)) return;
+        if (empty($GLOBALS['SITE_LANG']) || $GLOBALS['SITE_LANG'] !== 'en') return;
+        if (!function_exists('curl_multi_init')) return;
+
+        $cacheDir = __DIR__ . '/cache_tr';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+
+        // Deduplicate + filter out already-cached texts
+        $unique = [];
+        foreach ($texts as $t) {
+            if ($t === null || $t === '') continue;
+            $t = (string)$t;
+            if (mb_strlen($t, 'UTF-8') > 4500) continue;
+            $key = 'tr_' . hash('sha256', $t);
+            $cacheFile = $cacheDir . '/' . $key . '.txt';
+            if (file_exists($cacheFile) && (time() - filemtime($cacheFile) < 86400 * 30)) continue;
+            if (!isset($unique[$key])) $unique[$key] = $t;
+        }
+
+        if (empty($unique)) return;
+
+        $mh = curl_multi_init();
+        $handles = [];
+        $i = 0;
+        foreach ($unique as $key => $t) {
+            $url = 'https://translate.google.com/translate_a/single'
+                 . '?client=gtx&sl=bn&tl=en&dt=t&q=' . rawurlencode($t);
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL             => $url,
+                CURLOPT_RETURNTRANSFER  => true,
+                CURLOPT_SSL_VERIFYPEER  => false,
+                CURLOPT_TIMEOUT         => 20,
+                CURLOPT_FOLLOWLOCATION  => true,
+                CURLOPT_HTTPHEADER      => [
+                    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Accept: application/json, text/plain, */*',
+                    'Accept-Language: en-US,en;q=0.5',
+                ],
+            ]);
+            curl_multi_add_handle($mh, $ch);
+            $handles[$i] = ['key' => $key, 'handle' => $ch, 'text' => $t];
+            $i++;
+            if ($i >= 30) break;  // cap concurrent at 30 to avoid rate limits
+        }
+
+        if (empty($handles)) { curl_multi_close($mh); return; }
+
+        // Execute all requests in parallel
+        do {
+            $status = curl_multi_exec($mh, $active);
+            if ($active) curl_multi_select($mh, 1.0);
+        } while ($active && $status === CURLM_OK);
+
+        // Collect results and cache them
+        foreach ($handles as $h) {
+            $resp = curl_multi_getcontent($h['handle']);
+            $code = curl_getinfo($h['handle'], CURLINFO_HTTP_CODE);
+            curl_multi_remove_handle($mh, $h['handle']);
+            if ($code !== 200 || empty($resp)) continue;
+            $data = json_decode($resp, true);
+            if (!is_array($data) || !isset($data[0])) continue;
+            $translated = '';
+            foreach ($data[0] as $pair) {
+                if (is_array($pair) && isset($pair[0]) && is_string($pair[0])) {
+                    $translated .= $pair[0];
+                }
+            }
+            $translated = trim($translated);
+            if ($translated === '' || $translated === $h['text']) continue;
+            @file_put_contents($cacheDir . '/' . $h['key'] . '.txt', $translated, LOCK_EX);
+        }
+        curl_multi_close($mh);
+    }
+}
+
+/**
+ * Walk all news arrays on the page and prewarm their titles/excerpts.
+ * Call this BEFORE rendering starts so all bn_to_en() calls during render
+ * hit the cache (instant). Skips gracefully if not in English mode.
+ */
+if (!function_exists('prewarm_all_news_translations')) {
+    function prewarm_all_news_translations() {
+        if (empty($GLOBALS['SITE_LANG']) || $GLOBALS['SITE_LANG'] !== 'en') return;
+
+        $texts = [];
+
+        $collect = function($rows) use (&$texts) {
+            if (empty($rows) || !is_array($rows)) return;
+            foreach ($rows as $r) {
+                if (!is_array($r)) continue;
+                if (!empty($r['title']))   $texts[] = $r['title'];
+                if (!empty($r['excerpt'])) $texts[] = $r['excerpt'];
+                if (!empty($r['headline'])) $texts[] = $r['headline'];
+            }
+        };
+
+        // Single news article (current page)
+        if (!empty($GLOBALS['singleNews']) && is_array($GLOBALS['singleNews'])) {
+            $texts[] = $GLOBALS['singleNews']['title'] ?? '';
+            $texts[] = $GLOBALS['singleNews']['excerpt'] ?? '';
+            $texts[] = $GLOBALS['singleNews']['headline'] ?? '';
+        }
+
+        if (!empty($GLOBALS['displayFeatured'])) $collect($GLOBALS['displayFeatured']);
+        if (!empty($GLOBALS['pagedGrid']))      $collect($GLOBALS['pagedGrid']);
+        if (!empty($GLOBALS['popularPosts']))   $collect($GLOBALS['popularPosts']);
+        if (!empty($GLOBALS['related']))        $collect($GLOBALS['related']);
+
+        if (!empty($GLOBALS['homePanelData']) && is_array($GLOBALS['homePanelData'])) {
+            foreach ($GLOBALS['homePanelData'] as $hpName => $hpData) {
+                if (!empty($hpData['items'])) $collect($hpData['items']);
+            }
+        }
+
+        if (!empty($GLOBALS['homeVideos'])) {
+            foreach ($GLOBALS['homeVideos'] as $v) {
+                if (!empty($v['title'])) $texts[] = $v['title'];
+            }
+        }
+        if (!empty($GLOBALS['videos'])) {
+            foreach ($GLOBALS['videos'] as $v) {
+                if (!empty($v['title'])) $texts[] = $v['title'];
+            }
+        }
+
+        $texts = array_values(array_unique(array_filter($texts, function($t) {
+            return $t !== null && $t !== '';
+        })));
+
+        if (!empty($texts)) prewarm_translations_parallel($texts);
     }
 }
 
@@ -1334,6 +1490,13 @@ if (!empty($custom_text)) {
     if (!$activeEvent) $hasFestivalLogo = true;
 }
 // ==============================================================
+?>
+<?php
+// Prewarm all news translations in parallel before rendering.
+// After this call, bn_to_en() during rendering hits cache = instant.
+if (function_exists('prewarm_all_news_translations')) {
+    prewarm_all_news_translations();
+}
 ?>
 <!DOCTYPE html>
 <html lang="<?= htmlspecialchars($SITE_LANG) ?>" dir="ltr">

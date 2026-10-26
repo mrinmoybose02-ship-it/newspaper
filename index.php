@@ -54,36 +54,49 @@ if (isset($_GET['tts_proxy'])) {
 
     $audioData = null;
 
-    // ====== 1. Azure Neural HD Voice (Tanishaa -- Bengali female) ======
-    // Put your Azure TTS key in tts_config.php to enable true HD neural voice.
-    // Free tier: 500,000 chars/month (more than enough for a news portal).
-    $azureKey = '';
-    $azureRegion = 'eastus';
-    $cfgFile = __DIR__ . '/tts_config.php';
-    if (file_exists($cfgFile)) {
-        $cfg = @include $cfgFile;
-        if (is_array($cfg)) {
-            $azureKey = $cfg['azure_key'] ?? '';
-            $azureRegion = $cfg['azure_region'] ?? 'eastus';
-        }
-    }
-    $azureVoice = 'bn-IN-TanishaaNeural';
-    if (file_exists($cfgFile)) {
-        $cfg = @include $cfgFile;
-        if (is_array($cfg)) {
-            $azureVoice = $cfg['azure_voice'] ?? $azureVoice;
-        }
-    }
-    if (!empty($azureKey)) {
-        $audioData = ttsAzureNeural($text, $azureKey, $azureRegion, $azureVoice);
+    // ============================================================
+    //   TTS API KEYS — edit directly here (no external file needed)
+    // ============================================================
+    //   Priority order:
+    //     1) Murf "Anwesha"   (HD Bengali female)  — if MURF_API_KEY set
+    //     2) Azure "Tanishaa" (HD neural female)   — if AZURE_API_KEY set
+    //     3) Google TTS gtx  (free, no key)         — fallback
+    //     4) Google TTS tw-ob (free, no key)         — last-resort fallback
+    //
+    //   Leave '' to disable that provider. At minimum, Google TTS works
+    //   out-of-the-box with zero config.
+    // ============================================================
+
+    // ----- 1. Murf AI: Anwesha (HD Bengali female, $0.01/1k chars) -----
+    //   Get key: https://murf.ai → API Keys
+    $MURF_API_KEY    = '';                  // ← paste your Murf API key here
+    $MURF_VOICE      = 'bn-IN-anwesha';    // Anwesha (Bengali India female)
+    $MURF_FORMAT      = 'MP3';
+    $MURF_RATE        = 0;                  // -50..50 (speed)
+    $MURF_PITCH       = 0;                  // -50..50 (pitch)
+
+    // ----- 2. Azure Speech: Tanishaa (HD neural, 500k chars/month free) -----
+    //   Get key: https://azure.microsoft.com/free → Speech resource
+    $AZURE_API_KEY    = '';                  // ← paste your Azure Speech key here
+    $AZURE_REGION     = 'eastus';            // must match your Speech resource region
+    $AZURE_VOICE      = 'bn-IN-TanishaaNeural';
+
+    // ====== 1. Murf "Anwesha" — HD Bengali female voice ======
+    if (!empty($MURF_API_KEY)) {
+        $audioData = ttsMurf($text, $MURF_API_KEY, $MURF_VOICE, $MURF_FORMAT, $MURF_RATE, $MURF_PITCH);
     }
 
-    // ====== 2. Google TTS via client=gtx (cleaner audio path) ======
+    // ====== 2. Azure Neural HD Voice (Tanishaa -- Bengali female) ======
+    if (!empty($AZURE_API_KEY) && empty($audioData)) {
+        $audioData = ttsAzureNeural($text, $AZURE_API_KEY, $AZURE_REGION, $AZURE_VOICE);
+    }
+
+    // ====== 3. Google TTS via client=gtx (cleaner audio path) ======
     if (empty($audioData)) {
         $audioData = ttsGoogleTranslate($text, 'gtx');
     }
 
-    // ====== 3. Google TTS via client=tw-ob (original fallback) ======
+    // ====== 4. Google TTS via client=tw-ob (original fallback) ======
     if (empty($audioData)) {
         $audioData = ttsGoogleTranslate($text, 'tw-ob');
     }
@@ -99,6 +112,87 @@ if (isset($_GET['tts_proxy'])) {
         http_response_code(502);
     }
     exit;
+}
+
+/**
+ * Murf AI -- HD Bengali female voice "Anwesha" (bn-IN-anwesha).
+ * https://murf.ai/api/docs/api-reference/text-to-speech/generate
+ *
+ * Request:  POST https://api.murf.ai/v1/speech/generate
+ *           Authorization: Bearer <key>
+ *           Body JSON: {
+ *             "text":            "...",
+ *             "voiceId":         "bn-IN-anwesha",
+ *             "format":          "MP3",
+ *             "sampleRate":      24000,        // 24kHz HD audio
+ *             "encodeAsBase64":  true,         // return audio inline (no extra URL fetch)
+ *             "rate":            0,             // -50..50 (speed)
+ *             "pitch":           0              // -50..50 (pitch)
+ *           }
+ * Response: JSON with "encodedAudio" (base64) field.
+ */
+function ttsMurf($text, $apiKey, $voiceId = 'bn-IN-anwesha',
+                 $format = 'MP3', $rate = 0, $pitch = 0) {
+    if (empty($apiKey) || empty($text)) return null;
+
+    $payload = [
+        'text'           => $text,
+        'voiceId'         => $voiceId,
+        'format'          => $format ?: 'MP3',
+        'sampleRate'      => 24000,           // 24kHz — HD quality
+        'encodeAsBase64'  => true,            // inline audio (no extra URL fetch)
+        'rate'            => (int)$rate,
+        'pitch'           => (int)$pitch,
+    ];
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL             => 'https://api.murf.ai/v1/speech/generate',
+        CURLOPT_POST            => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER  => false,
+        CURLOPT_TIMEOUT         => 10,
+        CURLOPT_HTTPHEADER      => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'User-Agent: SangbadSankalanTTS/1.0',
+        ],
+        CURLOPT_POSTFIELDS      => json_encode($payload, JSON_UNESCAPED_UNICODE),
+    ]);
+    $raw  = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($code !== 200 || empty($raw)) return null;
+
+    $json = json_decode($raw, true);
+    if (!is_array($json)) return null;
+
+    // Murf returns base64-encoded audio when encodeAsBase64=true
+    if (!empty($json['encodedAudio'])) {
+        $decoded = base64_decode($json['encodedAudio'], true);
+        if ($decoded !== false && strlen($decoded) > 0) {
+            return $decoded;
+        }
+    }
+
+    // Fallback: download from audioFile URL
+    if (!empty($json['audioFile']) && filter_var($json['audioFile'], FILTER_VALIDATE_URL)) {
+        $ch2 = curl_init();
+        curl_setopt_array($ch2, [
+            CURLOPT_URL             => $json['audioFile'],
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_SSL_VERIFYPEER  => false,
+            CURLOPT_TIMEOUT         => 8,
+            CURLOPT_HTTPHEADER      => ['User-Agent: SangbadSankalanTTS/1.0'],
+        ]);
+        $audio = curl_exec($ch2);
+        $c2    = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+        curl_close($ch2);
+        if ($c2 === 200 && !empty($audio)) return $audio;
+    }
+    return null;
 }
 
 /**
@@ -3180,8 +3274,12 @@ if ($page === 'single' && !empty($singleNews)): ?>
         });
         // HD female voice preference list (neural/premium Bengali female voices).
         // Order = preference. Tanishaa is Azure neural HD voice (24kHz).
-        var FEMALE_HD_NAMES = ['tanishaa','kalpana','aditi','saraswati','lipsa','tara','sara',
-                                'swapna','arnab','ananya','female','woman','google বাংলা'];
+        // HD female Bengali voice names — priority order.
+        // 'annwesha' = Murf AI's Bengali HD female voice (when configured server-side).
+        // 'tanishaa' = Azure neural HD female voice.
+        var FEMALE_HD_NAMES = ['annwesha','anwesha','tanishaa','kalpana','aditi',
+                                'saraswati','lipsa','tara','sara','swapna','arnab',
+                                'ananya','female','woman','google বাংলা'];
         var female = null;
         // First pass: pick the highest-priority HD female voice available
         for (var fi = 0; fi < FEMALE_HD_NAMES.length && !female; fi++) {
@@ -3237,11 +3335,11 @@ if ($page === 'single' && !empty($singleNews)): ?>
                 var u = new SpeechSynthesisUtterance(text);
                 u.voice = bnVoice;
                 u.lang  = bnVoice.lang || 'bn-IN';
-                // HD-quality female voice tuning (slightly faster per user request):
-                //   rate 1.15  -> a bit faster than default, still clear
+                // HD-quality female voice tuning (a bit faster, per user request):
+                //   rate 1.25  -> slightly faster than previous 1.15
                 //   pitch 1.05 -> small lift = warmer, more feminine timbre
                 //   volume 1.0 -> full volume
-                u.rate  = 1.15;
+                u.rate  = 1.25;
                 u.pitch = 1.05;
                 u.volume = 1.0;
                 var ended = false;
@@ -3256,12 +3354,12 @@ if ($page === 'single' && !empty($singleNews)): ?>
                 };
             } catch (e) { /* fall through to proxy */ }
         }
-        // ----- Path B: HD TTS proxy (Azure Neural -> Google gtx -> Google tw-ob) -----
-        // playbackRate = 1.15 (slightly faster, per user request).
+        // ----- Path B: HD TTS proxy (Murf Anwesha -> Azure -> Google gtx -> tw-ob) -----
+        // playbackRate = 1.25 (a bit faster, per user request).
         // The proxy caches audio on the server, so repeat plays are instant.
         var url = '?tts_proxy=1&text=' + encodeURIComponent(text);
         var a = new Audio(url);
-        try { a.playbackRate = 1.15; } catch(e){}  // slightly faster than natural
+        try { a.playbackRate = 1.25; } catch(e){}  // a bit faster than previous 1.15
         a.onended  = onEnd;
         a.onerror  = onError;
         var p = a.play();

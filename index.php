@@ -19,30 +19,163 @@ try {
 // Determine current language for UI display
  $current_lang = 'বাংলা';
 
-// ====== TTS PROXY FOR GOOGLE BENGALI VOICE (FIX FOR ALL DEVICES) ======
+// ====== HD-QUALITY TTS PROXY (Bengali Female Voice) ======
+// Quality priority (best -> fallback):
+//   1. Azure Neural TTS  -> bn-IN-TanishaaNeural (HD neural female, 24kHz)
+//                          [requires AZURE_TTS_KEY in tts_config.php]
+//   2. Google TTS gtx    -> cleaner audio path vs tw-ob
+//   3. Google TTS tw-ob  -> original fallback
+// Audio is cached to disk so repeated Bengali chunks play instantly.
 if (isset($_GET['tts_proxy'])) {
-    $text = $_GET['text'] ?? '';
-    if (empty($text)) exit;
-    // FIX: Use mb_substr for Bengali UTF-8 characters to prevent half-character cuts
-    $text = mb_substr($text, 0, 140, 'UTF-8'); 
-    $url = 'https://translate.google.com/translate_tts?ie=UTF-8&q=' . urlencode($text) . '&tl=bn&client=tw-ob';
-    header('Content-Type: audio/mpeg');
-    header('Cache-Control: no-cache');
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-        "Referer: https://translate.google.com/",
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-    ));
-    $data = curl_exec($ch);
-    $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($httpcode == 200 && !empty($data)) {
-        echo $data;
+    @ini_set('display_errors', '0');
+    @error_reporting(0);
+    while (ob_get_level() > 0) { @ob_end_clean(); }
+
+    $text = isset($_GET['text']) ? trim($_GET['text']) : '';
+    if ($text === '') { http_response_code(400); exit; }
+    // FIX: mb_substr for Bengali UTF-8 (no half-character cuts)
+    // Google TTS reliably supports up to ~200 chars per request.
+    $text = mb_substr($text, 0, 200, 'UTF-8');
+
+    // ===== AUDIO CACHE (24h) -- repeated Bengali chunks play instantly =====
+    $cacheDir = __DIR__ . '/cache_tts';
+    if (!is_dir($cacheDir)) { @mkdir($cacheDir, 0775, true); }
+    $cacheKey = 'bn_' . md5($text);
+    $cacheFile = $cacheDir . '/' . $cacheKey . '.mp3';
+
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile) < 86400)) {
+        header('Content-Type: audio/mpeg');
+        header('Cache-Control: public, max-age=86400, immutable');
+        header('Content-Length: ' . filesize($cacheFile));
+        readfile($cacheFile);
+        exit;
+    }
+    // ============================================================
+
+    $audioData = null;
+
+    // ====== 1. Azure Neural HD Voice (Tanishaa -- Bengali female) ======
+    // Put your Azure TTS key in tts_config.php to enable true HD neural voice.
+    // Free tier: 500,000 chars/month (more than enough for a news portal).
+    $azureKey = '';
+    $azureRegion = 'eastus';
+    $cfgFile = __DIR__ . '/tts_config.php';
+    if (file_exists($cfgFile)) {
+        $cfg = @include $cfgFile;
+        if (is_array($cfg)) {
+            $azureKey = $cfg['azure_key'] ?? '';
+            $azureRegion = $cfg['azure_region'] ?? 'eastus';
+        }
+    }
+    $azureVoice = 'bn-IN-TanishaaNeural';
+    if (file_exists($cfgFile)) {
+        $cfg = @include $cfgFile;
+        if (is_array($cfg)) {
+            $azureVoice = $cfg['azure_voice'] ?? $azureVoice;
+        }
+    }
+    if (!empty($azureKey)) {
+        $audioData = ttsAzureNeural($text, $azureKey, $azureRegion, $azureVoice);
+    }
+
+    // ====== 2. Google TTS via client=gtx (cleaner audio path) ======
+    if (empty($audioData)) {
+        $audioData = ttsGoogleTranslate($text, 'gtx');
+    }
+
+    // ====== 3. Google TTS via client=tw-ob (original fallback) ======
+    if (empty($audioData)) {
+        $audioData = ttsGoogleTranslate($text, 'tw-ob');
+    }
+
+    if (!empty($audioData)) {
+        // Save to cache for instant replay (24h)
+        @file_put_contents($cacheFile, $audioData, LOCK_EX);
+        header('Content-Type: audio/mpeg');
+        header('Cache-Control: public, max-age=86400, immutable');
+        header('Content-Length: ' . strlen($audioData));
+        echo $audioData;
+    } else {
+        http_response_code(502);
     }
     exit;
+}
+
+/**
+ * Azure Neural TTS -- HD Bengali female voice (bn-IN-TanishaaNeural).
+ * 24kHz / 48kbps MP3. Sounds natural and human-like.
+ */
+function ttsAzureNeural($text, $apiKey, $region = 'eastus', $voice = 'bn-IN-TanishaaNeural') {
+    $url = "https://{$region}.tts.speech.microsoft.com/cognitiveservices/v1";
+    // Tanishaa = Bengali (India) female neural voice (HD).
+    // Optional alternative: bn-IN-BashkarNeural (male).
+    $voice = $voice ?: 'bn-IN-TanishaaNeural';
+    $ssml  = '<speak version="1.0" xml:lang="bn-IN">';
+    $ssml .= '<voice name="' . htmlspecialchars($voice, ENT_XML1 | ENT_QUOTES, 'UTF-8') . '">';
+    $ssml .= '<prosody rate="1.0" pitch="1.0" volume="100.0">';
+    $ssml .= htmlspecialchars($text, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+    $ssml .= '</prosody></voice></speak>';
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/ssml+xml',
+            'X-Microsoft-OutputFormat: audio-24khz-48kbitrate-mono-mp3',
+            'User-Agent: SangbadSankalanTTS/1.0',
+        ],
+        CURLOPT_POSTFIELDS => $ssml,
+    ]);
+    $data = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return ($code === 200 && !empty($data)) ? $data : null;
+}
+
+/**
+ * Google Translate TTS -- Bengali female voice.
+ * client=gtx usually returns a cleaner MP3 than tw-ob.
+ */
+function ttsGoogleTranslate($text, $client = 'gtx') {
+    $textLen = mb_strlen($text, 'UTF-8');
+    $url = 'https://translate.google.com/translate_tts?ie=UTF-8'
+         . '&q=' . rawurlencode($text)
+         . '&tl=bn'
+         . '&client=' . $client
+         . '&total=1'
+         . '&idx=0'
+         . '&textlen=' . $textLen
+         . '&prev=input';
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_TIMEOUT => 6,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTPHEADER => [
+            'Referer: https://translate.google.com/',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept: audio/mpeg, audio/*;q=0.9, */*;q=0.5',
+            'Accept-Language: en-US,en;q=0.5',
+            'Accept-Encoding: identity',
+            'Connection: keep-alive',
+        ],
+    ]);
+    $data = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $ct = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
+    if ($code === 200 && !empty($data) && stripos($ct, 'audio') !== false) {
+        return $data;
+    }
+    return null;
 }
 // =====================================================================
 
@@ -2228,6 +2361,10 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 
 <button class="sb-toggle" id="sbToggle" aria-label="Sidebar Toggle"><i class="fas fa-bars"></i></button>
 
+<?php
+// ★ v2: শুধুমাত্র single news page-এ TTS প্যানেল দেখাবে (হোমপেজে নয়)।
+// ইউজার যখন কোনো খবরে ক্লিক করে পড়তে যাবে, তখনই এই প্যানেল দেখাবে।
+if ($page === 'single' && !empty($singleNews)): ?>
 <!-- ====== BENGALI FEMALE ANCHOR WIDGET (TTS News Reader) ====== -->
 <!-- Floating Avatar Button -->
 <button id="bnAnchorFab" class="bn-anchor-fab" aria-label="সংবাদ শুনুন" title="সংবাদ শুনুন (বাংলা অ্যাঙ্কর)">
@@ -2372,6 +2509,7 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
     </div>
 </div>
 <!-- ====== END BENGALI FEMALE ANCHOR WIDGET ====== -->
+<?php endif; // end single-news-only widget ?>
 
 <!-- Permission Popup -->
 <div id="allowNewsPopup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100000;align-items:center;justify-content:center;">
@@ -2986,6 +3124,8 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
 })();
 </script>
 
+<?php // ★ v2: TTS widget JS — শুধুমাত্র single news page-এ লোড হবে।
+if ($page === 'single' && !empty($singleNews)): ?>
 <!-- ====== BENGALI FEMALE ANCHOR SCRIPT (TTS News Reader) ====== -->
 <script>
 (function(){
@@ -3038,12 +3178,26 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
             var L = (v.lang || '').toLowerCase();
             return L === 'bn' || L === 'bn-in' || L === 'bn-bd' || L.indexOf('bn-') === 0 || L.indexOf('bn_') === 0;
         });
-        // Prefer female-sounding names (Aditi, Kalpana, Saraswati, female)
-        var female = bnVoices.find(function(v){
-            var n = (v.name || '').toLowerCase();
-            return n.indexOf('aditi') >= 0 || n.indexOf('kalpana') >= 0 || n.indexOf('saraswati') >= 0
-                || n.indexOf('female') >= 0 || n.indexOf('tara') >= 0 || n.indexOf('sara') >= 0;
-        });
+        // HD female voice preference list (neural/premium Bengali female voices).
+        // Order = preference. Tanishaa is Azure neural HD voice (24kHz).
+        var FEMALE_HD_NAMES = ['tanishaa','kalpana','aditi','saraswati','lipsa','tara','sara',
+                                'swapna','arnab','ananya','female','woman','google বাংলা'];
+        var female = null;
+        // First pass: pick the highest-priority HD female voice available
+        for (var fi = 0; fi < FEMALE_HD_NAMES.length && !female; fi++) {
+            female = bnVoices.find(function(v){
+                var n = (v.name || '').toLowerCase();
+                return n.indexOf(FEMALE_HD_NAMES[fi]) >= 0;
+            });
+        }
+        // Fallback: any voice whose name explicitly mentions female
+        if (!female) {
+            female = bnVoices.find(function(v){
+                var n = (v.name || '').toLowerCase();
+                return n.indexOf('female') >= 0 || n.indexOf('woman') >= 0
+                    || n.indexOf('nadira') >= 0 || n.indexOf('diya') >= 0;
+            });
+        }
         bnVoice = female || bnVoices[0] || null;
         speechReady = true;
     }
@@ -3077,14 +3231,18 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
     // Play one chunk via the best available engine.
     // Returns an object with a .cancel() method to stop playback.
     function playChunk(text, onEnd, onError) {
-        // ----- Path A: Native Bengali voice (Web Speech API) — original Bengali pronunciation -----
+        // ----- Path A: Native Bengali voice (Web Speech API) -- HD on supported devices -----
         if (bnVoice && 'speechSynthesis' in window) {
             try {
                 var u = new SpeechSynthesisUtterance(text);
                 u.voice = bnVoice;
                 u.lang  = bnVoice.lang || 'bn-IN';
-                u.rate  = 1.05;   // slightly faster than default
-                u.pitch = 1.0;
+                // HD-quality female voice tuning (slightly faster per user request):
+                //   rate 1.15  -> a bit faster than default, still clear
+                //   pitch 1.05 -> small lift = warmer, more feminine timbre
+                //   volume 1.0 -> full volume
+                u.rate  = 1.15;
+                u.pitch = 1.05;
                 u.volume = 1.0;
                 var ended = false;
                 u.onend = function(){ if (ended) return; ended = true; onEnd(); };
@@ -3098,10 +3256,12 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
                 };
             } catch (e) { /* fall through to proxy */ }
         }
-        // ----- Path B: Google Bengali TTS proxy (fallback) -----
+        // ----- Path B: HD TTS proxy (Azure Neural -> Google gtx -> Google tw-ob) -----
+        // playbackRate = 1.15 (slightly faster, per user request).
+        // The proxy caches audio on the server, so repeat plays are instant.
         var url = '?tts_proxy=1&text=' + encodeURIComponent(text);
         var a = new Audio(url);
-        try { a.playbackRate = 1.3; } catch(e){}
+        try { a.playbackRate = 1.15; } catch(e){}  // slightly faster than natural
         a.onended  = onEnd;
         a.onerror  = onError;
         var p = a.play();
@@ -3338,7 +3498,8 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
 
     function startReading(fullText, statusMsg) {
         setStatus(statusMsg, 'reading');
-        chunks = splitIntoChunks(fullText, 140);
+        // Chunk size 200 chars (matches PHP proxy limit). Fewer chunks = smoother flow.
+        chunks = splitIntoChunks(fullText, 200);
         chunkIdx = 0;
         if (chunks.length === 0) {
             setStatus('পড়ার মতো টেক্সট নেই।', 'paused');
@@ -3406,6 +3567,7 @@ if (<?= isset($_GET['notify_test']) ? 'true' : 'false' ?>) {
 })();
 </script>
 <!-- ====== END BENGALI FEMALE ANCHOR SCRIPT ====== -->
+<?php endif; // end single-news-only widget JS ?>
 
 </body>
 </html>

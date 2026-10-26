@@ -16,8 +16,283 @@ try {
     }
 } catch (Exception $e) {}
 
-// Determine current language for UI display
- $current_lang = 'বাংলা';
+// ============================================================
+//   LANGUAGE DETECTION — single-file bilingual support
+//   ?lang=en  →  English UI (cookie persisted 1 year)
+//   ?lang=bn  →  Bengali UI (default)
+//   No external file, no Google Translate.
+// ============================================================
+$SITE_LANG = 'bn';
+if (isset($_GET['lang']) && in_array($_GET['lang'], ['bn','en'], true)) {
+    $SITE_LANG = $_GET['lang'];
+    setcookie('site_lang', $SITE_LANG, time() + 86400 * 365, '/');
+} elseif (isset($_COOKIE['site_lang']) && $_COOKIE['site_lang'] === 'en') {
+    $SITE_LANG = 'en';
+}
+$GLOBALS['SITE_LANG'] = $SITE_LANG;
+$current_lang = ($SITE_LANG === 'en') ? 'English' : 'বাংলা';
+
+/**
+ * en_label(): translates known Bengali category names to English.
+ * In Bengali mode returns the input unchanged. In English mode looks up
+ * a translation table — unknown names pass through unchanged so news
+ * titles/excerpts stay Bengali.
+ */
+if (!function_exists('en_label')) {
+    function en_label($bn) {
+        if ($bn === null || $bn === '') return $bn;
+        if (empty($GLOBALS['SITE_LANG']) || $GLOBALS['SITE_LANG'] !== 'en') return $bn;
+        $map = [
+            'প্রধান খবর'  => 'Headlines',
+            'জাতীয়'      => 'National',
+            'রাজনীতি'     => 'Politics',
+            'আন্তর্জাতিক'  => 'International',
+            'অর্থনীতি'    => 'Economy',
+            'খেলাধুলা'    => 'Sports',
+            'বিনোদন'     => 'Entertainment',
+            'শিক্ষা'      => 'Education',
+            'প্রযুক্তি'    => 'Technology',
+            'স্বাস্থ্য'     => 'Health',
+            'বিশেষ সংবাদ' => 'Special News',
+            'লাইফস্টাইল'   => 'Lifestyle',
+            'ধর্ম'        => 'Religion',
+            'সংস্কৃতি'    => 'Culture',
+            'মতামত'      => 'Opinion',
+            'ক্রাইম'      => 'Crime',
+            'কৃষি'       => 'Agriculture',
+            'ভ্রমণ'      => 'Travel',
+            'চাকরি'      => 'Jobs',
+            'আর্কাইভ'     => 'Archive',
+        ];
+        $key = trim((string)$bn);
+        return $map[$key] ?? $bn;
+    }
+}
+
+/**
+ * ★ Translate Bengali plain-text → English using Google Translate's free
+ *   /translate_a/single endpoint (no API key needed).
+ *   - Cached for 30 days in /cache_tr/ (file per hash)
+ *   - Splits long text on sentence boundaries (~1500 chars per request)
+ *   - On failure, returns original text unchanged (graceful fallback)
+ *   - Returns text unchanged if not in English mode
+ */
+if (!function_exists('bn_to_en')) {
+    function bn_to_en($text) {
+        if ($text === null || $text === '') return $text;
+        if (empty($GLOBALS['SITE_LANG']) || $GLOBALS['SITE_LANG'] !== 'en') return $text;
+        $text = (string)$text;
+
+        // ===== Cache check =====
+        $cacheDir = __DIR__ . '/cache_tr';
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+        $cacheKey = 'tr_' . hash('sha256', $text);
+        $cacheFile = $cacheDir . '/' . $cacheKey . '.txt';
+        if (file_exists($cacheFile) && (time() - filemtime($cacheFile) < 86400 * 30)) {
+            $cached = @file_get_contents($cacheFile);
+            if ($cached !== false && $cached !== '') return $cached;
+        }
+
+        // ===== Chunk long text at sentence boundaries (~1500 chars max per request) =====
+        $chunks = [];
+        if (mb_strlen($text, 'UTF-8') > 1500) {
+            $sentences = preg_split('/(?<=[.!?।॥])\s+/u', $text);
+            $current = '';
+            foreach ($sentences as $sentence) {
+                if (mb_strlen($current . ' ' . $sentence, 'UTF-8') > 1500) {
+                    if ($current !== '') $chunks[] = $current;
+                    $current = $sentence;
+                } else {
+                    $current = $current === '' ? $sentence : $current . ' ' . $sentence;
+                }
+            }
+            if ($current !== '') $chunks[] = $current;
+        } else {
+            $chunks[] = $text;
+        }
+
+        $translated = '';
+        foreach ($chunks as $chunk) {
+            $url = 'https://translate.google.com/translate_a/single'
+                 . '?client=gtx&sl=bn&tl=en&dt=t&q=' . rawurlencode($chunk);
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL             => $url,
+                CURLOPT_RETURNTRANSFER  => true,
+                CURLOPT_SSL_VERIFYPEER  => false,
+                CURLOPT_TIMEOUT         => 12,
+                CURLOPT_FOLLOWLOCATION  => true,
+                CURLOPT_HTTPHEADER      => [
+                    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Accept: application/json, text/plain, */*',
+                    'Accept-Language: en-US,en;q=0.5',
+                ],
+            ]);
+            $resp = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($code !== 200 || empty($resp)) {
+                $translated .= $chunk . ' ';   // fallback: keep original
+                continue;
+            }
+
+            $data = json_decode($resp, true);
+            if (!is_array($data) || !isset($data[0]) || !is_array($data[0])) {
+                $translated .= $chunk . ' ';
+                continue;
+            }
+
+            // $data[0] is an array of [translated, original, ...] sentence pairs
+            $chunkTrans = '';
+            foreach ($data[0] as $pair) {
+                if (is_array($pair) && isset($pair[0]) && is_string($pair[0])) {
+                    $chunkTrans .= $pair[0];
+                }
+            }
+            $translated .= $chunkTrans . ' ';
+        }
+
+        $translated = trim($translated);
+        if ($translated === '') return $text;  // nothing translated; return original
+
+        // ===== Save to cache =====
+        @file_put_contents($cacheFile, $translated, LOCK_EX);
+
+        return $translated;
+    }
+}
+
+/**
+ * ★ Translate HTML content (preserves HTML tags, translates only text nodes).
+ *   Uses DOMDocument to parse HTML, walks text nodes, applies bn_to_en() to each.
+ *   Falls back to plain bn_to_en() if DOMDocument is unavailable.
+ */
+if (!function_exists('bn_to_en_html')) {
+    function bn_to_en_html($html) {
+        if ($html === null || $html === '') return $html;
+        if (empty($GLOBALS['SITE_LANG']) || $GLOBALS['SITE_LANG'] !== 'en') return $html;
+        if (!class_exists('DOMDocument')) return bn_to_en($html);
+
+        $dom = new DOMDocument('1.0', 'UTF-8');
+        $prevErr = libxml_use_internal_errors(true);
+        // Build libxml flags defensively - some constants don't exist on older
+        // PHP / libxml builds (XAMPP, Windows). Typo fix: NODEFDT -> NODEFDTD.
+        $flags = 0;
+        if (defined('LIBXML_HTML_NOIMPLIED'))  $flags |= LIBXML_HTML_NOIMPLIED;
+        if (defined('LIBXML_HTML_NODEFDTD'))   $flags |= LIBXML_HTML_NODEFDTD;
+        if (defined('LIBXML_NOCDATA'))         $flags |= LIBXML_NOCDATA;
+        if (defined('LIBXML_NOERROR'))         $flags |= LIBXML_NOERROR;
+        // Wrap in <root> with explicit UTF-8 declaration to avoid encoding issues
+        $dom->loadHTML('<?xml encoding="UTF-8"?><root>' . $html . '</root>', $flags);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prevErr);
+
+        $xpath = new DOMXPath($dom);
+        $textNodes = $xpath->query('//text()[normalize-space()]');
+        foreach ($textNodes as $node) {
+            $original = $node->nodeValue;
+            if (trim($original) === '') continue;
+            $translated = bn_to_en($original);
+            if ($translated !== $original) {
+                $node->nodeValue = $translated;
+            }
+        }
+
+        $root = $dom->getElementsByTagName('root')->item(0);
+        if (!$root) return $html;
+        $innerHTML = '';
+        foreach ($root->childNodes as $child) {
+            $innerHTML .= $dom->saveHTML($child);
+        }
+        return $innerHTML;
+    }
+}
+
+/**
+ * UI translation table for English mode (applied via output buffer at end).
+ * ★ Only specific UI phrases/labels — never single words that could
+ *   appear in news content. This keeps news titles/excerpts intact.
+ */
+$EN_TRANSLATIONS = [
+    // Top bar
+    'ই-পেপার'                => 'e-Paper',
+    'লগইন'                  => 'Login',
+    'অ্যাডমিন'                => 'Admin',
+    // Breaking news
+    'ব্রেকিং'                => 'Breaking',
+    // Nav menu
+    '<i class="fas fa-home"></i> হোম'               => '<i class="fas fa-home"></i> Home',
+    '<i class="fas fa-video"></i> ভিডিও'             => '<i class="fas fa-video"></i> Videos',
+    '<i class="far fa-newspaper"></i> ই-পেপার'       => '<i class="far fa-newspaper"></i> e-Paper',
+    '<i class="fas fa-clock-rotate-left"></i> আর্কাইভ' => '<i class="fas fa-clock-rotate-left"></i> Archive',
+    'আরও <i class="fas fa-chevron-down"></i>'        => 'More <i class="fas fa-chevron-down"></i>',
+    // Search
+    'খবর খুঁজুন...'        => 'Search news...',
+    'খবর খুঁজুন'           => 'Search news',
+    // Sidebar
+    'সাইডবার লুকাও'        => 'Hide Sidebar',
+    'বিভাগসমূহ'            => 'Categories',
+    'জনপ্রিয় সংবাদ'        => 'Popular News',
+    'জনপ্রিয় ট্যাগ'        => 'Popular Tags',
+    // Section titles
+    'সর্বশেষ সংবাদ'        => 'Latest News',
+    'সম্পর্কিত সংবাদ'      => 'Related News',
+    'শীর্ষ সংবাদ'          => 'Top Stories',
+    'ভিডিও সংবাদ'         => 'Video News',
+    'কোনো সংবাদ পাওয়া যায়নি' => 'No news found',
+    'হোমে ফিরুন'          => 'Back to Home',
+    // Single news meta
+    'শেয়ার করুন:'          => 'Share:',
+    'ট্যাগ:'                => 'Tags:',
+    // Archive dropdown
+    'কোনো আর্কাইভ নেই'     => 'No archives available',
+    // Misc UI
+    'সব দেখুন'             => 'View All',
+    // Footer
+    'সর্বস্বত্ব সংরক্ষিত।' => 'All rights reserved.',
+    'দ্রুত লিংক'           => 'Quick Links',
+    'যোগাযোগ'              => 'Contact',
+    // TTS panel labels
+    'সংবাদ শুনুন'                   => 'Listen to news',
+    'বাংলা সংবাদ অ্যাঙ্কর'           => 'Bengali News Anchor',
+    'প্রস্তুত। সংবাদ শুনতে ক্লিক করুন।'  => 'Ready. Click to listen to the news.',
+    'শুনুন'                          => 'Listen',
+    'থামান'                          => 'Stop',
+    'প্যানেল হাইড করুন'              => 'Hide panel',
+    'টেক্সট দেখান/লুকান'             => 'Show/hide text',
+    'টেক্সট দেখান'                  => 'Show text',
+    'টেক্সট লুকান'                  => 'Hide text',
+    'বন্ধ করুন'                     => 'Close',
+    'সংবাদ শুনুন (বাংলা অ্যাঙ্কর)'   => 'Listen to news (Bengali anchor)',
+    'বাংলা নারী কণ্ঠ'                => 'Bengali female voice',
+    // Time ago strings (from timeAgo function)
+    'এইমাত্র'        => 'Just now',
+    ' মিনিট আগে'   => ' minutes ago',
+    ' ঘণ্টা আগে'   => ' hours ago',
+    ' দিন আগে'     => ' days ago',
+    ' মাস আগে'     => ' months ago',
+    ' বছর আগে'     => ' years ago',
+    // Bengali month names (in formatDate)
+    'জানুয়ারি'  => 'January', 'ফেব্রুয়ারি' => 'February',
+    'মার্চ'     => 'March',    'এপ্রিল'    => 'April',
+    'জুন'      => 'June',     'জুলাই'    => 'July',
+    'আগস্ট'    => 'August',   'সেপ্টেম্বর' => 'September',
+    'অক্টোবর'  => 'October',  'নভেম্বর'   => 'November',
+    'ডিসেম্বর' => 'December',
+    // Bengali day names (in date display)
+    'রবিবার'   => 'Sunday',    'সোমবার'    => 'Monday',
+    'মঙ্গলবার' => 'Tuesday',   'বুধবার'    => 'Wednesday',
+    'বৃহস্পতিবার' => 'Thursday', 'শুক্রবার'  => 'Friday',
+    'শনিবার'   => 'Saturday',
+];
+
+// Start output buffering in English mode so we can apply UI translations
+// at the very end. In Bengali mode we output normally (no overhead).
+if ($SITE_LANG === 'en') {
+    ob_start();
+}
 
 // ====== HD-QUALITY TTS PROXY (Bengali Female Voice) ======
 // Quality priority (best -> fallback):
@@ -348,6 +623,12 @@ if (isset($_GET['ajax_check_new_news'])) {
                     }
                 }
                 $n['image_url'] = $imgUrl;
+                // ★ English mode: translate title + excerpt for the popup notification
+                if (!empty($GLOBALS['SITE_LANG']) && $GLOBALS['SITE_LANG'] === 'en'
+                    && function_exists('bn_to_en')) {
+                    if (!empty($n['title']))   $n['title']   = bn_to_en($n['title']);
+                    if (!empty($n['excerpt'])) $n['excerpt'] = bn_to_en($n['excerpt']);
+                }
             }
             echo json_encode(['status' => 'new', 'last_id' => $maxId, 'items' => $newNewsList]);
         } else {
@@ -623,7 +904,7 @@ foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $ca
 $latestNewsId = 0; $latestNewsTitle = '';
 try {
     $lnRow = $pdo->query("SELECT id, title FROM news WHERE status='published' AND created_at <= NOW() ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-    if ($lnRow) { $latestNewsId = (int)$lnRow['id']; $latestNewsTitle = (string)$lnRow['title']; }
+    if ($lnRow) { $latestNewsId = (int)$lnRow['id']; $latestNewsTitle = (string)bn_to_en($lnRow['title']); }
 } catch (Exception $e) {}
 // ★ v6.6: true = পেজ খুললেই (৪ সেকেন্ড পর) সর্বশেষ খবরের পপ-আপ দেখাবে; false = শুধু নতুন খবর এলে দেখাবে
 $NEWS_POPUP_ON_LOAD = true;
@@ -1055,7 +1336,7 @@ if (!empty($custom_text)) {
 // ==============================================================
 ?>
 <!DOCTYPE html>
-<html lang="bn" dir="ltr">
+<html lang="<?= htmlspecialchars($SITE_LANG) ?>" dir="ltr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -1716,11 +1997,16 @@ $EPAPER_URL = 'epaper.php';
 <a href="<?= htmlspecialchars($EPAPER_URL) ?>" class="kol-epaper" target="_blank" rel="noopener" aria-label="ই-পেপার"><i class="far fa-newspaper"></i> ই-পেপার</a>
 <?php endif; ?>
 <div class="tr">
-    <!-- Language Switcher (Bengali Only) -->
+    <!-- Language Switcher (Bengali ↔ English) -->
     <div class="lang-switcher">
-        <button class="lang-btn" id="langBtn"><i class="fas fa-globe"></i> <span id="currentLangText"><?= $current_lang ?></span></button>
+        <button class="lang-btn" id="langBtn" type="button" aria-haspopup="true" aria-expanded="false">
+            <i class="fas fa-globe"></i>
+            <span id="currentLangText"><?= htmlspecialchars($current_lang) ?></span>
+            <i class="fas fa-chevron-down" style="font-size:7px;margin-left:3px;opacity:0.7;transition:transform .2s"></i>
+        </button>
         <div class="lang-dropdown" id="langDropdown" style="display:none;">
-            <a href="#" data-lang="bn">বাংলা</a>
+            <a href="?lang=bn">বাংলা</a>
+            <a href="?lang=en">English</a>
         </div>
     </div>
     <a href="#" class="kol-si si-fb" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
@@ -1759,7 +2045,7 @@ $EPAPER_URL = 'epaper.php';
         <?php endif; ?>
         
         <div class="header-content <?= $hasFestivalLogo ? 'has-logo' : 'no-logo'; ?>">
-            <h1>সংবাদ সংকলন</h1>
+            <h1 translate="no" class="notranslate">সংবাদ সংকলন</h1>
             <div class="tagline">Truthy &amp; Trusted News Portal</div>
         </div>
     </div>
@@ -1796,8 +2082,8 @@ $EPAPER_URL = 'epaper.php';
  $ncActive = ($currentCat === $nci && !$currentSub);
 ?>
 <?php if ($ncHasSubs): ?>
-<div class="kn-inline" data-cat="<?= htmlspecialchars($nci) ?>">
-<a href="?cat=<?= urlencode($nci) ?>" class="kn-link<?= $ncActive ? ' active' : '' ?>"><i class="fas <?= $ncIcon ?>"></i> <?= htmlspecialchars($nci) ?></a>
+<div class="kn-inline" data-cat="<?= htmlspecialchars(en_label($nci)) ?>">
+<a href="?cat=<?= urlencode($nci) ?>" class="kn-link<?= $ncActive ? ' active' : '' ?>"><i class="fas <?= $ncIcon ?>"></i> <?= htmlspecialchars(en_label($nci)) ?></a>
 <span class="kn-arrow"><i class="fas fa-chevron-down"></i></span>
 <div class="kn-drop">
 <?php foreach ($ncSubs as $ns): $nsActive = ($currentSub === (int)$ns['id']); ?>
@@ -1807,7 +2093,7 @@ $EPAPER_URL = 'epaper.php';
 </div>
 </div>
 <?php else: ?>
-<a href="?cat=<?= urlencode($nci) ?>" class="kn-link<?= $ncActive ? ' active' : '' ?>"><i class="fas <?= $ncIcon ?>"></i> <?= htmlspecialchars($nci) ?></a>
+<a href="?cat=<?= urlencode($nci) ?>" class="kn-link<?= $ncActive ? ' active' : '' ?>"><i class="fas <?= $ncIcon ?>"></i> <?= htmlspecialchars(en_label($nci)) ?></a>
 <?php endif; ?>
 <?php endforeach; ?>
 
@@ -1841,14 +2127,14 @@ $EPAPER_URL = 'epaper.php';
 </div>
 <div class="kn-panel" id="knPanel">
 <?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; ?>
-<div class="kn-pl-link<?= $cActive ? ' active' : '' ?><?= $cHasSubs ? ' has-psubs' : '' ?>" data-pcat="<?= htmlspecialchars($cn) ?>">
+<div class="kn-pl-link<?= $cActive ? ' active' : '' ?><?= $cHasSubs ? ' has-psubs' : '' ?>" data-pcat="<?= htmlspecialchars(en_label($cn)) ?>">
 <div class="kpi"><i class="fas <?= $cIcon ?>"></i></div>
-<a href="?cat=<?= urlencode($cn) ?>" class="kpn"><?= htmlspecialchars($cn) ?></a>
+<a href="?cat=<?= urlencode($cn) ?>" class="kpn"><?= htmlspecialchars(en_label($cn)) ?></a>
 <?php if ($cPostCNT > 0): ?><span class="kpc"><?= $cPostCNT ?></span><?php endif; ?>
-<?php if ($cHasSubs): ?><span class="kn-sub-tog" data-ptog="<?= htmlspecialchars($cn) ?>" title="সাব-ক্যাটাগরি"><i class="fas fa-chevron-down"></i></span><?php endif; ?>
+<?php if ($cHasSubs): ?><span class="kn-sub-tog" data-ptog="<?= htmlspecialchars(en_label($cn)) ?>" title="সাব-ক্যাটাগরি"><i class="fas fa-chevron-down"></i></span><?php endif; ?>
 </div>
 <?php if ($cHasSubs): ?>
-<div class="kn-subs" data-psubs="<?= htmlspecialchars($cn) ?>">
+<div class="kn-subs" data-psubs="<?= htmlspecialchars(en_label($cn)) ?>">
 <?php foreach ($cSubs as $ps): $psActive = ($currentSub === (int)$ps['id']); $psc = $subPostCounts[$ps['id']] ?? 0; ?>
 <a href="?cat=<?= urlencode($cn) ?>&sub=<?= $ps['id'] ?>" class="kn-sub-link<?= $psActive ? ' active' : '' ?>"><span class="ksn"><?= htmlspecialchars($ps['name']) ?></span><?php if ($psc > 0): ?><span class="ksc"><?= $psc ?></span><?php endif; ?></a>
 <?php endforeach; ?>
@@ -1875,9 +2161,9 @@ $EPAPER_URL = 'epaper.php';
 <ul class="sb-cat-list">
 <?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cCnt = $catPostCounts[$cn] ?? 0; ?>
 <li class="sb-ci<?= $cHasSubs ? ' has-subs' : '' ?>">
-<a href="?cat=<?= urlencode($cn) ?>" class="<?= $cActive ? 'active' : '' ?>"><i class="fas <?= $cIcon ?>"></i><span><?= htmlspecialchars($cn) ?></span><?php if ($cCnt > 0): ?><span class="sb-cc"><?= $cCnt ?></span><?php endif; ?></a>
-<?php if ($cHasSubs): ?><span class="sb-st" data-stog="<?= htmlspecialchars($cn) ?>"><i class="fas fa-chevron-down"></i></span>
-<ul class="sb-sl" data-ssubs="<?= htmlspecialchars($cn) ?>">
+<a href="?cat=<?= urlencode($cn) ?>" class="<?= $cActive ? 'active' : '' ?>"><i class="fas <?= $cIcon ?>"></i><span><?= htmlspecialchars(en_label($cn)) ?></span><?php if ($cCnt > 0): ?><span class="sb-cc"><?= $cCnt ?></span><?php endif; ?></a>
+<?php if ($cHasSubs): ?><span class="sb-st" data-stog="<?= htmlspecialchars(en_label($cn)) ?>"><i class="fas fa-chevron-down"></i></span>
+<ul class="sb-sl" data-ssubs="<?= htmlspecialchars(en_label($cn)) ?>">
 <?php foreach ($cSubs as $ss): $ssActive = ($currentSub === (int)$ss['id']); $ssc = $subPostCounts[$ss['id']] ?? 0; ?>
 <li class="sb-si"><a href="?cat=<?= urlencode($cn) ?>&sub=<?= $ss['id'] ?>" class="<?= $ssActive ? ' active' : '' ?>"><i class="fas fa-circle"></i><?= htmlspecialchars($ss['name']) ?><?php if ($ssc > 0): ?><span class="ssc"><?= $ssc ?></span><?php endif; ?></a></li>
 <?php endforeach; ?>
@@ -1894,7 +2180,7 @@ $EPAPER_URL = 'epaper.php';
 <a href="?page=single&id=<?= $pp['id'] ?>" class="pop-item">
 <img src="<?= newsImage($pp['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
 <div class="pi-info">
-<div class="pi-t"><?= htmlspecialchars($pp['title']) ?></div>
+<div class="pi-t"><?= htmlspecialchars(bn_to_en($pp['title'])) ?></div>
 <div class="pi-m"><?= timeAgo($pp['created_at']) ?></div>
 </div>
 </a>
@@ -1941,7 +2227,7 @@ $EPAPER_URL = 'epaper.php';
             <div class="vp-card">
                 <div class="video-embed"><?= $videoCode ?></div>
                 <div class="vp-body">
-                    <h3 class="vp-title"><?= htmlspecialchars($vid['title']) ?></h3>
+                    <h3 class="vp-title"><?= htmlspecialchars(bn_to_en($vid['title'])) ?></h3>
                     <p class="vp-date"><i class="far fa-calendar-alt"></i> <?= date("d M Y", strtotime($vid['created_at'])) ?></p>
                 </div>
             </div>
@@ -1957,13 +2243,13 @@ $EPAPER_URL = 'epaper.php';
 </div>
 <?php elseif ($page === 'single' && $singleNews): 
     $shareUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['REQUEST_URI'] ?? '/');
-    $shareTitle = htmlspecialchars($singleNews['title']);
+    $shareTitle = htmlspecialchars(bn_to_en($singleNews['title']));
     $shareTitleEnc = urlencode($shareTitle);
     $shareUrlEnc = urlencode($shareUrl);
 ?>
 <article class="single-wrap">
 <div style="margin-bottom:10px;">
-<a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars($singleNews['category']) ?></a>
+<a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars(en_label($singleNews['category'])) ?></a>
 <?php if (!empty($singleNews['subcategory'])): ?>
 <a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)$singleNews['subcategory_id'] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
 <?php endif; ?>
@@ -1985,21 +2271,21 @@ $EPAPER_URL = 'epaper.php';
 
 <div class="single-meta">
 <span><i class="far fa-clock"></i> <?= formatDate($singleNews['created_at']) ?></span>
-<span><i class="far fa-user"></i> সংবাদ সংকলন</span>
+<span><i class="far fa-user"></i> <span translate="no" class="notranslate">সংবাদ সংকলন</span></span>
 <?php if (!empty($singleNews['tags'])): ?>
-<span><i class="fas fa-tags"></i> <?= htmlspecialchars($singleNews['tags']) ?></span>
+<span><i class="fas fa-tags"></i> <?= htmlspecialchars(bn_to_en($singleNews['tags'])) ?></span>
 <?php endif; ?>
 </div>
 
 <!-- হেডলাইন এখানে দেখাবে (ছবির আগে) -->
 <?php if (!empty($singleNews['headline'])): ?>
     <div class="single-headline">
-        <?= htmlspecialchars($singleNews['headline']) ?>
+        <?= htmlspecialchars(bn_to_en($singleNews['headline'])) ?>
     </div>
 <?php endif; ?>
 
 <?php if (!empty($singleNews['image'])): ?>
-<div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars($singleNews['title']) ?>" decoding="async" fetchpriority="high"></div>
+<div class="single-img"><img src="<?= newsImage($singleNews['image'], $placeholderImg) ?>" alt="<?= htmlspecialchars(bn_to_en($singleNews['title'])) ?>" decoding="async" fetchpriority="high"></div>
 <?php endif; ?>
 <?php
  $content = $singleNews['content'];
@@ -2066,7 +2352,7 @@ foreach ($paragraphs as $i => $p) {
         if ($paraCount === 5 && !empty($adContentMiddle)) $out .= $adContentMiddle;
     }
 }
-echo '<div class="single-content">' . $out . '</div>';
+echo '<div class="single-content">' . bn_to_en_html($out) . '</div>';
 ?>
 <?php if (!empty($singleNews['tags'])): $sTags = array_filter(array_map('trim', explode(',', $singleNews['tags']))); if (!empty($sTags)): ?>
 <div class="single-tags">
@@ -2088,8 +2374,8 @@ echo '<div class="single-content">' . $out . '</div>';
 <a href="?page=single&id=<?= $ri['id'] ?>" class="nc">
 <div class="nc-img"><img src="<?= newsImage($ri['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
 <div class="nc-body">
-<div class="nc-cat"><?= htmlspecialchars($ri['category']) ?><?php if (!empty($ri['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ri['subcategory']) ?></span><?php endif; ?></div>
-<h3><?= htmlspecialchars($ri['title']) ?></h3>
+<div class="nc-cat"><?= htmlspecialchars(en_label($ri['category'])) ?><?php if (!empty($ri['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ri['subcategory']) ?></span><?php endif; ?></div>
+<h3><?= htmlspecialchars(bn_to_en($ri['title'])) ?></h3>
 <div class="nc-meta"><span><i class="far fa-clock"></i> <?= timeAgo($ri['created_at']) ?></span></div>
 </div>
 </a>
@@ -2115,9 +2401,9 @@ echo '<div class="single-content">' . $out . '</div>';
 <a href="?page=single&id=<?= $fm['id'] ?>" class="feat-main">
 <img src="<?= newsImage($fm['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async">
 <div class="ov">
-<span class="cb"><?= htmlspecialchars($fm['category']) ?><?php if (!empty($fm['subcategory'])): ?> / <?= htmlspecialchars($fm['subcategory']) ?><?php endif; ?></span>
-<h2><?= htmlspecialchars($fm['title']) ?></h2>
-<?php if (!empty($fm['excerpt'])): ?><p><?= htmlspecialchars($fm['excerpt']) ?></p><?php endif; ?>
+<span class="cb"><?= htmlspecialchars(en_label($fm['category'])) ?><?php if (!empty($fm['subcategory'])): ?> / <?= htmlspecialchars($fm['subcategory']) ?><?php endif; ?></span>
+<h2><?= htmlspecialchars(bn_to_en($fm['title'])) ?></h2>
+<?php if (!empty($fm['excerpt'])): ?><p><?= htmlspecialchars(bn_to_en($fm['excerpt'])) ?></p><?php endif; ?>
 </div>
 </a>
 <?php if (!empty($fsItems)): ?>
@@ -2127,8 +2413,8 @@ echo '<div class="single-content">' . $out . '</div>';
     <a href="?page=single&id=<?= $fsi['id'] ?>" class="feat-si">
     <img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
     <div class="pi">
-    <div class="fcs"><?= htmlspecialchars($fsi['category']) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
-    <h3><?= htmlspecialchars($fsi['title']) ?></h3>
+    <div class="fcs"><?= htmlspecialchars(en_label($fsi['category'])) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
+    <h3><?= htmlspecialchars(bn_to_en($fsi['title'])) ?></h3>
     <div class="fdt"><i class="far fa-clock"></i> <?= timeAgo($fsi['created_at']) ?></div>
     </div>
     </a>
@@ -2154,11 +2440,11 @@ if (empty($vidPoster)) $vidPoster = $placeholderImg;
 ?>
 <?php if(!empty($vidEmbed)): ?>
 <div class="vid-main" data-embed="<?= htmlspecialchars($vidEmbed) ?>">
-<img class="vid-poster" src="<?= htmlspecialchars($vidPoster) ?>" alt="<?= htmlspecialchars($vidMain['title'] ?? '') ?>" loading="lazy" decoding="async">
+<img class="vid-poster" src="<?= htmlspecialchars($vidPoster) ?>" alt="<?= htmlspecialchars(bn_to_en($vidMain['title'] ?? '')) ?>" loading="lazy" decoding="async">
 <span class="vid-play"><i class="fas fa-play" style="margin-left:3px"></i></span>
 <div class="vid-info">
 <span class="cb"><?= htmlspecialchars($vidCat) ?></span>
-<h3><?= htmlspecialchars($vidMain['title'] ?? '') ?></h3>
+<h3><?= htmlspecialchars(bn_to_en($vidMain['title'] ?? '')) ?></h3>
 <div class="vdt"><i class="far fa-clock"></i> <?= timeAgo($vidMain['created_at'] ?? 'now') ?></div>
 </div>
 </div>
@@ -2187,7 +2473,7 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 </div>
 <div class="vc-info">
 <?php if ($vCat !== 'ভিডিও'): ?><div class="vc-cat"><?= htmlspecialchars($vCat) ?></div><?php endif; ?>
-<h4><?= htmlspecialchars($v['title'] ?? '') ?></h4>
+<h4><?= htmlspecialchars(bn_to_en($v['title'] ?? '')) ?></h4>
 <div class="vc-time"><i class="far fa-clock"></i> <?= timeAgo($v['created_at'] ?? 'now') ?></div>
 </div>
 </div>
@@ -2224,9 +2510,9 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
         <a href="?page=single&id=<?= $ni['id'] ?>" class="nc">
             <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
             <div class="nc-body">
-                <div class="nc-cat"><?= htmlspecialchars($ni['category']) ?><?php if (!empty($ni['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ni['subcategory']) ?></span><?php endif; ?></div>
-                <h3><?= htmlspecialchars($ni['title']) ?></h3>
-                <?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars($ni['excerpt']) ?></p><?php endif; ?>
+                <div class="nc-cat"><?= htmlspecialchars(en_label($ni['category'])) ?><?php if (!empty($ni['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ni['subcategory']) ?></span><?php endif; ?></div>
+                <h3><?= htmlspecialchars(bn_to_en($ni['title'])) ?></h3>
+                <?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars(bn_to_en($ni['excerpt'])) ?></p><?php endif; ?>
                 <div class="nc-meta">
                     <span><i class="far fa-clock"></i> <?= timeAgo($ni['created_at']) ?></span>
                     <span><i class="far fa-eye"></i> <?= htmlspecialchars($ni['views'] ?? '0') ?></span>
@@ -2261,8 +2547,8 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <a href="?page=single&id=<?= $hpi['id'] ?>" class="cat-panel-card">
                 <div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
                 <div class="cpc-body">
-                    <h3><?= htmlspecialchars($hpi['title']) ?></h3>
-                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?> <span style="margin-left:5px;color:var(--red)"><?= htmlspecialchars($hpi['category']) ?><?php if (!empty($hpi['subcategory'])): ?> / <?= htmlspecialchars($hpi['subcategory']) ?><?php endif; ?></span></div>
+                    <h3><?= htmlspecialchars(bn_to_en($hpi['title'])) ?></h3>
+                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?> <span style="margin-left:5px;color:var(--red)"><?= htmlspecialchars(en_label($hpi['category'])) ?><?php if (!empty($hpi['subcategory'])): ?> / <?= htmlspecialchars($hpi['subcategory']) ?><?php endif; ?></span></div>
                 </div>
             </a>
             <?php endforeach; ?>
@@ -2338,8 +2624,8 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 <div class="container">
 <div class="ft-grid">
 <div class="ft-about">
-<h3>সংবাদ সংকলন</h3>
-<p>সত্য ও বিশ্বস্ত সংবাদ প্রতিদিন। বাংলায় সর্বশেষ খবর, বিশ্লেষণ ও মতামত পড়ুন সংবাদ সংকলনে।</p>
+<h3 translate="no" class="notranslate">সংবাদ সংকলন</h3>
+<p>সত্য ও বিশ্বস্ত সংবাদ প্রতিদিন। বাংলায় সর্বশেষ খবর, বিশ্লেষণ ও মতামত পড়ুন <span translate="no" class="notranslate">সংবাদ সংকলনে</span>।</p>
 <div class="ft-social">
 <a href="#" class="sf" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
 <a href="#" class="sx" aria-label="Twitter"><i class="fab fa-x-twitter"></i></a>
@@ -2355,7 +2641,7 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 <h3>বিভাগসমূহ</h3>
 <ul class="ft-links">
 <?php foreach (array_slice($categories, 0, 6) as $fc): ?>
-<li><a href="?cat=<?= urlencode($fc['name']) ?>"><?= htmlspecialchars($fc['name']) ?></a></li>
+<li><a href="?cat=<?= urlencode($fc['name']) ?>"><?= htmlspecialchars(en_label($fc['name'])) ?></a></li>
 <?php endforeach; ?>
 </ul>
 </div>
@@ -2393,7 +2679,7 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 </div>
 </div>
 <div class="ft-bottom">
-&copy; <?= date('Y') ?> <a href="?">সংবাদ সংকলন</a>। সর্বস্বত্ব সংরক্ষিত।
+&copy; <?= date('Y') ?> <a href="?" translate="no" class="notranslate">সংবাদ সংকলন</a>। সর্বস্বত্ব সংরক্ষিত।
 </div>
 </div>
 </footer>
@@ -2623,23 +2909,9 @@ document.addEventListener('click',function(e){
 </script>
 <?php endif; ?>
 
-<!-- PERFORMANCE FIX: Google Translate Script now loads AFTER page is fully loaded to prevent slow page rendering -->
-<script type="text/javascript">
-function googleTranslateElementInit() {
-    new google.translate.TranslateElement({
-        pageLanguage: 'bn',
-        includedLanguages: 'bn',
-        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-        autoDisplay: false
-    }, 'google_translate_element');
-}
-window.addEventListener('load', function() {
-    var script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.src = '//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
-    document.head.appendChild(script);
-});
-</script>
+<!-- Google Translate removed — separate index-en.php file used instead -->
+<!-- Hidden Google Translate container kept for safety in case any old code references it -->
+<div id="google_translate_element" style="display:none;"></div>
 
 <!-- ================================================== -->
 <!-- LIVE CLOCK & DATE UPDATE SCRIPT                  -->
@@ -2881,12 +3153,41 @@ document.addEventListener('click',function(e){
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}
 
-// Language Switcher Logic (Bengali Only - effectively disabled dropdown)
-var langBtn = document.getElementById('langBtn');
-if(langBtn) {
+// ====== Language Switcher dropdown (single-file mode) ======
+var langBtn      = document.getElementById('langBtn');
+var langDropdown = document.getElementById('langDropdown');
+function closeLangDD() {
+    if (!langDropdown) return;
+    langDropdown.style.display = 'none';
+    if (langBtn) {
+        langBtn.setAttribute('aria-expanded', 'false');
+        langBtn.classList.remove('open');
+        var c = langBtn.querySelector('.fa-chevron-down');
+        if (c) c.style.transform = '';
+    }
+}
+function openLangDD() {
+    if (!langDropdown) return;
+    langDropdown.style.display = 'block';
+    if (langBtn) {
+        langBtn.setAttribute('aria-expanded', 'true');
+        langBtn.classList.add('open');
+        var c = langBtn.querySelector('.fa-chevron-down');
+        if (c) c.style.transform = 'rotate(180deg)';
+    }
+}
+if (langBtn && langDropdown) {
     langBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
+        if (langDropdown.style.display === 'block') closeLangDD(); else openLangDD();
+    });
+    document.addEventListener('click', function(e) {
+        if (!langDropdown.contains(e.target) && e.target !== langBtn && !langBtn.contains(e.target)) {
+            closeLangDD();
+        }
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeLangDD();
     });
 }
 
@@ -3620,3 +3921,20 @@ if ($page === 'single' && !empty($singleNews)): ?>
 
 </body>
 </html>
+<?php
+// ============================================================
+//   OUTPUT BUFFER FLUSH — apply UI translations in English mode
+//   (news content stays Bengali because it's stored in DB)
+// ============================================================
+if (!empty($SITE_LANG) && $SITE_LANG === 'en' && ob_get_level() > 0) {
+    $html = ob_get_clean();
+    if (!empty($EN_TRANSLATIONS) && is_array($EN_TRANSLATIONS)) {
+        foreach ($EN_TRANSLATIONS as $bn => $en) {
+            // Skip empty strings to avoid weird replacements
+            if ($bn === '' || $en === '') continue;
+            $html = str_replace($bn, $en, $html);
+        }
+    }
+    echo $html;
+}
+?>

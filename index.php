@@ -58,45 +58,40 @@ if (isset($_GET['tts_proxy'])) {
     //   TTS API KEYS — edit directly here (no external file needed)
     // ============================================================
     //   Priority order:
-    //     1) Murf "Anwesha"   (HD Bengali female)  — if MURF_API_KEY set
-    //     2) Azure "Tanishaa" (HD neural female)   — if AZURE_API_KEY set
-    //     3) Google TTS gtx  (free, no key)         — fallback
-    //     4) Google TTS tw-ob (free, no key)         — last-resort fallback
+    //     1) ElevenLabs "Tuli" (HD Bengali female)  — if ELEVENLABS_API_KEY set
+    //     2) Google TTS gtx    (free, no key)        — fallback
+    //     3) Google TTS tw-ob (free, no key)         — last-resort fallback
     //
-    //   Leave '' to disable that provider. At minimum, Google TTS works
-    //   out-of-the-box with zero config.
+    //   Leave '' to disable ElevenLabs. Google TTS works with zero config.
     // ============================================================
 
-    // ----- 1. Murf AI: Anwesha (HD Bengali female, $0.01/1k chars) -----
-    //   Get key: https://murf.ai → API Keys
-    $MURF_API_KEY    = '';                  // ← paste your Murf API key here
-    $MURF_VOICE      = 'bn-IN-anwesha';    // Anwesha (Bengali India female)
-    $MURF_FORMAT      = 'MP3';
-    $MURF_RATE        = 0;                  // -50..50 (speed)
-    $MURF_PITCH       = 0;                  // -50..50 (pitch)
+    // ----- ElevenLabs: Tuli (HD Bengali female voice) -----
+    //   1. Get API key:  https://elevenlabs.io → Profile → API Keys
+    //   2. Find "Tuli":  https://elevenlabs.io/voice-library → search "Tuli"
+    //   3. Click on it → copy the voice_id (looks like "21m00Tcm4TlvDq8ikWAM")
+    //   4. Paste both values below.
+    //
+    //   Free tier: 10,000 chars/month. Paid plans from $5/mo (30k chars).
+    $ELEVENLABS_API_KEY   = '';                              // ← paste ElevenLabs API key
+    $ELEVENLABS_VOICE_ID  = '';                              // ← paste Tuli's voice_id
+    $ELEVENLABS_MODEL     = 'eleven_multilingual_v2';        // supports Bengali natively
+    $ELEVENLABS_STABILITY = 0.50;                            // 0..1 (lower = more variable)
+    $ELEVENLABS_SIMILAR   = 0.75;                            // 0..1 (voice similarity boost)
 
-    // ----- 2. Azure Speech: Tanishaa (HD neural, 500k chars/month free) -----
-    //   Get key: https://azure.microsoft.com/free → Speech resource
-    $AZURE_API_KEY    = '';                  // ← paste your Azure Speech key here
-    $AZURE_REGION     = 'eastus';            // must match your Speech resource region
-    $AZURE_VOICE      = 'bn-IN-TanishaaNeural';
-
-    // ====== 1. Murf "Anwesha" — HD Bengali female voice ======
-    if (!empty($MURF_API_KEY)) {
-        $audioData = ttsMurf($text, $MURF_API_KEY, $MURF_VOICE, $MURF_FORMAT, $MURF_RATE, $MURF_PITCH);
+    // ====== 1. ElevenLabs "Tuli" — HD Bengali female voice ======
+    if (!empty($ELEVENLABS_API_KEY) && !empty($ELEVENLABS_VOICE_ID)) {
+        $audioData = ttsElevenLabs(
+            $text, $ELEVENLABS_API_KEY, $ELEVENLABS_VOICE_ID,
+            $ELEVENLABS_MODEL, $ELEVENLABS_STABILITY, $ELEVENLABS_SIMILAR
+        );
     }
 
-    // ====== 2. Azure Neural HD Voice (Tanishaa -- Bengali female) ======
-    if (!empty($AZURE_API_KEY) && empty($audioData)) {
-        $audioData = ttsAzureNeural($text, $AZURE_API_KEY, $AZURE_REGION, $AZURE_VOICE);
-    }
-
-    // ====== 3. Google TTS via client=gtx (cleaner audio path) ======
+    // ====== 2. Google TTS via client=gtx (free fallback) ======
     if (empty($audioData)) {
         $audioData = ttsGoogleTranslate($text, 'gtx');
     }
 
-    // ====== 4. Google TTS via client=tw-ob (original fallback) ======
+    // ====== 3. Google TTS via client=tw-ob (last-resort fallback) ======
     if (empty($audioData)) {
         $audioData = ttsGoogleTranslate($text, 'tw-ob');
     }
@@ -115,120 +110,70 @@ if (isset($_GET['tts_proxy'])) {
 }
 
 /**
- * Murf AI -- HD Bengali female voice "Anwesha" (bn-IN-anwesha).
- * https://murf.ai/api/docs/api-reference/text-to-speech/generate
+ * ElevenLabs -- HD Bengali female voice (default: "Tuli" via voice_id).
+ * https://elevenlabs.io/docs/api-reference/text-to-speech
  *
- * Request:  POST https://api.murf.ai/v1/speech/generate
- *           Authorization: Bearer <key>
+ * Request:  POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}
+ *           Header: xi-api-key: <key>
  *           Body JSON: {
- *             "text":            "...",
- *             "voiceId":         "bn-IN-anwesha",
- *             "format":          "MP3",
- *             "sampleRate":      24000,        // 24kHz HD audio
- *             "encodeAsBase64":  true,         // return audio inline (no extra URL fetch)
- *             "rate":            0,             // -50..50 (speed)
- *             "pitch":           0              // -50..50 (pitch)
+ *             "text":          "...",
+ *             "model_id":      "eleven_multilingual_v2",   // supports Bengali
+ *             "voice_settings": {
+ *               "stability":         0.50,
+ *               "similarity_boost":  0.75,
+ *               "style":             0.00,
+ *               "use_speaker_boost": true
+ *             }
  *           }
- * Response: JSON with "encodedAudio" (base64) field.
+ * Response: audio stream (audio/mpeg) — MP3 bytes returned directly.
+ *
+ * Voice ID examples (replace with Tuli's actual voice_id from Voice Library):
+ *   Rachel       : 21m00Tcm4TlvDq8ikWAM   (default female, conversational)
+ *   Tuli         : <find in https://elevenlabs.io/voice-library by searching "Tuli">
  */
-function ttsMurf($text, $apiKey, $voiceId = 'bn-IN-anwesha',
-                 $format = 'MP3', $rate = 0, $pitch = 0) {
-    if (empty($apiKey) || empty($text)) return null;
+function ttsElevenLabs($text, $apiKey, $voiceId,
+                       $model = 'eleven_multilingual_v2',
+                       $stability = 0.50, $similarity = 0.75) {
+    if (empty($apiKey) || empty($voiceId) || empty($text)) return null;
+
+    $url = 'https://api.elevenlabs.io/v1/text-to-speech/' . urlencode($voiceId);
 
     $payload = [
-        'text'           => $text,
-        'voiceId'         => $voiceId,
-        'format'          => $format ?: 'MP3',
-        'sampleRate'      => 24000,           // 24kHz — HD quality
-        'encodeAsBase64'  => true,            // inline audio (no extra URL fetch)
-        'rate'            => (int)$rate,
-        'pitch'           => (int)$pitch,
+        'text'      => $text,
+        'model_id'  => $model ?: 'eleven_multilingual_v2',
+        'voice_settings' => [
+            'stability'         => (float)$stability,
+            'similarity_boost'  => (float)$similarity,
+            'style'             => 0.0,
+            'use_speaker_boost' => true,
+        ],
     ];
 
     $ch = curl_init();
     curl_setopt_array($ch, [
-        CURLOPT_URL             => 'https://api.murf.ai/v1/speech/generate',
+        CURLOPT_URL             => $url,
         CURLOPT_POST            => true,
-        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_RETURNTRANSFER  => true,
         CURLOPT_SSL_VERIFYPEER  => false,
-        CURLOPT_TIMEOUT         => 10,
+        CURLOPT_TIMEOUT         => 15,
         CURLOPT_HTTPHEADER      => [
-            'Authorization: Bearer ' . $apiKey,
+            'xi-api-key: ' . $apiKey,
             'Content-Type: application/json',
-            'Accept: application/json',
+            'Accept: audio/mpeg',          // we want MP3 audio back
             'User-Agent: SangbadSankalanTTS/1.0',
         ],
         CURLOPT_POSTFIELDS      => json_encode($payload, JSON_UNESCAPED_UNICODE),
     ]);
-    $raw  = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($code !== 200 || empty($raw)) return null;
-
-    $json = json_decode($raw, true);
-    if (!is_array($json)) return null;
-
-    // Murf returns base64-encoded audio when encodeAsBase64=true
-    if (!empty($json['encodedAudio'])) {
-        $decoded = base64_decode($json['encodedAudio'], true);
-        if ($decoded !== false && strlen($decoded) > 0) {
-            return $decoded;
-        }
-    }
-
-    // Fallback: download from audioFile URL
-    if (!empty($json['audioFile']) && filter_var($json['audioFile'], FILTER_VALIDATE_URL)) {
-        $ch2 = curl_init();
-        curl_setopt_array($ch2, [
-            CURLOPT_URL             => $json['audioFile'],
-            CURLOPT_RETURNTRANSFER  => true,
-            CURLOPT_SSL_VERIFYPEER  => false,
-            CURLOPT_TIMEOUT         => 8,
-            CURLOPT_HTTPHEADER      => ['User-Agent: SangbadSankalanTTS/1.0'],
-        ]);
-        $audio = curl_exec($ch2);
-        $c2    = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-        curl_close($ch2);
-        if ($c2 === 200 && !empty($audio)) return $audio;
-    }
-    return null;
-}
-
-/**
- * Azure Neural TTS -- HD Bengali female voice (bn-IN-TanishaaNeural).
- * 24kHz / 48kbps MP3. Sounds natural and human-like.
- */
-function ttsAzureNeural($text, $apiKey, $region = 'eastus', $voice = 'bn-IN-TanishaaNeural') {
-    $url = "https://{$region}.tts.speech.microsoft.com/cognitiveservices/v1";
-    // Tanishaa = Bengali (India) female neural voice (HD).
-    // Optional alternative: bn-IN-BashkarNeural (male).
-    $voice = $voice ?: 'bn-IN-TanishaaNeural';
-    $ssml  = '<speak version="1.0" xml:lang="bn-IN">';
-    $ssml .= '<voice name="' . htmlspecialchars($voice, ENT_XML1 | ENT_QUOTES, 'UTF-8') . '">';
-    $ssml .= '<prosody rate="1.0" pitch="1.0" volume="100.0">';
-    $ssml .= htmlspecialchars($text, ENT_XML1 | ENT_QUOTES, 'UTF-8');
-    $ssml .= '</prosody></voice></speak>';
-
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
-        CURLOPT_POST => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_TIMEOUT => 8,
-        CURLOPT_HTTPHEADER => [
-            'Authorization: Bearer ' . $apiKey,
-            'Content-Type: application/ssml+xml',
-            'X-Microsoft-OutputFormat: audio-24khz-48kbitrate-mono-mp3',
-            'User-Agent: SangbadSankalanTTS/1.0',
-        ],
-        CURLOPT_POSTFIELDS => $ssml,
-    ]);
     $data = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $ct   = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
     curl_close($ch);
-    return ($code === 200 && !empty($data)) ? $data : null;
+
+    // ElevenLabs returns audio/mpeg on success; JSON error object on failure.
+    if ($code === 200 && !empty($data) && stripos($ct, 'audio') !== false) {
+        return $data;
+    }
+    return null;
 }
 
 /**
@@ -3275,11 +3220,10 @@ if ($page === 'single' && !empty($singleNews)): ?>
         // HD female voice preference list (neural/premium Bengali female voices).
         // Order = preference. Tanishaa is Azure neural HD voice (24kHz).
         // HD female Bengali voice names — priority order.
-        // 'annwesha' = Murf AI's Bengali HD female voice (when configured server-side).
-        // 'tanishaa' = Azure neural HD female voice.
-        var FEMALE_HD_NAMES = ['annwesha','anwesha','tanishaa','kalpana','aditi',
-                                'saraswati','lipsa','tara','sara','swapna','arnab',
-                                'ananya','female','woman','google বাংলা'];
+        // 'tuli' = ElevenLabs Bengali HD female voice (when configured server-side).
+        var FEMALE_HD_NAMES = ['tuli','annwesha','anwesha','tanishaa','kalpana',
+                                'aditi','saraswati','lipsa','tara','sara','swapna',
+                                'arnab','ananya','female','woman','google বাংলা'];
         var female = null;
         // First pass: pick the highest-priority HD female voice available
         for (var fi = 0; fi < FEMALE_HD_NAMES.length && !female; fi++) {
@@ -3661,7 +3605,14 @@ if ($page === 'single' && !empty($singleNews)): ?>
         }
     }, { passive: true });
 
-    console.log('[BN Anchor] Bengali female anchor TTS widget loaded.');
+    // ============================================================
+    //   NO AUTOPLAY — user must click "শুনুন" button to start.
+    //   Panel still opens automatically on single news pages so the
+    //   button is right there; the female anchor only starts speaking
+    //   when the user explicitly taps শুনুন.
+    // ============================================================
+
+    console.log('[BN Anchor] Bengali female anchor TTS widget loaded. (manual play)');
 })();
 </script>
 <!-- ====== END BENGALI FEMALE ANCHOR SCRIPT ====== -->

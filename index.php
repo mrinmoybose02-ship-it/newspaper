@@ -113,25 +113,50 @@ if (!function_exists('bn_to_en')) {
 
         $translated = '';
         foreach ($chunks as $chunk) {
+            // ★ Shared-hosting safety: bail out if we've used too much time.
+            // Better to show original Bengali than to crash the page.
+            if (!empty($GLOBALS['__TR_BUDGET_START'])) {
+                $elapsed = microtime(true) - $GLOBALS['__TR_BUDGET_START'];
+                if ($elapsed > $GLOBALS['__TR_BUDGET_MAX']) {
+                    $translated .= $chunk . ' ';
+                    continue;
+                }
+            }
+            // ★ Skip if cURL not available (some shared hosts disable it)
+            if (!function_exists('curl_init')) {
+                $translated .= $chunk . ' ';
+                continue;
+            }
+
             $url = 'https://translate.google.com/translate_a/single'
                  . '?client=gtx&sl=bn&tl=en&dt=t&q=' . rawurlencode($chunk);
 
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL             => $url,
-                CURLOPT_RETURNTRANSFER  => true,
-                CURLOPT_SSL_VERIFYPEER  => false,
-                CURLOPT_TIMEOUT         => 12,
-                CURLOPT_FOLLOWLOCATION  => true,
-                CURLOPT_HTTPHEADER      => [
-                    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                    'Accept: application/json, text/plain, */*',
-                    'Accept-Language: en-US,en;q=0.5',
-                ],
-            ]);
-            $resp = curl_exec($ch);
-            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            try {
+                $ch = @curl_init();
+                if ($ch === false) { $translated .= $chunk . ' '; continue; }
+                @curl_setopt_array($ch, [
+                    CURLOPT_URL             => $url,
+                    CURLOPT_RETURNTRANSFER  => true,
+                    CURLOPT_SSL_VERIFYPEER  => false,
+                    CURLOPT_TIMEOUT         => 4,   // ★ reduced from 12s → 4s
+                    CURLOPT_CONNECTTIMEOUT  => 3,   // ★ new: connection timeout
+                    CURLOPT_FOLLOWLOCATION  => true,
+                    CURLOPT_HTTPHEADER      => [
+                        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                        'Accept: application/json, text/plain, */*',
+                        'Accept-Language: en-US,en;q=0.5',
+                    ],
+                ]);
+                $resp = @curl_exec($ch);
+                $code = @curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                @curl_close($ch);
+            } catch (\Exception $e) {
+                $translated .= $chunk . ' ';
+                continue;
+            } catch (\Throwable $e) {
+                $translated .= $chunk . ' ';
+                continue;
+            }
 
             if ($code !== 200 || empty($resp)) {
                 $translated .= $chunk . ' ';   // fallback: keep original
@@ -236,6 +261,12 @@ if (!function_exists('prewarm_translations_parallel')) {
         if (empty($GLOBALS['SITE_LANG']) || $GLOBALS['SITE_LANG'] !== 'en') return;
         if (!function_exists('curl_multi_init')) return;
 
+        // ★ Shared-hosting safety: check time budget — if exceeded, skip entirely
+        if (!empty($GLOBALS['__TR_BUDGET_START'])) {
+            $elapsed = microtime(true) - $GLOBALS['__TR_BUDGET_START'];
+            if ($elapsed > $GLOBALS['__TR_BUDGET_MAX']) return;
+        }
+
         $cacheDir = __DIR__ . '/cache_tr';
         if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
 
@@ -253,58 +284,72 @@ if (!function_exists('prewarm_translations_parallel')) {
 
         if (empty($unique)) return;
 
-        $mh = curl_multi_init();
-        $handles = [];
-        $i = 0;
-        foreach ($unique as $key => $t) {
-            $url = 'https://translate.google.com/translate_a/single'
-                 . '?client=gtx&sl=bn&tl=en&dt=t&q=' . rawurlencode($t);
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL             => $url,
-                CURLOPT_RETURNTRANSFER  => true,
-                CURLOPT_SSL_VERIFYPEER  => false,
-                CURLOPT_TIMEOUT         => 20,
-                CURLOPT_FOLLOWLOCATION  => true,
-                CURLOPT_HTTPHEADER      => [
-                    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                    'Accept: application/json, text/plain, */*',
-                    'Accept-Language: en-US,en;q=0.5',
-                ],
-            ]);
-            curl_multi_add_handle($mh, $ch);
-            $handles[$i] = ['key' => $key, 'handle' => $ch, 'text' => $t];
-            $i++;
-            if ($i >= 30) break;  // cap concurrent at 30 to avoid rate limits
-        }
+        // ★ Wrap entire multi-cURL in try-catch to prevent any fatal error
+        try {
+            $mh = @curl_multi_init();
+            if ($mh === false) return;
 
-        if (empty($handles)) { curl_multi_close($mh); return; }
-
-        // Execute all requests in parallel
-        do {
-            $status = curl_multi_exec($mh, $active);
-            if ($active) curl_multi_select($mh, 1.0);
-        } while ($active && $status === CURLM_OK);
-
-        // Collect results and cache them
-        foreach ($handles as $h) {
-            $resp = curl_multi_getcontent($h['handle']);
-            $code = curl_getinfo($h['handle'], CURLINFO_HTTP_CODE);
-            curl_multi_remove_handle($mh, $h['handle']);
-            if ($code !== 200 || empty($resp)) continue;
-            $data = json_decode($resp, true);
-            if (!is_array($data) || !isset($data[0])) continue;
-            $translated = '';
-            foreach ($data[0] as $pair) {
-                if (is_array($pair) && isset($pair[0]) && is_string($pair[0])) {
-                    $translated .= $pair[0];
-                }
+            $handles = [];
+            $i = 0;
+            foreach ($unique as $key => $t) {
+                $url = 'https://translate.google.com/translate_a/single'
+                     . '?client=gtx&sl=bn&tl=en&dt=t&q=' . rawurlencode($t);
+                $ch = @curl_init();
+                if ($ch === false) continue;
+                @curl_setopt_array($ch, [
+                    CURLOPT_URL             => $url,
+                    CURLOPT_RETURNTRANSFER  => true,
+                    CURLOPT_SSL_VERIFYPEER  => false,
+                    CURLOPT_TIMEOUT         => 4,    // ★ reduced 20s → 4s
+                    CURLOPT_CONNECTTIMEOUT  => 3,    // ★ new: connection timeout
+                    CURLOPT_FOLLOWLOCATION  => true,
+                    CURLOPT_HTTPHEADER      => [
+                        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                        'Accept: application/json, text/plain, */*',
+                        'Accept-Language: en-US,en;q=0.5',
+                    ],
+                ]);
+                @curl_multi_add_handle($mh, $ch);
+                $handles[$i] = ['key' => $key, 'handle' => $ch, 'text' => $t];
+                $i++;
+                if ($i >= 5) break;  // ★ reduced 30 → 5 concurrent (shared-host friendly)
             }
-            $translated = trim($translated);
-            if ($translated === '' || $translated === $h['text']) continue;
-            @file_put_contents($cacheDir . '/' . $h['key'] . '.txt', $translated, LOCK_EX);
+
+            if (empty($handles)) { @curl_multi_close($mh); return; }
+
+            // Execute all requests in parallel with a hard time cap
+            $multiStart = microtime(true);
+            do {
+                $status = @curl_multi_exec($mh, $active);
+                if ($active) @curl_multi_select($mh, 1.0);
+                // ★ Hard stop after 5 seconds to avoid page timeout
+                if ((microtime(true) - $multiStart) > 5.0) break;
+            } while ($active && $status === CURLM_OK);
+
+            // Collect results and cache them
+            foreach ($handles as $h) {
+                $resp = @curl_multi_getcontent($h['handle']);
+                $code = @curl_getinfo($h['handle'], CURLINFO_HTTP_CODE);
+                @curl_multi_remove_handle($mh, $h['handle']);
+                if ($code !== 200 || empty($resp)) continue;
+                $data = json_decode($resp, true);
+                if (!is_array($data) || !isset($data[0])) continue;
+                $translated = '';
+                foreach ($data[0] as $pair) {
+                    if (is_array($pair) && isset($pair[0]) && is_string($pair[0])) {
+                        $translated .= $pair[0];
+                    }
+                }
+                $translated = trim($translated);
+                if ($translated === '' || $translated === $h['text']) continue;
+                @file_put_contents($cacheDir . '/' . $h['key'] . '.txt', $translated, LOCK_EX);
+            }
+            @curl_multi_close($mh);
+        } catch (\Exception $e) {
+            // Silent fail — page continues with Bengali text fallback
+        } catch (\Throwable $e) {
+            // Silent fail — page continues with Bengali text fallback
         }
-        curl_multi_close($mh);
     }
 }
 
@@ -446,7 +491,16 @@ $EN_TRANSLATIONS = [
 
 // Start output buffering in English mode so we can apply UI translations
 // at the very end. In Bengali mode we output normally (no overhead).
+// ★ Shared-hosting safety: suppress warnings/notices that could corrupt
+//   the output buffer and cause HTTP 500 on InfinityFree/others.
 if ($SITE_LANG === 'en') {
+    @ini_set('display_errors', '0');
+    @error_reporting(E_ERROR | E_PARSE);
+    // Global time budget for ALL translation API calls (max 8 seconds).
+    // If exceeded, translations gracefully fall back to original Bengali
+    // text instead of causing a page timeout / HTTP 500.
+    $GLOBALS['__TR_BUDGET_START'] = microtime(true);
+    $GLOBALS['__TR_BUDGET_MAX']   = 8.0;  // seconds
     ob_start();
 }
 
@@ -656,6 +710,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
         $stmt = $pdo->prepare("SELECT id, title, slug, image FROM news WHERE status='published' AND created_at <= NOW() ORDER BY created_at DESC LIMIT 1");
         $stmt->execute();
         $latest = $stmt->fetch(PDO::FETCH_ASSOC);
+        // ★ English mode: translate the title for the TTS/anchor widget
+        if ($latest && !empty($GLOBALS['SITE_LANG']) && $GLOBALS['SITE_LANG'] === 'en'
+            && function_exists('bn_to_en') && !empty($latest['title'])) {
+            $latest['title'] = bn_to_en($latest['title']);
+        }
         echo json_encode($latest ?: ["error" => "no_news"]);
     } catch (Exception $e) {
         echo json_encode(["error" => "db_error"]);
@@ -1064,7 +1123,8 @@ try {
 } catch (Exception $e) {}
 // ★ v6.6: true = পেজ খুললেই (৪ সেকেন্ড পর) সর্বশেষ খবরের পপ-আপ দেখাবে; false = শুধু নতুন খবর এলে দেখাবে
 $NEWS_POPUP_ON_LOAD = true;
-$latestNewsTitleJS = json_encode(($latestNewsTitle !== '' ? $latestNewsTitle : 'নতুন খবর এসেছে'), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
+$latestNewsFallback = ($SITE_LANG === 'en') ? 'New news has arrived' : 'নতুন খবর এসেছে';
+$latestNewsTitleJS = json_encode(($latestNewsTitle !== '' ? $latestNewsTitle : $latestNewsFallback), JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP);
 
 // ====== PERFORMANCE FIX: Fetch Popular Posts directly with LIMIT ======
  $popularPosts = [];
@@ -1107,7 +1167,7 @@ try {
 } catch (Exception $e) {}
 // =====================================================
 
- $navInlineCats = array_slice(array_column($categories, 'name'), 0, 8);
+ $navInlineCats = array_slice(array_column($categories, 'name'), 0, 5);
  $singleNews = null; $related = []; $displayFeatured = []; $pagedGrid = []; $totalGrid = 0; $totalPages = 1; $currentPage = 1;
 
  $panelDefaults = [
@@ -1292,7 +1352,14 @@ if (file_exists($nseCacheFile)) {
  $placeholderImg = "data:image/svg+xml," . urlencode("<svg xmlns='http://www.w3.org/2000/svg' width='400' height='250'><rect width='400' height='250' fill='%23e8e4de'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'>ছবি</text></svg>");
  $placeholderImgSm = "data:image/svg+xml," . urlencode("<svg xmlns='http://www.w3.org/2000/svg' width='120' height='90'><rect width='120' height='90' fill='%23e8e4de'/><text x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='10'>ছবি</text></svg>");
 
- $breakingItems = []; foreach ($breakingData as $bi) { $breakingItems[] = '<span>' . htmlspecialchars($bi['text']) . '</span>'; }
+ $breakingItems = []; foreach ($breakingData as $bi) {
+     $biText = $bi['text'];
+     // ★ English mode: translate breaking news text via bn_to_en()
+     if (!empty($GLOBALS['SITE_LANG']) && $GLOBALS['SITE_LANG'] === 'en' && function_exists('bn_to_en')) {
+         $biText = bn_to_en($biText);
+     }
+     $breakingItems[] = '<span>' . htmlspecialchars($biText) . '</span>';
+ }
  $breakingTrackHTML = !empty($breakingItems) ? implode('', $breakingItems) . implode('', $breakingItems) : '';
  $nseItems = []; foreach ($nseData as $ni) { if (!$ni['fetched']) continue; $cls = $ni['change'] >= 0 ? 'nse-up' : 'nse-down'; $sign = $ni['change'] >= 0 ? '+' : ''; $nseItems[] = '<div class="nse-si"><span class="nse-sym">' . htmlspecialchars($ni['short']) . '</span><span class="nse-pr">' . number_format($ni['price'], 2) . '</span><span class="nse-chg ' . $cls . '">' . $sign . number_format($ni['change'], 2) . ' (' . $sign . number_format($ni['changePct'], 2) . '%)</span></div>'; }
  $nseTrackHTML = !empty($nseItems) ? implode('', $nseItems) . implode('', $nseItems) : '';
@@ -2184,7 +2251,7 @@ $EPAPER_URL = 'epaper.php';
 
 <?php if (!empty($breakingTrackHTML)): ?>
 <div class="breaking-bar">
-<div class="breaking-label"><i class="fas fa-bolt"></i> ব্রেকিং</div>
+<div class="breaking-label"><i class="fas fa-bolt"></i> <?= ($SITE_LANG === 'en') ? 'Breaking' : 'ব্রেকিং' ?></div>
 <div class="breaking-track"><?= $breakingTrackHTML ?></div>
 </div>
 <?php endif; ?>
@@ -2289,7 +2356,7 @@ $EPAPER_URL = 'epaper.php';
 </div>
 </div>
 <div class="kn-panel" id="knPanel">
-<?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; ?>
+<?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; if ($cn === 'আর্কাইভ') continue; ?>
 <div class="kn-pl-link<?= $cActive ? ' active' : '' ?><?= $cHasSubs ? ' has-psubs' : '' ?>" data-pcat="<?= htmlspecialchars(en_label($cn)) ?>">
 <div class="kpi"><i class="fas <?= $cIcon ?>"></i></div>
 <a href="?cat=<?= urlencode($cn) ?>" class="kpn"><?= htmlspecialchars(en_label($cn)) ?></a>
@@ -3005,11 +3072,11 @@ if ($page === 'single' && !empty($singleNews)): ?>
         <div style="width:70px;height:70px;background:#FFF0F0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">
             <i class="fas fa-bell" style="font-size:32px;color:var(--red);"></i>
         </div>
-        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;">নোটিফিকেশন চালু করবেন?</h3>
-        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;">নতুন খবর প্রকাশিত হলে সিস্টেমে (Windows-এ) নোটিফিকেশন পাবেন।</p>
+        <h3 style="font-family:'Noto Serif Bengali',serif;margin-bottom:15px;color:#333;font-size:22px;font-weight:700;"><?= ($SITE_LANG === 'en') ? 'Enable Notifications?' : 'নোটিফিকেশন চালু করবেন?' ?></h3>
+        <p style="font-size:16px;color:#333;margin-bottom:25px;font-weight:600;"><?= ($SITE_LANG === 'en') ? 'You will receive system notifications (on Windows) when new news is published.' : 'নতুন খবর প্রকাশিত হলে সিস্টেমে (Windows-এ) নোটিফিকেশন পাবেন।' ?></p>
         <div style="display:flex;justify-content:center;gap:15px;">
-            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">হ্যাঁ</button>
-            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;">না</button>
+            <button id="btnAllowYes" style="background:var(--red);color:#fff;border:none;padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;"><?= ($SITE_LANG === 'en') ? 'Yes' : 'হ্যাঁ' ?></button>
+            <button id="btnAllowNo" style="background:#fff;color:var(--red);border:1px solid var(--red);padding:10px 40px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;font-family:'Hind Siliguri',sans-serif;"><?= ($SITE_LANG === 'en') ? 'No' : 'না' ?></button>
         </div>
     </div>
 </div>
@@ -3021,12 +3088,12 @@ if ($page === 'single' && !empty($singleNews)): ?>
             <i class="fas fa-bell" style="color:var(--red);font-size:18px;"></i>
         </div>
         <div style="flex:1;">
-            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;">নতুন খবর প্রকাশিত হয়েছে!</h4>
+            <h4 style="font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;margin:0 0 4px 0;color:#333;"><?= ($SITE_LANG === 'en') ? 'New news has been published!' : 'নতুন খবর প্রকাশিত হয়েছে!' ?></h4>
             <p id="newNewsTitleFallback" style="font-size:13px;color:#666;margin:0;line-height:1.4;"></p>
         </div>
         <button id="btnCloseNewNews" style="background:none;border:none;color:#999;cursor:pointer;font-size:16px;padding:5px;">&times;</button>
     </div>
-    <a id="newNewsLinkFallback" href="#" style="display:block;text-align:center;padding:10px;background:var(--red);color:#fff;text-decoration:none;font-weight:bold;font-size:13px;font-family:'Hind Siliguri',sans-serif;">Read Now</a>
+    <a id="newNewsLinkFallback" href="#" style="display:block;text-align:center;padding:10px;background:var(--red);color:#fff;text-decoration:none;font-weight:bold;font-size:13px;font-family:'Hind Siliguri',sans-serif;"><?= ($SITE_LANG === 'en') ? 'Read Now' : 'এখনই পড়ুন' ?></a>
 </div>
 
 <!-- ★ v6.8: নোটিফিকেশন বেল বাটন — সিস্টেম নোটিফিকেশন চালু না থাকলে বাম-নিচে কর্নারে ভাসবে;
@@ -3467,7 +3534,7 @@ var latestNewsTitleJS = <?= $latestNewsTitleJS ?>;
 function showLatestOnLoad() {
     if (!NEWS_POPUP_ON_LOAD || latestNewsId <= 0) return;
     var url = '?page=single&id=' + latestNewsId;
-    var ok = showSystemNotification('নতুন খবর প্রকাশিত হয়েছে', latestNewsTitleJS, url);
+    var ok = showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'New news published' : 'নতুন খবর প্রকাশিত হয়েছে') ?>, latestNewsTitleJS, url);
     // Notification API-হীন খুব পুরোনো ব্রাউজারে ফলব্যাক — পেজের ভিতরে পপ-আপ
     if (!ok && !("Notification" in window)) showHtmlPopup(latestNewsTitleJS, url);
 }
@@ -3506,13 +3573,13 @@ function checkForNewNews() {
             latestNewsId = data.last_id;
             var latestItem = data.items[data.items.length - 1];
             var url = '?page=single&id=' + latestItem.id;
-            var newsTitle = (latestItem.title && String(latestItem.title).trim()) ? latestItem.title : 'নতুন খবর এসেছে';
+            var newsTitle = (latestItem.title && String(latestItem.title).trim()) ? latestItem.title : <?= json_encode($SITE_LANG === 'en' ? 'New news has arrived' : 'নতুন খবর এসেছে') ?>;
 
             // ★ v6.9 (ইউজারের নির্দেশ: "need system Notifications"): শুধুমাত্র সিস্টেম
             // নোটিফিকেশন (Windows টোস্ট / Action Center) পাঠানো হবে — পেজের ভিতরের
             // পপ-আপ আর দেখানো হবে না। Notification API-হীন খুব পুরোনো ব্রাউজারেই
             // কেবল ফলব্যাক হিসেবে পেজ-পপ-আপ যাবে।
-            var systemShown = showSystemNotification('নতুন খবর প্রকাশিত হয়েছে', newsTitle, url);
+            var systemShown = showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'New news published' : 'নতুন খবর প্রকাশিত হয়েছে') ?>, newsTitle, url);
             if (!systemShown && !("Notification" in window)) {
                 showHtmlPopup(newsTitle, url);
             }
@@ -3589,7 +3656,7 @@ if (btnAllowYes) {
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
                 try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
-                showSystemNotification('নোটিফিকেশন চালু হয়েছে!', 'এখন থেকে নতুন খবর প্রকাশিত হলে জানতে পারবেন।', '?page=home');
+                showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'Notifications enabled!' : 'নোটিফিকেশন চালু হয়েছে!') ?>, <?= json_encode($SITE_LANG === 'en' ? 'You will now be notified when new news is published.' : 'এখন থেকে নতুন খবর প্রকাশিত হলে জানতে পারবেন।') ?>, '?page=home');
             } else {
                 try { localStorage.setItem('news_popup_allowed', 'denied'); localStorage.setItem('news_popup_denied_at', String(Date.now())); } catch(e){}
             }

@@ -211,7 +211,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "articles", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
+ $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -1046,6 +1046,12 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .tag-input-field::placeholder { color: var(--muted); font-weight: 400; }
 
 .festival-badge { display: inline-block; background: var(--accent); color: #fff; padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 14px; box-shadow: 0 2px 5px rgba(196,30,58,.3); }
+/* ★ e-Paper menu item styling */
+.sb-nav a[href*="section=epaper"]{position:relative}
+.sb-nav a[href*="section=epaper"] i{color:#FF9933 !important}
+.sb-nav a[href*="section=epaper"].active i{color:var(--gold) !important}
+.sb-nav a[href*="section=epaper"]::before{content:"NEW";position:absolute;right:14px;top:50%;transform:translateY(-50%);background:#dc2626;color:#fff;font-size:8px;font-weight:700;padding:1px 5px;border-radius:8px;letter-spacing:.5px}
+.sb-nav a[href*="section=epaper"].active::before{display:none}
 </style>
 </head>
 <body>
@@ -1096,6 +1102,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php endif; ?>
 <?php if (hasPerm('manage_news')): ?>
 <a href="?page=admin_dashboard&section=articles" class="<?= $section === 'articles' ? 'active' : '' ?>"><i class="fas fa-file-lines" style="width:18px;text-align:center"></i> Articles</a>
+<?php endif; ?>
+<?php if (hasPerm('manage_news')): ?>
+<a href="?page=admin_dashboard&section=epaper" class="<?= $section === 'epaper' ? 'active' : '' ?>"><i class="far fa-newspaper" style="width:18px;text-align:center"></i> ই-পেপার ম্যানেজমেন্ট</a>
 <?php endif; ?>
 <?php if (hasPerm('videos')): ?>
 <?= secLink("videos","fa-video","Videos") ?>
@@ -2437,6 +2446,61 @@ function cps(v){var b=document.getElementById('psB'),t=document.getElementById('
             <a href="?page=admin_dashboard&section=dashboard" class="btn btn-primary" style="margin-right:8px;"><i class="fas fa-home"></i> Back to Dashboard</a>
             <a href="?page=admin_dashboard&section=manage" class="btn btn-outline"><i class="fas fa-newspaper"></i> Manage News</a>
         </div>
+    </div>
+</div>
+
+<?php elseif ($section === "epaper" && hasPerm('manage_news')): ?>
+<div class="admin-topbar"><h1><i class="far fa-newspaper" style="color:#B71C1C"></i> ই-পেপার ম্যানেজমেন্ট</h1><div class="topbar-actions"><a href="?page=admin_epaper" target="_blank" class="topbar-btn topbar-btn-primary"><i class="fas fa-external-link-alt"></i> ফুল স্ক্রিন খুলুন</a></div></div>
+
+<!-- ★ e-Paper Management Section -->
+<div class="panel" style="border:2px solid #B71C1C; overflow:hidden;">
+    <div class="panel-header" style="background:linear-gradient(90deg,#B71C1C 0%,#8B1528 100%);">
+        <div class="panel-title" style="color:#fff;"><i class="far fa-newspaper"></i> ই-পেপার ম্যানেজমেন্ট প্যানেল</div>
+        <span style="font-size:11px; color:#fff; opacity:.85; background:rgba(255,255,255,.15); padding:3px 10px; border-radius:12px;">
+            <i class="fas fa-circle" style="font-size:7px; color:#FFD54F; margin-right:4px;"></i>এম্বেডেড ভিউ
+        </span>
+    </div>
+    <div class="panel-body" style="padding:0; background:#f5f0e8;">
+        <!-- Quick Action Cards -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; padding:14px 18px; background:#fff; border-bottom:2px solid #B71C1C;">
+            <a href="?page=admin_epaper&action=upload" target="_blank" style="display:flex; align-items:center; gap:10px; padding:12px; background:linear-gradient(135deg,#B71C1C,#8B1528); color:#fff; border-radius:8px; text-decoration:none; transition:all .2s;">
+                <i class="fas fa-cloud-arrow-up" style="font-size:20px;"></i>
+                <div><div style="font-weight:700; font-size:13px;">নতুন ই-পেপার আপলোড</div><div style="font-size:10px; opacity:.85;">PDF ফাইল আপলোড করুন</div></div>
+            </a>
+            <a href="?page=admin_epaper" target="_blank" style="display:flex; align-items:center; gap:10px; padding:12px; background:#fff; color:#B71C1C; border:1.5px solid #B71C1C; border-radius:8px; text-decoration:none; transition:all .2s;">
+                <i class="fas fa-list" style="font-size:20px;"></i>
+                <div><div style="font-weight:700; font-size:13px;">সব ই-পেপার দেখুন</div><div style="font-size:10px; color:#666;">ম্যানেজ ও ডিলিট</div></div>
+            </a>
+            <a href="?page=admin_epaper&action=settings" target="_blank" style="display:flex; align-items:center; gap:10px; padding:12px; background:#fff; color:#666; border:1.5px solid #ddd; border-radius:8px; text-decoration:none; transition:all .2s;">
+                <i class="fas fa-gear" style="font-size:20px;"></i>
+                <div><div style="font-weight:700; font-size:13px;">সেটিংস</div><div style="font-size:10px; color:#666;">কনফিগারেশন</div></div>
+            </a>
+        </div>
+
+        <!-- Embedded iframe to admin_epaper.php -->
+        <div style="position:relative; padding:14px 18px;">
+            <div style="background:#fff; border:1.5px solid #ddd; border-radius:8px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,.05);">
+                <div style="background:#f5f0e8; padding:8px 14px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:12px; color:#666; font-weight:600;"><i class="fas fa-window-maximize" style="margin-right:5px; color:#B71C1C;"></i>ই-পেপার ম্যানেজমেন্ট ইন্টারফেস</span>
+                    <a href="?page=admin_epaper" target="_blank" style="font-size:11px; color:#B71C1C; text-decoration:none; font-weight:600;"><i class="fas fa-external-link-alt" style="margin-right:3px;"></i>নতুন ট্যাবে খুলুন</a>
+                </div>
+                <iframe src="?page=admin_epaper" style="width:100%; height:600px; border:0; display:block;" loading="lazy" title="e-Paper Management"></iframe>
+            </div>
+            <p style="font-size:11px; color:#999; margin-top:10px; text-align:center;">
+                <i class="fas fa-circle-info"></i> উপরের প্যানেলে সরাসরি ই-পেপার ম্যানেজ করতে পারবেন, অথবা নতুন ট্যাবে খুলেও কাজ করতে পারবেন।
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- Fallback notice if admin_epaper.php not found -->
+<div class="panel" style="border:1.5px dashed #ddd;">
+    <div class="panel-body" style="padding:14px 18px; background:#fffbeb;">
+        <p style="font-size:12px; color:#666; margin:0;">
+            <i class="fas fa-triangle-exclamation" style="color:#f59e0b; margin-right:5px;"></i>
+            <strong>নোট:</strong> যদি উপরের ইন্টারফেস লোড না হয়, তাহলে <code style="background:#fef3c7; padding:1px 6px; border-radius:3px;">admin_epaper.php</code> ফাইলটি আপনার সার্ভারে আছে কিনা যাচাই করুন।
+            <a href="?page=admin_epaper" target="_blank" style="color:#B71C1C; font-weight:600; margin-left:6px;">সরাসরি খুলুন →</a>
+        </p>
     </div>
 </div>
 

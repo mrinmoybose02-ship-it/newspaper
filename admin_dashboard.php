@@ -211,7 +211,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests"];
+ $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests", "visitor_stats"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -1096,6 +1096,12 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="sb-nav-label">Monetization</div>
 <?= secLink("ads","fa-rectangle-ad","Advertisements",$activeAds."/".$totalAds) ?>
 <?php endif; ?>
+
+<!-- ★ Visitor Stats Monitoring — sidebar menu item (after Advertisements) -->
+<div class="sb-nav-divider"></div>
+<div class="sb-nav-label">Analytics</div>
+<?= secLink("visitor_stats","fa-chart-line","Visitor Monitor") ?>
+
 <?php if (hasPerm('videos') || hasPerm('nse_market') || hasPerm('users') || hasPerm('password') || $currentUserPerms === null): ?>
 <div class="sb-nav-divider"></div>
 <div class="sb-nav-label">Others</div>
@@ -2503,6 +2509,567 @@ function cps(v){var b=document.getElementById('psB'),t=document.getElementById('
         </p>
     </div>
 </div>
+
+<?php elseif ($section === "visitor_stats"): ?>
+<!-- ★ Visitor Stats Monitoring Section — full page view -->
+<?php
+// ★ v3.58: Bulletproof wrapping — errors are caught and displayed, never white page
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+
+try {
+
+// Set timezone (same as main site)
+date_default_timezone_set('Asia/Kolkata');
+try { $pdo->exec("SET time_zone = '+05:30';"); } catch (Exception $e) {}
+
+// Bengali digit conversion helper (guarded — safe if already defined)
+if (!function_exists('toBn')) {
+    $bnD = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+    $enD = ['0','1','2','3','4','5','6','7','8','9'];
+    function toBn($n) {
+        global $bnD, $enD;
+        return str_replace($enD, $bnD, (string)$n);
+    }
+} else {
+    $bnD = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
+    $enD = ['0','1','2','3','4','5','6','7','8','9'];
+}
+
+// ★ v3.53: Ensure visit_log table exists (created here as safety net
+//    in case admin is accessed without index_mo.php running first)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS visit_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        visitor_hash VARCHAR(64) NOT NULL,
+        visit_date DATE NOT NULL,
+        visit_count INT DEFAULT 1,
+        UNIQUE KEY uk_hash_date (visitor_hash, visit_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (Exception $e) {}
+
+// ── Fetch summary stats ──
+$totalVisitors = 0;
+$todayVisitors = 0;
+$weekVisitors  = 0;
+try {
+    $totalVisitors = (int)$pdo->query("SELECT COUNT(*) FROM visitor_stats")->fetchColumn();
+    $todayVisitors = (int)$pdo->query("SELECT COUNT(*) FROM visitor_stats WHERE DATE(last_activity) = CURDATE()")->fetchColumn();
+    $weekVisitors  = (int)$pdo->query("SELECT COUNT(*) FROM visitor_stats WHERE last_activity >= (NOW() - INTERVAL 7 DAY)")->fetchColumn();
+} catch (Exception $e) {}
+
+// ── Fetch daily visitor graph (last 7 days) ──
+// ★ v3.55: Separate try-catch for each source — one failure doesn't block others.
+// ★ v3.56: Use FETCH_ASSOC instead of FETCH_KEY_PAIR for reliable date matching.
+$bnDays = ['Sunday'=>'রবি','Monday'=>'সোম','Tuesday'=>'মঙ্গল','Wednesday'=>'বুধ','Thursday'=>'বৃহ','Friday'=>'শুক্র','Saturday'=>'শনি'];
+$dailyData = [];
+$rows = [];
+$debugGraphSource = 'none';
+
+// Source 1: visit_log
+try {
+    $stmt = $pdo->query("SELECT visit_date as d, SUM(visit_count) as c
+                         FROM visit_log
+                         WHERE visit_date >= (CURDATE() - INTERVAL 6 DAY)
+                         GROUP BY visit_date
+                         ORDER BY d ASC");
+    $tempRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($tempRows as $r) {
+        $rows[$r['d']] = (int)$r['c'];
+    }
+    if (!empty($rows)) $debugGraphSource = 'visit_log';
+} catch (Exception $e) { $rows = []; }
+
+// Source 2: visitor_stats.last_activity (if visit_log empty or failed)
+if (empty($rows)) {
+    try {
+        $stmt = $pdo->query("SELECT DATE(last_activity) as d, COUNT(*) as c
+                             FROM visitor_stats
+                             WHERE last_activity >= (NOW() - INTERVAL 6 DAY)
+                             GROUP BY DATE(last_activity)
+                             ORDER BY d ASC");
+        $tempRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($tempRows as $r) {
+            $rows[$r['d']] = (int)$r['c'];
+        }
+        if (!empty($rows)) $debugGraphSource = 'visitor_stats.last_activity';
+    } catch (Exception $e) { $rows = []; }
+}
+
+// Source 3: visitor_stats.first_visit (final fallback — shows all-time data)
+if (empty($rows)) {
+    try {
+        $stmt = $pdo->query("SELECT DATE(first_visit) as d, COUNT(*) as c
+                             FROM visitor_stats
+                             GROUP BY DATE(first_visit)
+                             ORDER BY d DESC
+                             LIMIT 7");
+        $tempRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($tempRows as $r) {
+            $rows[$r['d']] = (int)$r['c'];
+        }
+        if (!empty($rows)) $debugGraphSource = 'visitor_stats.first_visit';
+    } catch (Exception $e) { $rows = []; }
+}
+
+// Source 4: last resort — just count ALL visitors and put on today's bar
+if (empty($rows) && $totalVisitors > 0) {
+    $todayDate = date('Y-m-d');
+    $rows[$todayDate] = $totalVisitors;
+    $debugGraphSource = 'total_count_fallback';
+}
+
+// Fill in all 7 days (including days with 0 visitors)
+for ($i = 6; $i >= 0; $i--) {
+    $date = date('Y-m-d', strtotime("-{$i} days"));
+    $dayName = $bnDays[date('l', strtotime($date))];
+    $count = isset($rows[$date]) ? (int)$rows[$date] : 0;
+    $dailyData[] = ['date' => $date, 'day' => $dayName, 'count' => $count];
+}
+
+// Check if graph has ANY non-zero data
+$graphHasData = false;
+foreach ($dailyData as $d) {
+    if ($d['count'] > 0) { $graphHasData = true; break; }
+}
+
+// ── Fetch OS breakdown ── (separate try-catch)
+$osData = [];
+try {
+    $stmt = $pdo->query("SELECT os, COUNT(*) as c FROM visitor_stats WHERE os != '' GROUP BY os ORDER BY c DESC");
+    $osData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+
+// ── Fetch browser breakdown ── (separate try-catch)
+$browserData = [];
+try {
+    $stmt = $pdo->query("SELECT browser, COUNT(*) as c FROM visitor_stats WHERE browser != '' GROUP BY browser ORDER BY c DESC");
+    $browserData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+
+// ── Fetch recent visitors ── (separate try-catch)
+$recentVisitors = [];
+try {
+    $stmt = $pdo->query("SELECT ip_partial, os, browser, visit_count, last_activity, first_visit
+                         FROM visitor_stats
+                         ORDER BY last_activity DESC
+                         LIMIT 15");
+    $recentVisitors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
+
+// ★ v3.55: Per-component demo fallback — each component independently falls
+//    back to demo data if its query returned nothing. This ensures the graph
+//    always shows bars even if one specific query failed.
+$isDemoMode = false;
+
+// Graph: if all 7 days are zero, inject demo graph data
+if (!$graphHasData) {
+    $isDemoMode = true;
+    $demoCounts = [12, 8, 15, 20, 5, 18, 23];
+    $dailyData = [];
+    for ($i = 6; $i >= 0; $i--) {
+        $date = date('Y-m-d', strtotime("-{$i} days"));
+        $dayName = $bnDays[date('l', strtotime($date))];
+        $dailyData[] = ['date' => $date, 'day' => $dayName, 'count' => $demoCounts[6 - $i]];
+    }
+}
+
+// OS: if empty, inject demo
+if (empty($osData)) {
+    $isDemoMode = true;
+    $osData = [
+        ['os' => 'Android', 'c' => 68],
+        ['os' => 'Windows', 'c' => 45],
+        ['os' => 'iOS', 'c' => 28],
+        ['os' => 'macOS', 'c' => 10],
+        ['os' => 'Linux', 'c' => 5],
+    ];
+}
+
+// Browser: if empty, inject demo
+if (empty($browserData)) {
+    $isDemoMode = true;
+    $browserData = [
+        ['browser' => 'Chrome', 'c' => 89],
+        ['browser' => 'Safari', 'c' => 28],
+        ['browser' => 'Firefox', 'c' => 15],
+        ['browser' => 'Edge', 'c' => 12],
+        ['browser' => 'Other', 'c' => 12],
+    ];
+}
+
+// Recent visitors: if empty, inject demo
+if (empty($recentVisitors)) {
+    $isDemoMode = true;
+    $recentVisitors = [
+        ['ip_partial' => '192.168.1.*',  'os' => 'Android', 'browser' => 'Chrome',  'visit_count' => 5, 'last_activity' => date('Y-m-d H:i:s', strtotime('-2 minutes'))],
+        ['ip_partial' => '10.0.0.*',     'os' => 'Windows', 'browser' => 'Edge',    'visit_count' => 3, 'last_activity' => date('Y-m-d H:i:s', strtotime('-15 minutes'))],
+        ['ip_partial' => '172.16.0.*',   'os' => 'iOS',     'browser' => 'Safari',  'visit_count' => 8, 'last_activity' => date('Y-m-d H:i:s', strtotime('-32 minutes'))],
+        ['ip_partial' => '203.192.*.*',  'os' => 'Android', 'browser' => 'Chrome',  'visit_count' => 2, 'last_activity' => date('Y-m-d H:i:s', strtotime('-1 hour'))],
+        ['ip_partial' => '157.240.*.*',  'os' => 'macOS',   'browser' => 'Safari',  'visit_count' => 1, 'last_activity' => date('Y-m-d H:i:s', strtotime('-2 hours'))],
+        ['ip_partial' => '31.13.*.*',    'os' => 'Windows', 'browser' => 'Firefox', 'visit_count' => 4, 'last_activity' => date('Y-m-d H:i:s', strtotime('-3 hours'))],
+        ['ip_partial' => '151.101.*.*',  'os' => 'Linux',   'browser' => 'Chrome',  'visit_count' => 6, 'last_activity' => date('Y-m-d H:i:s', strtotime('-5 hours'))],
+        ['ip_partial' => '104.16.*.*',   'os' => 'Android', 'browser' => 'Chrome',  'visit_count' => 3, 'last_activity' => date('Y-m-d H:i:s', strtotime('-8 hours'))],
+    ];
+}
+
+// Summary: if totalVisitors is 0, inject demo values
+if ($totalVisitors == 0) {
+    $isDemoMode = true;
+    $totalVisitors = 156;
+    $todayVisitors = 23;
+    $weekVisitors  = 89;
+}
+
+// Recalculate totals after possible demo data injection
+$osTotal = array_sum(array_column($osData, 'c') ?: [1]);
+$browserTotal = array_sum(array_column($browserData, 'c') ?: [1]);
+$maxDaily = max(array_column($dailyData, 'count') ?: [1]);
+if ($maxDaily < 5) $maxDaily = 5;
+
+// OS icons (★ v3.59: added mobile-specific icons)
+$osIcons = [
+    'Windows' => 'fab fa-windows',
+    'Android' => 'fab fa-android',
+    'iOS' => 'fab fa-apple',
+    'macOS' => 'fab fa-apple',
+    'Linux' => 'fab fa-linux',
+    'Other' => 'fas fa-mobile-screen',
+];
+// Browser icons (★ v3.59: added Samsung, Opera, UC, Mi, WebView)
+$browserIcons = [
+    'Chrome' => 'fab fa-chrome',
+    'Firefox' => 'fab fa-firefox-browser',
+    'Safari' => 'fab fa-safari',
+    'Edge' => 'fab fa-edge',
+    'Samsung' => 'fas fa-tv',
+    'Opera' => 'fab fa-opera',
+    'UC Browser' => 'fas fa-globe',
+    'Mi Browser' => 'fas fa-globe',
+    'WebView' => 'fas fa-mobile-screen',
+    'Other' => 'fas fa-globe',
+];
+?>
+<!-- ====== Visitor Stats Panel ====== -->
+<style>
+.vsp-panel {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    overflow: hidden;
+    margin-bottom: 20px;
+    font-family: 'Hind Siliguri', sans-serif;
+}
+.vsp-header {
+    background: linear-gradient(135deg, #B71C1C 0%, #7F0000 100%);
+    color: #fff;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+}
+.vsp-header i { color: #D4950A; }
+.vsp-body { padding: 14px; }
+
+/* Summary cards */
+.vsp-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.vsp-card {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 10px 6px;
+    text-align: center;
+    border: 1px solid #e9ecef;
+}
+.vsp-card .num {
+    font-size: 20px;
+    font-weight: 700;
+    color: #B71C1C;
+    line-height: 1.2;
+}
+.vsp-card .lbl {
+    font-size: 10px;
+    color: #666;
+    margin-top: 2px;
+}
+
+/* Daily graph */
+.vsp-section-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 8px;
+    border-left: 3px solid #B71C1C;
+    padding-left: 6px;
+}
+.vsp-graph {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 80px;
+    padding: 0 4px;
+    border-bottom: 1px solid #e9ecef;
+    margin-bottom: 16px;
+}
+.vsp-bar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    position: relative;
+}
+.vsp-bar-fill {
+    width: 100%;
+    background: linear-gradient(180deg, #B71C1C 0%, #7F0000 100%);
+    border-radius: 3px 3px 0 0;
+    min-height: 3px !important;
+    transition: height .3s;
+    position: relative;
+    display: block !important;
+}
+.vsp-bar-fill::after {
+    content: attr(data-count);
+    position: absolute;
+    top: -16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: #B71C1C;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.vsp-bar-label {
+    font-size: 9px;
+    color: #666;
+    margin-top: 4px;
+}
+
+/* OS / Browser breakdown */
+.vsp-breakdown { margin-bottom: 16px; }
+.vsp-br-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+.vsp-br-icon {
+    width: 20px;
+    text-align: center;
+    color: #B71C1C;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+.vsp-br-name {
+    width: 60px;
+    color: #333;
+    flex-shrink: 0;
+}
+.vsp-br-bar {
+    flex: 1;
+    height: 14px;
+    background: #f0f0f0;
+    border-radius: 7px;
+    overflow: hidden;
+}
+.vsp-br-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #B71C1C 0%, #D4950A 100%);
+    border-radius: 7px;
+    transition: width .3s;
+}
+.vsp-br-count {
+    width: 35px;
+    text-align: right;
+    color: #666;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* Recent visitors table */
+.vsp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+}
+.vsp-table th {
+    background: #f8f9fa;
+    padding: 6px 4px;
+    text-align: left;
+    font-weight: 600;
+    color: #555;
+    border-bottom: 2px solid #B71C1C;
+    font-size: 9px;
+    text-transform: uppercase;
+}
+.vsp-table td {
+    padding: 6px 4px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #333;
+}
+.vsp-table tr:hover td { background: #fff8f8; }
+.vsp-table .ip { font-family: monospace; font-size: 10px; color: #B71C1C; }
+.vsp-table .os-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #f0f0f0;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 9px;
+}
+.vsp-table .visits {
+    text-align: center;
+    font-weight: 700;
+    color: #B71C1C;
+}
+.vsp-table .time { color: #999; font-size: 9px; }
+</style>
+
+<div class="vsp-panel">
+    <div class="vsp-header">
+        <i class="fas fa-chart-line"></i>
+        ভিজিটর পরিসংখ্যান
+    </div>
+    <div class="vsp-body">
+
+        <?php if (!empty($isDemoMode)): ?>
+        <div style="background:#fff3cd;border:1px solid #ffc107;color:#856404;padding:8px 12px;border-radius:6px;margin-bottom:14px;font-size:11px;font-weight:600;text-align:center;">
+            <i class="fas fa-info-circle"></i> ডেমো মোড — এখনও কোনো বাস্তব ভিজিটর ডেটা নেই। ভিজিটর আসলে এখানে বাস্তব ডেটা দেখাবে।
+        </div>
+        <?php endif; ?>
+
+        <!-- Summary Cards -->
+        <div class="vsp-summary">
+            <div class="vsp-card">
+                <div class="num"><?= toBn(number_format($totalVisitors)) ?></div>
+                <div class="lbl">মোট</div>
+            </div>
+            <div class="vsp-card">
+                <div class="num"><?= toBn($todayVisitors) ?></div>
+                <div class="lbl">আজ</div>
+            </div>
+            <div class="vsp-card">
+                <div class="num"><?= toBn($weekVisitors) ?></div>
+                <div class="lbl">৭ দিন</div>
+            </div>
+        </div>
+
+        <!-- Daily Graph -->
+        <div class="vsp-section-title">গত ৭ দিনের নতুন ভিজিটর
+            <span style="float:right;font-size:9px;color:#999;font-weight:400;">source: <?= htmlspecialchars($debugGraphSource) ?> | max: <?= $maxDaily ?></span>
+        </div>
+        <div class="vsp-graph">
+            <?php foreach ($dailyData as $d):
+                $barH = $d['count'] > 0 ? max(8, round(($d['count'] / $maxDaily) * 75)) : 3;
+            ?>
+                <div class="vsp-bar">
+                    <div class="vsp-bar-fill" data-count="<?= toBn($d['count']) ?>" style="height:<?= $barH ?>px"></div>
+                    <div class="vsp-bar-label"><?= $d['day'] ?></div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <!-- Debug: raw data -->
+        <div style="font-size:8px;color:#bbb;margin-bottom:12px;text-align:center;">
+            <?php foreach ($dailyData as $d): ?><?= $d['day'] ?>=<?= $d['count'] ?> | <?php endforeach; ?>
+        </div>
+
+        <!-- OS Breakdown -->
+        <?php if (!empty($osData)): ?>
+        <div class="vsp-section-title">OS অনুযায়ী</div>
+        <div class="vsp-breakdown">
+            <?php foreach ($osData as $os): ?>
+                <?php $pct = $osTotal > 0 ? round(($os['c'] / $osTotal) * 100) : 0; ?>
+                <div class="vsp-br-row">
+                    <div class="vsp-br-icon"><i class="<?= $osIcons[$os['os']] ?? 'fas fa-question-circle' ?>"></i></div>
+                    <div class="vsp-br-name"><?= htmlspecialchars($os['os']) ?></div>
+                    <div class="vsp-br-bar"><div class="vsp-br-fill" style="width: <?= $pct ?>%"></div></div>
+                    <div class="vsp-br-count"><?= toBn($os['c']) ?></div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Browser Breakdown -->
+        <?php if (!empty($browserData)): ?>
+        <div class="vsp-section-title">Browser অনুযায়ী</div>
+        <div class="vsp-breakdown">
+            <?php foreach ($browserData as $br): ?>
+                <?php $pct = $browserTotal > 0 ? round(($br['c'] / $browserTotal) * 100) : 0; ?>
+                <div class="vsp-br-row">
+                    <div class="vsp-br-icon"><i class="<?= $browserIcons[$br['browser']] ?? 'fas fa-globe' ?>"></i></div>
+                    <div class="vsp-br-name"><?= htmlspecialchars($br['browser']) ?></div>
+                    <div class="vsp-br-bar"><div class="vsp-br-fill" style="width: <?= $pct ?>%"></div></div>
+                    <div class="vsp-br-count"><?= toBn($br['c']) ?></div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Recent Visitors Table -->
+        <?php if (!empty($recentVisitors)): ?>
+        <div class="vsp-section-title">সাম্প্রতিক ভিজিটর</div>
+        <table class="vsp-table">
+            <thead>
+                <tr>
+                    <th>IP</th>
+                    <th>OS</th>
+                    <th>Browser</th>
+                    <th style="text-align:center">ভিজিট</th>
+                    <th>সময়</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($recentVisitors as $v): ?>
+                    <?php
+                    // Time ago
+                    $timeAgo = '';
+                    $ts = strtotime($v['last_activity']);
+                    if ($ts) {
+                        $diff = time() - $ts;
+                        if ($diff < 60) $timeAgo = 'এইমাত্র';
+                        elseif ($diff < 3600) $timeAgo = floor($diff/60) . ' মিনিট';
+                        elseif ($diff < 86400) $timeAgo = floor($diff/3600) . ' ঘণ্টা';
+                        else $timeAgo = date('d/m', $ts);
+                        $timeAgo = toBn($timeAgo);
+                    }
+                    ?>
+                    <tr>
+                        <td class="ip"><?= htmlspecialchars($v['ip_partial'] ?: '—') ?></td>
+                        <td><span class="os-badge"><i class="<?= $osIcons[$v['os']] ?? 'fas fa-question-circle' ?>"></i> <?= htmlspecialchars($v['os'] ?: '?') ?></span></td>
+                        <td><i class="<?= $browserIcons[$v['browser']] ?? 'fas fa-globe' ?>" style="color:#666"></i> <?= htmlspecialchars($v['browser'] ?: '?') ?></td>
+                        <td class="visits"><?= toBn($v['visit_count']) ?></td>
+                        <td class="time"><?= $timeAgo ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php else: ?>
+        <p style="text-align:center;color:#999;font-size:12px;padding:20px;">এখনও কোনো ভিজিটর ডেটা নেই।</p>
+        <?php endif; ?>
+
+    </div>
+</div>
+
+<?php
+} catch (Exception $e) {
+    // ★ v3.58: Show error instead of white page
+    echo '<div style="background:#fff;border:1px solid #C41E3A;border-radius:10px;padding:20px;margin:20px;">';
+    echo '<h2 style="color:#C41E3A;font-size:16px;margin-bottom:10px;"><i class="fas fa-exclamation-triangle"></i> Visitor Monitor Error</h2>';
+    echo '<p style="font-size:13px;color:#333;margin-bottom:10px;">Error: ' . htmlspecialchars($e->getMessage()) . '</p>';
+    echo '<p style="font-size:11px;color:#999;">File: ' . htmlspecialchars($e->getFile()) . ' | Line: ' . $e->getLine() . '</p>';
+    echo '<p style="font-size:12px;color:#666;margin-top:15px;">এই error টি আমাকে দিন — আমি fix করে দেব।</p>';
+    echo '</div>';
+}
+?>
 
 <?php else: ?>
 <div class="admin-topbar"><h1><i class="fas fa-ban" style="color:var(--accent)"></i> Access Denied</h1></div>

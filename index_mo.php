@@ -25,6 +25,11 @@ if (isset($_GET['ajax_today_news'])) {
     date_default_timezone_set('Asia/Kolkata');
     try { if (isset($pdo)) { $pdo->exec("SET time_zone = '+05:30';"); } } catch (Exception $e) {}
 
+    // ★ v3.63: Detect language for AJAX response (same logic as index.php)
+    $ajaxIsEn = false;
+    if (isset($_GET['lang']) && $_GET['lang'] === 'en') $ajaxIsEn = true;
+    elseif (isset($_COOKIE['site_lang']) && $_COOKIE['site_lang'] === 'en') $ajaxIsEn = true;
+
     if (!isset($pdo)) {
         echo json_encode(['status' => 'error', 'count' => 0, 'items' => []]);
         exit;
@@ -55,7 +60,7 @@ if (isset($_GET['ajax_today_news'])) {
         $enDigits = ['0','1','2','3','4','5','6','7','8','9'];
 
         foreach ($todayNews as &$n) {
-            // Process image URL (same logic as index.php)
+            // ★ v3.62: Fixed image URL — use newsImage() logic from index.php
             $imgUrl = $placeholderImg;
             if (!empty($n['image'])) {
                 $img = trim($n['image']);
@@ -64,27 +69,32 @@ if (isset($_GET['ajax_today_news'])) {
                         $imgUrl = $img;
                     } else {
                         while (strpos($img, 'uploads/uploads/') === 0) { $img = substr($img, 8); }
-                        $imgUrl = (strpos($img, '/') === 0 ? '' : 'uploads/') . $img;
+                        if (strpos($img, 'uploads/') !== 0 && strpos($img, '/') !== 0) {
+                            $imgUrl = 'uploads/' . $img;
+                        } else {
+                            $imgUrl = $img;
+                        }
                     }
                 }
             }
             $n['image_url'] = $imgUrl;
 
-            // Format time-ago in Bengali
-            $n['time_ago'] = '';
+            // ★ v3.63: Language-aware time labels
             $ts = strtotime($n['created_at']);
+            $n['time_ago'] = '';
             if ($ts) {
                 $diff = time() - $ts;
-                if ($diff < 60) {
-                    $n['time_ago'] = 'এইমাত্র';
+                if ($diff < 0) {
+                    $n['time_ago'] = date('h:i A', $ts);
+                } elseif ($diff < 60) {
+                    $n['time_ago'] = $ajaxIsEn ? 'Just now' : 'এইমাত্র';
                 } elseif ($diff < 3600) {
                     $m = (int)($diff / 60);
-                    $n['time_ago'] = str_replace($enDigits, $bnDigits, (string)$m) . ' মিনিট আগে';
+                    $n['time_ago'] = $ajaxIsEn ? $m . ' min ago' : $m . ' মিনিট আগে';
                 } elseif ($diff < 86400) {
-                    $h = (int)($diff / 3600);
-                    $n['time_ago'] = str_replace($enDigits, $bnDigits, (string)$h) . ' ঘণ্টা আগে';
+                    $n['time_ago'] = date('h:i A', $ts);
                 } else {
-                    $n['time_ago'] = date('d M Y', $ts);
+                    $n['time_ago'] = date('d M Y, h:i A', $ts);
                 }
             }
         }
@@ -117,8 +127,8 @@ $dbNavCatIcons    = $navCatIcons       ?? [];
 $dbCurrentSub     = $currentSub        ?? 0;
 
 // ★ v3.47: Visitor tracking — count online users + total visitors for footer.
-//    Creates visitor_stats table, tracks each visitor by SHA256(IP + UserAgent).
-//    Counts: online (last 5 min) + total unique visitors. Bengali digit output.
+//    Creates visitor_stats table, tracks each visitor by SHA256(IP).
+//    ★ v3.52: Now also stores OS, browser, partial IP for admin analytics panel.
 $ucText = '';
 try {
     if (isset($pdo)) {
@@ -126,13 +136,31 @@ try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS visitor_stats (
             id INT AUTO_INCREMENT PRIMARY KEY,
             visitor_hash VARCHAR(64) NOT NULL UNIQUE,
+            ip_partial VARCHAR(20) DEFAULT '',
+            user_agent VARCHAR(500) DEFAULT '',
+            os VARCHAR(50) DEFAULT '',
+            browser VARCHAR(50) DEFAULT '',
+            visit_count INT DEFAULT 1,
             first_visit TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+        // ★ v3.52: Add new columns to existing table (safe — ignores error if exists)
+        $newCols = ['ip_partial', 'user_agent', 'os', 'browser', 'visit_count'];
+        foreach ($newCols as $col) {
+            try {
+                $colDefs = [
+                    'ip_partial'  => "VARCHAR(20) DEFAULT ''",
+                    'user_agent'  => "VARCHAR(500) DEFAULT ''",
+                    'os'          => "VARCHAR(50) DEFAULT ''",
+                    'browser'     => "VARCHAR(50) DEFAULT ''",
+                    'visit_count' => "INT DEFAULT 1",
+                ];
+                $pdo->exec("ALTER TABLE visitor_stats ADD COLUMN {$col} {$colDefs[$col]}");
+            } catch (Exception $e) {}
+        }
+
         // Track current visitor by IP only (1 IP = 1 visitor, regardless of browser/device)
-        // ★ v3.49: Track by IP only — not IP+UserAgent. Same person from different
-        //    browsers counts as 1 visitor. Also detects real IP behind proxy/CDN.
         $clientIP = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         // Detect real client IP if behind proxy/CDN (InfinityFree, Cloudflare, nginx, etc.)
         if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
@@ -143,9 +171,69 @@ try {
         } elseif (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
             $clientIP = $_SERVER['HTTP_CF_CONNECTING_IP'];
         }
+
+        // ★ v3.52+v3.59: Enhanced OS + browser detection for mobile apps/WebViews
+        //    Detects Android (including WebView), iOS (including WKWebView),
+        //    Windows, macOS, Linux, plus mobile browsers (Samsung, Mi, Opera, UC).
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $os = 'Other';
+        if (preg_match('/windows/i', $ua)) $os = 'Windows';
+        elseif (preg_match('/android/i', $ua)) $os = 'Android';
+        elseif (preg_match('/iphone|ipad|ipod/i', $ua)) $os = 'iOS';
+        elseif (preg_match('/mac os x|macintosh|darwin/i', $ua)) $os = 'macOS';
+        elseif (preg_match('/linux/i', $ua)) $os = 'Linux';
+        // ★ v3.59: Additional mobile detection (CFNetwork = iOS native app)
+        elseif (preg_match('/cfnetwork/i', $ua)) $os = 'iOS';
+        // If "Mobile" or "Mobile Safari" but no OS match, guess Android (most common)
+        elseif (preg_match('/mobile/i', $ua)) $os = 'Android';
+
+        $browser = 'Other';
+        if (preg_match('/edg/i', $ua)) $browser = 'Edge';
+        elseif (preg_match('/samsungbrowser/i', $ua)) $browser = 'Samsung';
+        elseif (preg_match('/ucbrowser/i', $ua)) $browser = 'UC Browser';
+        elseif (preg_match('/opr\/|opera/i', $ua)) $browser = 'Opera';
+        elseif (preg_match('/miuibrowser/i', $ua)) $browser = 'Mi Browser';
+        elseif (preg_match('/crios/i', $ua)) $browser = 'Chrome'; // Chrome on iOS
+        elseif (preg_match('/fxios/i', $ua)) $browser = 'Firefox'; // Firefox on iOS
+        elseif (preg_match('/chrome/i', $ua) && !preg_match('/edg/i', $ua)) $browser = 'Chrome';
+        elseif (preg_match('/firefox/i', $ua)) $browser = 'Firefox';
+        elseif (preg_match('/safari/i', $ua) && !preg_match('/chrome/i', $ua)) $browser = 'Safari';
+        // ★ v3.59: WebView detection
+        elseif (preg_match('/wv\)/i', $ua)) $browser = 'WebView'; // Android WebView
+        elseif (preg_match('/webview/i', $ua)) $browser = 'WebView';
+
+        // Partial IP for privacy (first 3 octets for IPv4)
+        $ipPartial = $clientIP;
+        if (filter_var($clientIP, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $parts = explode('.', $clientIP);
+            if (count($parts) === 4) $ipPartial = $parts[0] . '.' . $parts[1] . '.' . $parts[2] . '.*';
+        }
+
         $visitorHash = hash('sha256', $clientIP);
-        $trackStmt = $pdo->prepare("INSERT INTO visitor_stats (visitor_hash) VALUES (?) ON DUPLICATE KEY UPDATE last_activity = NOW()");
-        $trackStmt->execute([$visitorHash]);
+        // ★ v3.52: Insert with OS/browser/IP info; increment visit_count on return
+        $trackStmt = $pdo->prepare("INSERT INTO visitor_stats (visitor_hash, ip_partial, user_agent, os, browser)
+                                     VALUES (?, ?, ?, ?, ?)
+                                     ON DUPLICATE KEY UPDATE
+                                       last_activity = NOW(),
+                                       visit_count = visit_count + 1,
+                                       ip_partial = VALUES(ip_partial),
+                                       os = VALUES(os),
+                                       browser = VALUES(browser)");
+        $trackStmt->execute([$visitorHash, $ipPartial, mb_substr($ua, 0, 500), $os, $browser]);
+
+        // ★ v3.53: Daily visit log — records each day a visitor visits (for graph)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS visit_log (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            visitor_hash VARCHAR(64) NOT NULL,
+            visit_date DATE NOT NULL,
+            visit_count INT DEFAULT 1,
+            UNIQUE KEY uk_hash_date (visitor_hash, visit_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        try {
+            $vlStmt = $pdo->prepare("INSERT INTO visit_log (visitor_hash, visit_date) VALUES (?, CURDATE())
+                                     ON DUPLICATE KEY UPDATE visit_count = visit_count + 1");
+            $vlStmt->execute([$visitorHash]);
+        } catch (Exception $e) {}
 
         // Get counts
         // ★ v3.50: Online count removed from display — only total visits shown.
@@ -156,22 +244,22 @@ try {
         $enDigits = ['0','1','2','3','4','5','6','7','8','9'];
         $ucTotal  = str_replace($enDigits, $bnDigits, number_format($totalRaw));
 
-        // ★ v3.48: Retro counter-style — each digit in a black box (odometer style)
-        // ★ v3.51: Green live-dot before the count (pulsing "site is live" indicator)
-        $counterHTML = '<span class="counter-live-dot"></span>';
-        $chars = preg_split('//u', $ucTotal, -1, PREG_SPLIT_NO_EMPTY);
+        // ★ v3.61: Retro counter — tiny black-box digits (English), left of copyright
+        $ucTotalEN = number_format($totalRaw);
+        $counterHTML = '';
+        $chars = str_split($ucTotalEN);
         foreach ($chars as $char) {
             if ($char === ',') {
-                $counterHTML .= '<span class="counter-sep">,</span>';
+                $counterHTML .= '<span style="display:inline-flex;align-items:center;justify-content:center;width:3px;height:12px;color:rgba(255,255,255,.5);font-size:8px;font-weight:700;font-family:monospace;">,</span>';
             } else {
-                $counterHTML .= '<span class="counter-digit">' . $char . '</span>';
+                $counterHTML .= '<span style="display:inline-flex;align-items:center;justify-content:center;width:10px;height:12px;background:#000;color:#fff;font-size:8px;font-weight:700;font-family:monospace;border-radius:1px;border:1px solid rgba(255,255,255,.2);line-height:1;margin:0 0.5px;">' . $char . '</span>';
             }
         }
-        $visitsLabel = $isEnglish ? 'Visits' : 'ভিজিট';
-        $ucFooterHTML = '<div class="ft-counter">'
-            . '<div class="counter-display">' . $counterHTML . '</div>'
-            . '<div class="counter-label">' . $visitsLabel . '</div>'
-            . '</div>';
+        $ucFooterHTML = '<span style="display:inline-flex;align-items:center;font-size:7px;color:rgba(255,255,255,.6);letter-spacing:.5px;text-transform:uppercase;font-weight:600;margin-right:2px;">'
+            . '<span style="width:5px;height:5px;background:#69F0AE;border-radius:50%;display:inline-block;flex-shrink:0;box-shadow:0 0 4px rgba(105,240,174,.7);animation:livePulse 1.5s ease-in-out infinite;margin-right:3px;"></span>'
+            . '<span style="margin-right:3px;">Visitor</span>'
+            . $counterHTML
+            . '</span>';
     }
 } catch (Exception $e) {}
 
@@ -611,6 +699,116 @@ if ($isSinglePage) {
         // Strip class attributes from p, span, section (keep them as plain elements)
         $article['content'] = preg_replace('#<(p|span|section)\s+[^>]*>#iu', '<$1>', $article['content']);
     }
+
+    // ★ v3.67: Force translation — custom translator that doesn't depend on bn_to_en()
+    //    Uses cURL + file_get_contents fallback + same cache as bn_to_en()
+    if ($isEnglish && !empty($article['content'])) {
+        if (preg_match('/[\x{0980}-\x{09FF}]/u', $article['content'])) {
+
+            // Custom translation function — independent of index.php's bn_to_en()
+            $forceTranslate = function($text) {
+                $text = trim($text);
+                if (empty($text) || !preg_match('/[\x{0980}-\x{09FF}]/u', $text)) return $text;
+
+                // Cache check (same cache dir as bn_to_en)
+                $cacheDir = __DIR__ . '/cache_tr';
+                if (!is_dir($cacheDir)) @mkdir($cacheDir, 0775, true);
+                $cacheKey = 'tr_' . hash('sha256', $text);
+                $cacheFile = $cacheDir . '/' . $cacheKey . '.txt';
+                if (file_exists($cacheFile) && (time() - filemtime($cacheFile) < 86400 * 30)) {
+                    $cached = @file_get_contents($cacheFile);
+                    if ($cached !== false && $cached !== '' && !preg_match('/[\x{0980}-\x{09FF}]/u', $cached)) return $cached;
+                }
+
+                // Split into chunks (Google limit ~1500 chars)
+                $chunks = [];
+                if (mb_strlen($text, 'UTF-8') > 1400) {
+                    $sentences = preg_split('/(?<=[.!?।॥])\s+/u', $text);
+                    $cur = '';
+                    foreach ($sentences as $s) {
+                        if (mb_strlen($cur . ' ' . $s, 'UTF-8') > 1400) {
+                            if ($cur !== '') $chunks[] = $cur;
+                            $cur = $s;
+                        } else { $cur = $cur === '' ? $s : $cur . ' ' . $s; }
+                    }
+                    if ($cur !== '') $chunks[] = $cur;
+                } else { $chunks[] = $text; }
+
+                $translated = '';
+                foreach ($chunks as $chunk) {
+                    $url = 'https://translate.google.com/translate_a/single?client=gtx&sl=bn&tl=en&dt=t&q=' . rawurlencode($chunk);
+                    $chunkTrans = '';
+
+                    // Method 1: cURL
+                    if (function_exists('curl_init') && empty($chunkTrans)) {
+                        try {
+                            $ch = @curl_init();
+                            if ($ch !== false) {
+                                @curl_setopt_array($ch, [
+                                    CURLOPT_URL => $url,
+                                    CURLOPT_RETURNTRANSFER => true,
+                                    CURLOPT_SSL_VERIFYPEER => false,
+                                    CURLOPT_TIMEOUT => 6,
+                                    CURLOPT_CONNECTTIMEOUT => 4,
+                                    CURLOPT_FOLLOWLOCATION => true,
+                                    CURLOPT_HTTPHEADER => ['User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept: application/json'],
+                                ]);
+                                $resp = @curl_exec($ch);
+                                $code = @curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                                @curl_close($ch);
+                                if ($code === 200 && !empty($resp)) {
+                                    $data = json_decode($resp, true);
+                                    if (is_array($data) && isset($data[0])) {
+                                        foreach ($data[0] as $pair) {
+                                            if (is_array($pair) && isset($pair[0]) && is_string($pair[0])) $chunkTrans .= $pair[0];
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception $e) {}
+                    }
+
+                    // Method 2: file_get_contents (fallback if cURL fails)
+                    if (empty($chunkTrans) && ini_get('allow_url_fopen')) {
+                        try {
+                            $ctx = stream_context_create(['http' => [
+                                'timeout' => 6,
+                                'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nAccept: application/json\r\n"
+                            ], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);
+                            $resp = @file_get_contents($url, false, $ctx);
+                            if (!empty($resp)) {
+                                $data = json_decode($resp, true);
+                                if (is_array($data) && isset($data[0])) {
+                                    foreach ($data[0] as $pair) {
+                                        if (is_array($pair) && isset($pair[0]) && is_string($pair[0])) $chunkTrans .= $pair[0];
+                                    }
+                                }
+                            }
+                        } catch (Exception $e) {}
+                    }
+
+                    $translated .= ($chunkTrans !== '' ? $chunkTrans : $chunk) . ' ';
+                }
+
+                $translated = trim($translated);
+                if (!empty($translated) && !preg_match('/[\x{0980}-\x{09FF}]/u', $translated)) {
+                    @file_put_contents($cacheFile, $translated, LOCK_EX);
+                    return $translated;
+                }
+                return $text; // fallback
+            };
+
+            // Translate each text node in HTML (preserve tags)
+            $article['content'] = preg_replace_callback('#>([^<]+)<#u', function($m) use ($forceTranslate) {
+                $text = trim($m[1]);
+                if (empty($text) || !preg_match('/[\x{0980}-\x{09FF}]/u', $text)) {
+                    return '>' . $m[1] . '<';
+                }
+                $result = $forceTranslate($text);
+                return '>' . $result . '<';
+            }, $article['content']);
+        }
+    }
     // Related news (.nc cards inside .rel-sec)
     // ★ v3.1 FIX: আগের regex শুধু প্রথম </div> পর্যন্ত নিত — এখন rel-grid এর পুরো content capture করি
     if (preg_match('#<div class="rel-sec"[^>]*>(.*?)(?:</article>|<div class="ad-bottom-sec"|$)#us', $html, $rm)) {
@@ -977,6 +1175,34 @@ img { max-width: 100%; display: block; }
     overflow-x: hidden;
     text-align: justify;
     text-justify: inter-word;
+    transition: max-height .4s ease;
+}
+/* ★ v3.64: Read More — show only 1st paragraph, hide rest */
+.art-content.art-content-collapsed {
+    max-height: 9999px;
+    overflow: hidden;
+    position: relative;
+}
+/* ২য় প্যারাগ্রাফ থেকে সব hide */
+.art-content.art-content-collapsed > *:nth-child(n+2) {
+    display: none !important;
+}
+.art-content.art-content-collapsed::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, #fff);
+    pointer-events: none;
+}
+.art-content.art-content-expanded {
+    max-height: none;
+    overflow: visible;
+}
+.art-content.art-content-expanded::after {
+    display: none;
 }
 .art-content p { margin-bottom: 14px; }
 .art-content h2, .art-content h3, .art-content h4 {
@@ -1505,7 +1731,10 @@ HTML;
 
     // Content (HTML — already processed by index.php for video embeds etc.)
     if (!empty($article['content'])) {
-        $newSingleHTML .= '<div class="art-content" id="artContent">' . $article['content'] . '</div>';
+        $readMoreLabel = $isEnglish ? 'Read More' : 'আরও পড়ুন';
+        $readLessLabel = $isEnglish ? 'Read Less' : 'কম পড়ুন';
+        $newSingleHTML .= '<div class="art-content art-content-collapsed" id="artContent">' . $article['content'] . '</div>';
+        $newSingleHTML .= '<div style="text-align:center;margin:10px 0 0;"><button id="readMoreBtn" data-more="' . $readMoreLabel . '" data-less="' . $readLessLabel . '" onclick="toggleReadMore()" style="background:var(--red);color:#fff;border:none;padding:8px 24px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;"><i class="fas fa-chevron-down" style="margin-right:5px;"></i> ' . $readMoreLabel . '</button></div>';
     }
 
     // ★ v3.41: Text-to-Speech (TTS) button — Bengali & English
@@ -1567,8 +1796,11 @@ HTML;
         <a href="#" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
         <a href="#" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
     </div>
-    <div>&copy; 2026 {$L['appName']}</div>
-    {$ucFooterHTML}
+    <div style="display:flex;align-items:center;">
+        <div style="flex:1;text-align:left;">{$ucFooterHTML}</div>
+        <div style="flex:1;text-align:center;">&copy; 2026 {$L['appName']}</div>
+        <div style="flex:1;text-align:right;">&nbsp;</div>
+    </div>
 </footer>
 HTML;
 
@@ -1859,6 +2091,23 @@ HTML;
     // Expose to global scope for onclick handlers
     window.toggleTTS = toggleTTS;
     window.stopTTS = stopTTS;
+
+    // ★ v3.62: Read More / Read Less toggle
+    window.toggleReadMore = function() {
+        var content = document.getElementById('artContent');
+        var btn = document.getElementById('readMoreBtn');
+        if (!content || !btn) return;
+        if (content.classList.contains('art-content-collapsed')) {
+            content.classList.remove('art-content-collapsed');
+            content.classList.add('art-content-expanded');
+            btn.innerHTML = '<i class="fas fa-chevron-up" style="margin-right:5px;"></i> ' + (btn.getAttribute('data-less') || 'Read Less');
+        } else {
+            content.classList.remove('art-content-expanded');
+            content.classList.add('art-content-collapsed');
+            btn.innerHTML = '<i class="fas fa-chevron-down" style="margin-right:5px;"></i> ' + (btn.getAttribute('data-more') || 'Read More');
+            content.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    };
 
     // Load voices (some browsers need this)
     if (ttsSynth) {
@@ -3137,8 +3386,11 @@ $newHTML .= <<<HTML
         <a href="#" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
         <a href="#" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
     </div>
-    <div>&copy; 2026 {$L['appName']}</div>
-    {$ucFooterHTML}
+    <div style="display:flex;align-items:center;">
+        <div style="flex:1;text-align:left;">{$ucFooterHTML}</div>
+        <div style="flex:1;text-align:center;">&copy; 2026 {$L['appName']}</div>
+        <div style="flex:1;text-align:right;">&nbsp;</div>
+    </div>
 </footer>
 HTML;
 

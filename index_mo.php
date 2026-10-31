@@ -111,6 +111,39 @@ if (isset($_GET['ajax_today_news'])) {
 }
 
 // ── Step 1: Capture index.php output ──────────────────────────────────
+// ★ v3.74: CRITICAL FIX — make index.php render ALL news for the category/search
+//    so index_mo.php can paginate them 4-per-page with its own 'mop' param.
+//
+//    Problem: index.php uses $_GET['p'] for ITS pagination (NEWS_PER_PAGE items).
+//    If a category has 20 news but NEWS_PER_PAGE=9, index.php only renders 9 cards
+//    on page 1 — so index_mo.php can never show more than 9 cards total.
+//
+//    Solution: Force index.php to render ALL news in one go by:
+//    1) Removing our 'mop' param from $_GET (we use 'mop', not 'p', for our pagination)
+//    2) Defining NEWS_PER_PAGE as a huge number BEFORE include (overrides config.php)
+//
+//    We use 'mop' (mo page) instead of 'p' so index.php's own pagination
+//    is bypassed entirely (it sees no 'p' param → defaults to page 1, but
+//    NEWS_PER_PAGE is huge so all news fit on "page 1").
+
+// Save our own pagination param (mop), then strip it from $_GET so index.php
+// doesn't see it. (index.php only cares about 'p'.)
+$moPageNum = isset($_GET['mop']) ? max(1, (int)$_GET['mop']) : 1;
+unset($_GET['mop']);
+
+// Also strip 'p' from $_GET so index.php renders page 1 with our huge NEWS_PER_PAGE
+// (otherwise index.php would try to render its own page 2, 3, etc. — which don't
+// exist when NEWS_PER_PAGE is huge).
+unset($_GET['p']);
+
+// Define NEWS_PER_PAGE as a huge number BEFORE index.php / config.php loads it.
+// This makes index.php render all news in one page (no internal pagination).
+// ★ If NEWS_PER_PAGE is already defined (e.g., by config.php loaded earlier),
+//   we can't redefine it — so we define it only if not yet defined.
+if (!defined('NEWS_PER_PAGE')) {
+    define('NEWS_PER_PAGE', 1000);
+}
+
 ob_start();
 include __DIR__ . '/index.php';
 $html = ob_get_clean();
@@ -348,11 +381,36 @@ if (isset($_GET['y']) && !empty($_GET['y'])) {
 if (isset($_GET['m']) && !empty($_GET['m'])) {
     $langSwitchUrl .= '&m=' . urlencode($_GET['m']);
 }
+// ★ v3.74: Preserve our 'mop' pagination page number when switching language
+//    (was 'p' in v3.68, but 'p' belongs to index.php — we now use 'mop')
+if (isset($_GET['mop']) && (int)$_GET['mop'] > 1) {
+    $langSwitchUrl .= '&mop=' . (int)$_GET['mop'];
+}
 $langSwitchHref = $langSwitchUrl;
 
 // ★ Section title (for home/category/search pages)
+// ★ v3.86: If a subcategory is selected (?sub=ID), look up its name from
+//    $dbCatSubcats (saved from index.php) and use it as the section title.
+//    So clicking "কলকাতা" in the article page → category page title shows "কলকাতা".
+$_subName = '';
+if (!empty($_GET['sub']) && !empty($dbCatSubcats)) {
+    $_subId = (int)$_GET['sub'];
+    foreach ($dbCatSubcats as $_catSubs) {
+        if (is_array($_catSubs)) {
+            foreach ($_catSubs as $_s) {
+                if (isset($_s['id']) && (int)$_s['id'] === $_subId) {
+                    $_subName = $_s['name'] ?? '';
+                    break 2;
+                }
+            }
+        }
+    }
+}
 if ($searchQuery) {
     $sectionTitle = $isEnglish ? 'Search: ' . $searchQuery : 'সার্চ: ' . $searchQuery;
+} elseif ($currentCat && $_subName) {
+    // Subcategory page — show subcategory name (e.g., "কলকাতা")
+    $sectionTitle = $_subName;
 } elseif ($currentCat) {
     $sectionTitle = $currentCat;
 } elseif ($page === 'home') {
@@ -381,6 +439,8 @@ if (preg_match_all('#<a href="([^"]+)"\s+class="feat-si"[^>]*>\s*<img src="([^"]
 
 // News grid cards (.nc)
 $newsCards = [];
+// ★ v3.73: Initialize dedup map here so the fallback (and other extractors) can use it safely.
+$existingHrefs = [];
 if (preg_match_all('#<a href="([^"]+)"\s+class="nc"[^>]*>(.*?)</a>#us', $html, $matches)) {
     foreach ($matches[1] as $idx => $href) {
         $block = $matches[2][$idx];
@@ -389,19 +449,25 @@ if (preg_match_all('#<a href="([^"]+)"\s+class="nc"[^>]*>(.*?)</a>#us', $html, $
         if (preg_match('#<h3[^>]*>([^<]+)</h3>#u', $block, $tm)) $title = html_entity_decode(trim($tm[1]), ENT_QUOTES, 'UTF-8');
         if (preg_match('#<div class="nc-cat"[^>]*>([^<]+)</div>#u', $block, $cm)) $cat = trim($cm[1]);
         if (preg_match('#<i class="far fa-clock"></i>\s*([^<]+)#u', $block, $tm2)) $time = trim($tm2[1]);
-        if ($title && $img) $newsCards[] = ['href' => $href, 'img' => $img, 'title' => $title, 'cat' => $cat, 'time' => $time];
+        if ($title && $img) {
+            $newsCards[] = ['href' => $href, 'img' => $img, 'title' => $title, 'cat' => $cat, 'time' => $time];
+            $existingHrefs[$href] = true;
+        }
     }
 }
 
 // ★ v3.15: Also extract home panel cards (.cat-panel-card) and merge into newsCards.
 // These are category-specific news cards that appear below the main grid on home page.
 // User wants them in "সর্বশেষ সংবাদ" (Latest News) section instead of separate panels.
+//
+// ★ v3.71: REVERTED v3.70 — cat-panel-card merge must happen on ALL pages (home,
+//    category, search). On category pages index.php often outputs the category's
+//    news as .cat-panel-card (not .nc), so skipping the merge made the category
+//    page show no news at all. Order is preserved by index.php's natural output
+//    order (.nc first, then .cat-panel-card) and dedup ensures no duplicates.
 if (preg_match_all('#<a href="([^"]+)"\s+class="cat-panel-card"[^>]*>(.*?)</a>#us', $html, $cpMatches)) {
-    // ★ v3.26: Build hash set for O(1) duplicate lookup (was O(n²))
-    $existingHrefs = [];
-    foreach ($newsCards as $nc) {
-        $existingHrefs[$nc['href']] = true;
-    }
+    // ★ v3.73: $existingHrefs is now initialized earlier (in .nc block) and persists.
+    //    We no longer rebuild it here — just add new entries as we go.
     foreach ($cpMatches[1] as $idx => $href) {
         // Skip duplicates using hash lookup
         if (isset($existingHrefs[$href])) continue;
@@ -423,6 +489,186 @@ if (preg_match_all('#<a href="([^"]+)"\s+class="cat-panel-card"[^>]*>(.*?)</a>#u
         }
     }
 }
+
+// ★ v3.72: FALLBACK — if both .nc and .cat-panel-card extraction returned nothing
+//    (which happens on some category pages where index.php uses a different template),
+//    try a generic approach: find ALL <a> tags that contain BOTH an <img> and an <h3>.
+//    This is the most reliable "news card" pattern regardless of class name.
+//    We also extract category badge (.cb or .nc-cat) and time if present.
+//
+//    ★ v3.73: Always run this fallback on category/search pages — even if some .nc
+//    or .cat-panel-card cards were found, the category page may have additional cards
+//    in another template that we'd otherwise miss. We dedup by href so no duplicates.
+$_earlyCatV73 = $_GET['cat'] ?? '';
+$_earlyQV73   = isset($_GET['q']) ? trim($_GET['q']) : '';
+$_runFallbackV73 = (empty($newsCards)) || ($_earlyCatV73 !== '') || ($_earlyQV73 !== '');
+
+if ($_runFallbackV73) {
+    // Pattern: <a href="..." ...>...<img ...>...<h3 ...>Title</h3>...</a>
+    // Must have both img and h3 to qualify as a news card.
+    if (preg_match_all('#<a\s+[^>]*href="([^"]+)"[^>]*>(.*?)(?:</a>|$)#us', $html, $anchorMatches)) {
+        foreach ($anchorMatches[1] as $aIdx => $aHref) {
+            $aBlock = $anchorMatches[2][$aIdx];
+            // Must have an <img>
+            if (!preg_match('#<img[^>]+src="([^"]+)"#u', $aBlock, $aIm)) continue;
+            // Must have an <h3> with non-empty text
+            if (!preg_match('#<h3[^>]*>([^<]+)</h3>#u', $aBlock, $aTm)) continue;
+            $aTitle = html_entity_decode(trim($aTm[1]), ENT_QUOTES, 'UTF-8');
+            if (empty($aTitle)) continue;
+            // Skip internal/system links
+            if (strpos($aHref, 'javascript:') === 0) continue;
+            if (strpos($aHref, '#') === 0) continue;
+
+            $aImg  = $aIm[1];
+            $aCat  = '';
+            $aTime = '';
+            // Try category badge patterns
+            if (preg_match('#<div class="nc-cat"[^>]*>([^<]+)</div>#u', $aBlock, $aCm)) {
+                $aCat = trim($aCm[1]);
+            } elseif (preg_match('#<span class="cb"[^>]*>([^<]+)</span>#u', $aBlock, $aCm2)) {
+                $aCat = trim($aCm2[1]);
+            } elseif (preg_match('#<div class="fcs"[^>]*>([^<]+)</div>#u', $aBlock, $aCm3)) {
+                $aCat = trim($aCm3[1]);
+            }
+            // Try time
+            if (preg_match('#<i class="far fa-clock"></i>\s*([^<]+)#u', $aBlock, $aTm2)) {
+                $aTime = trim($aTm2[1]);
+            }
+
+            // Dedup by href
+            $dedupKey = $aHref;
+            if (isset($existingHrefs[$dedupKey])) continue;
+            $existingHrefs[$dedupKey] = true;
+
+            $newsCards[] = [
+                'href'  => $aHref,
+                'img'   => $aImg,
+                'title' => $aTitle,
+                'cat'   => $aCat,
+                'time'  => $aTime,
+            ];
+        }
+    }
+}
+// ★ v3.78: SUPER SIMPLE DB QUERY for category/search pages
+//    Replaces complex v3.75-v3.77 logic with a straightforward approach.
+//    On category/search pages, query DB directly for latest news (same as home panel).
+//    This GUARANTEES the category page shows the same news as the home panel.
+$_v378_cat = isset($_GET['cat']) ? $_GET['cat'] : '';
+$_v378_q   = isset($_GET['q']) ? trim($_GET['q']) : '';
+$_v378_sub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
+$_v378_need = (($_v378_cat !== '') || ($_v378_q !== ''));
+
+if ($_v378_need && isset($pdo)) {
+    try {
+        // Ensure UTF-8 + IST timezone
+        @$pdo->exec("SET NAMES utf8mb4");
+        @$pdo->exec("SET time_zone = '+05:30'");
+
+        // Build query — IDENTICAL to index.php home panel query (but no LIMIT)
+        $_v378_sql = "SELECT n.id, n.title, n.image, n.created_at, c.name as cat_name
+                      FROM news n
+                      LEFT JOIN categories c ON n.category_id = c.id
+                      WHERE n.status = 'published'
+                        AND n.created_at <= NOW()";
+        $_v378_params = array();
+
+        if ($_v378_cat !== '') {
+            $_v378_sql .= " AND c.name = ?";
+            $_v378_params[] = $_v378_cat;
+        }
+        if ($_v378_q !== '') {
+            $_v378_sql .= " AND (n.title LIKE ? OR n.content LIKE ?)";
+            $_v378_params[] = "%" . $_v378_q . "%";
+            $_v378_params[] = "%" . $_v378_q . "%";
+        }
+        if ($_v378_sub > 0) {
+            $_v378_sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)";
+            $_v378_params[] = $_v378_sub;
+        }
+
+        // Date limit: archive = older than 30 days; everything else = last 30 days
+        if ($_v378_cat === 'আর্কাইভ') {
+            $_v378_sql .= " AND n.created_at < (NOW() - INTERVAL 30 DAY)";
+        } else {
+            $_v378_sql .= " AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+        }
+
+        // Latest first — same as home panel
+        $_v378_sql .= " ORDER BY n.created_at DESC";
+
+        $_v378_stmt = $pdo->prepare($_v378_sql);
+        $_v378_stmt->execute($_v378_params);
+        $_v378_rows = $_v378_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // If exact match returned nothing AND we have a category, try LIKE fallback
+        if (empty($_v378_rows) && $_v378_cat !== '') {
+            $_v378_sql2 = str_replace("c.name = ?", "c.name LIKE ?", $_v378_sql);
+            $_v378_params2 = $_v378_params;
+            // Find the category param and wrap it in %
+            foreach ($_v378_params2 as &$_v378_p) {
+                if ($_v378_p === $_v378_cat) {
+                    $_v378_p = "%" . $_v378_cat . "%";
+                    break;
+                }
+            }
+            unset($_v378_p);
+            $_v378_stmt2 = $pdo->prepare($_v378_sql2);
+            $_v378_stmt2->execute($_v378_params2);
+            $_v378_rows = $_v378_stmt2->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // Convert rows to $newsCards format
+        $_v378_placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250'%3E%3Crect width='400' height='250' fill='%23e8e4de'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'%3E%E0%A6%9B%E0%A6%AC%E0%A6%BF%3C/text%3E%3C/svg%3E";
+
+        $_v378_newCards = array();
+        foreach ($_v378_rows as $_v378_row) {
+            // Image URL
+            $_v378_img = $_v378_placeholder;
+            if (!empty($_v378_row['image'])) {
+                $_v378_imgRaw = trim($_v378_row['image']);
+                if ($_v378_imgRaw !== '' && $_v378_imgRaw !== '0') {
+                    if (preg_match('#^https?://#i', $_v378_imgRaw) || strpos($_v378_imgRaw, '//') === 0) {
+                        $_v378_img = $_v378_imgRaw;
+                    } else {
+                        while (strpos($_v378_imgRaw, 'uploads/uploads/') === 0) {
+                            $_v378_imgRaw = substr($_v378_imgRaw, 8);
+                        }
+                        if (strpos($_v378_imgRaw, 'uploads/') !== 0 && strpos($_v378_imgRaw, '/') !== 0) {
+                            $_v378_img = 'uploads/' . $_v378_imgRaw;
+                        } else {
+                            $_v378_img = $_v378_imgRaw;
+                        }
+                    }
+                }
+            }
+
+            // Time ago
+            $_v378_time = '';
+            if (function_exists('timeAgo')) {
+                $_v378_time = timeAgo($_v378_row['created_at']);
+            } else {
+                $_v378_time = date('d M Y', strtotime($_v378_row['created_at']));
+            }
+
+            $_v378_newCards[] = array(
+                'href'  => '?page=single&id=' . (int)$_v378_row['id'],
+                'img'   => $_v378_img,
+                'title' => $_v378_row['title'],
+                'cat'   => $_v378_row['cat_name'],
+                'time'  => $_v378_time,
+            );
+        }
+
+        // ★ REPLACE $newsCards with DB results
+        if (!empty($_v378_newCards)) {
+            $newsCards = $_v378_newCards;
+        }
+    } catch (Exception $_v378_e) {
+        // Silent fail — fall back to HTML-extracted $newsCards
+    }
+}
+
 
 // Categories — try sidebar first, fallback to nav panel (kn-pl-link) if sidebar fails
 // Both sources use en_label() so they are language-aware.
@@ -575,12 +821,15 @@ if ($isSinglePage) {
         $article['title'] = trim(html_entity_decode(strip_tags($tm[1]), ENT_QUOTES, 'UTF-8'));
     }
     // Category badge (first .cb link)
-    if (preg_match('#<a href="([^"]+)"\s+class="cb"[^>]*>([^<]+)</a>#u', $html, $cm)) {
+    // ★ v3.83: Regex made flexible — matches class="cb" AND class="cb sub" / class="cb ...".
+    //    Previously only exact class="cb" matched, so subcategory badges with extra
+    //    classes (e.g. class="cb sub") were never extracted.
+    if (preg_match('#<a\s+[^>]*href="([^"]+)"[^>]*class="cb[^"]*"[^>]*>([^<]+)</a>#u', $html, $cm)) {
         $article['catHref'] = $cm[1];
         $article['category'] = trim($cm[2]);
     }
     // Subcategory (second .cb link)
-    if (preg_match_all('#<a href="([^"]+)"\s+class="cb"[^>]*>([^<]+)</a>#u', $html, $cmAll)) {
+    if (preg_match_all('#<a\s+[^>]*href="([^"]+)"[^>]*class="cb[^"]*"[^>]*>([^<]+)</a>#u', $html, $cmAll)) {
         if (count($cmAll[1]) >= 2) {
             $article['subHref'] = $cmAll[1][1];
             $article['subCat']  = trim($cmAll[2][1]);
@@ -615,18 +864,12 @@ if ($isSinglePage) {
             }
         }
     }
-    // Method 2 (fallback): Broader match in entire HTML, but filter aggressively
-    if (empty($article['tags'])) {
-        if (preg_match_all('#<a[^>]*class="tag-pill"[^>]*>\s*<i class="fas fa-hashtag"></i>\s*([^<]+)</a>#u', $html, $tagMatches)) {
-            foreach ($tagMatches[1] as $tagText) {
-                $tag = trim(html_entity_decode($tagText, ENT_QUOTES, 'UTF-8'));
-                // Only accept reasonable tag names (1-50 chars)
-                if ($tag && mb_strlen($tag, 'UTF-8') <= 50) {
-                    $article['tags'][] = $tag;
-                }
-            }
-        }
-    }
+    // ★ v3.81: Method 2 (broad fallback) REMOVED — it was scanning the entire
+    //    HTML and picking up unrelated tag-pills from the sidebar / popular tags
+    //    section, causing wrong tags to appear on articles that have no tags of
+    //    their own. Now tags ONLY come from the article's own <div class="single-tags">
+    //    section (Method 1 above). If that section is missing or empty, the article
+    //    simply has no tags, and the "ট্যাগ" label will show with a blank area below.
     // Clean up tags — remove duplicates, empty values, and trim
     if (!empty($article['tags'])) {
         $article['tags'] = array_values(array_filter(array_map('trim', $article['tags']), function($t) {
@@ -1029,21 +1272,31 @@ img { max-width: 100%; display: block; }
 /* ARTICLE BODY */
 .article-body { padding: 16px 14px 0; }
 
-/* Category badges */
-.art-cats { margin-bottom: 10px; }
-.art-cat {
-    display: inline-block;
-    background: var(--red);
-    color: #fff;
-    font-size: 10px;
+/* Category badges — ★ v3.85: SMALL colored text format (no background).
+   জাতীয় (red text) / কলকাতা (gold text). "choto kore" per user request. */
+.art-cats { margin-bottom: 10px; font-size: 11px; font-weight: 700; line-height: 1.4; }
+.art-cats .art-cat {
+    display: inline;
+    background: transparent;
+    color: var(--red);
+    font-size: 11px;
     font-weight: 700;
-    padding: 3px 10px;
-    border-radius: 3px;
-    letter-spacing: .3px;
-    text-transform: uppercase;
-    margin-right: 5px;
+    padding: 0;
+    border-radius: 0;
+    letter-spacing: .2px;
+    text-transform: none;
+    margin-right: 0;
 }
-.art-cat.sub { background: var(--gold); color: #000; }
+.art-cats .art-cat-sep {
+    color: #999;
+    margin: 0 2px;
+    font-weight: 400;
+}
+.art-cats .art-cat.art-cat-sub-bg {
+    background: transparent;
+    color: var(--gold);
+    border-radius: 0;
+}
 
 /* Title */
 .art-title {
@@ -1672,13 +1925,31 @@ HTML;
     <div class="article-body">
 HTML;
 
-    // Category badges
+    // Category badges — ★ v3.85: small colored text format
+    //    জাতীয় (red text)  /  কলকাতা (gold text)
+    //    Smaller font, no background — "choto kore" per user request.
     $catBadges = '';
     if (!empty($article['category'])) {
-        $catBadges .= '<a href="' . htmlspecialchars($article['catHref']) . '" class="art-cat">' . htmlspecialchars($article['category']) . '</a>';
-    }
-    if (!empty($article['subCat'])) {
-        $catBadges .= '<a href="' . htmlspecialchars($article['subHref']) . '" class="art-cat sub">' . htmlspecialchars($article['subCat']) . '</a>';
+        $_catName = $article['category'];
+        if ($isEnglish && function_exists('en_label')) {
+            $_catName = en_label($_catName);
+        }
+        if (!empty($article['subCat'])) {
+            $_subName = $article['subCat'];
+            if ($isEnglish && function_exists('en_label')) {
+                $_subName = en_label($_subName);
+            }
+            // Category — red text
+            $catBadges .= '<a href="' . htmlspecialchars($article['catHref']) . '" class="art-cat">' . htmlspecialchars($_catName) . '</a>';
+            // Separator — grey "/"
+            $catBadges .= '<span class="art-cat-sep">/</span>';
+            // Subcategory — gold text
+            $_subHref = !empty($article['subHref']) ? $article['subHref'] : ('?cat=' . urlencode($article['category']) . '&sub=' . urlencode($article['subCat']));
+            $catBadges .= '<a href="' . htmlspecialchars($_subHref) . '" class="art-cat art-cat-sub-bg">' . htmlspecialchars($_subName) . '</a>';
+        } else {
+            // Only category — red text
+            $catBadges .= '<a href="' . htmlspecialchars($article['catHref']) . '" class="art-cat">' . htmlspecialchars($_catName) . '</a>';
+        }
     }
     if ($catBadges) {
         $newSingleHTML .= '<div class="art-cats">' . $catBadges . '</div>';
@@ -1756,10 +2027,13 @@ HTML;
     // ★ v3.30: Tags section ("ট্যাগ:") — KEPT (2nd tag section, user wants this)
     // First tag (in content) is removed by stopping content at single-tags div above.
     // This is the separate stylish tags section below content.
+    // ★ v3.81: ALWAYS show the "ট্যাগ" label, even when the article has no tags.
+    //    When there are no tags, the area after the label is just blank (no pills).
+    //    The label stays so users see the section exists.
+    $tagsLabel = $isEnglish ? 'Tags' : 'ট্যাগ';
+    $newSingleHTML .= '<div class="art-tags">';
+    $newSingleHTML .= '<span class="art-tags-label"><i class="fas fa-tags"></i> ' . $tagsLabel . '</span>';
     if (!empty($article['tags'])) {
-        $tagsLabel = $isEnglish ? 'Tags' : 'ট্যাগ';
-        $newSingleHTML .= '<div class="art-tags">';
-        $newSingleHTML .= '<span class="art-tags-label"><i class="fas fa-tags"></i> ' . $tagsLabel . '</span>';
         foreach ($article['tags'] as $tag) {
             $tag = trim($tag);
             if ($tag) {
@@ -1767,8 +2041,8 @@ HTML;
                 $newSingleHTML .= '<a href="' . htmlspecialchars($tagHref) . '" class="art-tag-pill"><i class="fas fa-hashtag"></i>' . htmlspecialchars($tag) . '</a>';
             }
         }
-        $newSingleHTML .= '</div>';
     }
+    $newSingleHTML .= '</div>';
 
     $newSingleHTML .= '</div>'; // .article-body
     $newSingleHTML .= '</div>'; // .article-wrap
@@ -2583,6 +2857,66 @@ img { max-width: 100%; display: block; }
 }
 .news-card .nc-time i { font-size: 9px; }
 
+/* ═══════ PAGINATION (v3.68) — 4 news per page, Prev/Next buttons ═══════ */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 12px 18px;
+    flex-wrap: wrap;
+}
+.pagination .pg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--card-bg);
+    color: var(--red);
+    border: 1px solid rgba(183,28,28,.3);
+    border-radius: 20px;
+    padding: 8px 16px;
+    font-size: 12.5px;
+    font-weight: 700;
+    font-family: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background .2s, color .2s, transform .15s;
+    box-shadow: 0 1px 3px rgba(183,28,28,.08);
+}
+.pagination .pg-btn:hover {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+    box-shadow: 0 3px 10px rgba(183,28,28,.25);
+    transform: translateY(-1px);
+}
+.pagination .pg-btn:active { transform: scale(.97); }
+.pagination .pg-btn.pg-disabled {
+    color: var(--muted);
+    background: var(--bg);
+    border-color: var(--border);
+    box-shadow: none;
+    cursor: not-allowed;
+    opacity: .55;
+}
+.pagination .pg-btn.pg-disabled:hover {
+    background: var(--bg);
+    color: var(--muted);
+    border-color: var(--border);
+    transform: none;
+    box-shadow: none;
+}
+.pagination .pg-info {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    background: rgba(183,28,28,.06);
+    padding: 7px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(183,28,28,.15);
+    white-space: nowrap;
+}
+
 /* ═══════ POPULAR NEWS — REMOVED (v3.40) ═══════ */
 /* ★ v3.38: Sports section CSS REMOVED (duplicate — now in forced category panels) */
 .popular-scroll {
@@ -3182,8 +3516,9 @@ $newHTML .= '</div>';
 // ── Content area ──────────────────────────────────────────────────
 $newHTML .= '<div class="content-wrap">';
 
-// Featured news (home page only, not on search)
-if ($page === 'home' && !$searchQuery && !empty($featured['title'])) {
+// Featured news (home page only — NOT on category/search/article pages)
+// ★ v3.69: Added !$currentCat so featured card doesn't appear on "More" → category pages
+if ($page === 'home' && !$currentCat && !$searchQuery && !empty($featured['title'])) {
     $newHTML .= <<<HTML
 <a href="{$featured['href']}" class="featured-card">
     <img src="{$featured['img']}" alt="" class="fc-img" loading="eager">
@@ -3199,8 +3534,13 @@ if ($page === 'home' && !$searchQuery && !empty($featured['title'])) {
 HTML;
 }
 
-// ★ v3.39: "শীর্ষ সংবাদ" (Top Stories) — side-list with section title
-if ($page === 'home' && !empty($sideItems)) {
+// ★ v3.69: "শীর্ষ সংবাদ" (Top Stories) — RESTORED on home page only.
+//    Condition: $page === 'home' && !$currentCat && !$searchQuery
+//    → Shows ONLY on true home page.
+//    → Does NOT show on category pages (when user clicks "More" → ?cat=...)
+//    → Does NOT show on search pages (?q=...)
+//    → Does NOT show on single article pages (?page=single)
+if ($page === 'home' && !$currentCat && !$searchQuery && !empty($sideItems)) {
     $topStoriesLabel = $isEnglish ? 'Top Stories' : 'শীর্ষ সংবাদ';
     $newHTML .= <<<HTML
 <div class="section-head">
@@ -3227,6 +3567,134 @@ HTML;
 // News grid + section title — only show on search or category pages (NOT home)
 if ($searchQuery || $currentCat) {
 
+// ★ v3.79: NEW — On CATEGORY pages, FIRST show "সর্বশেষ সংবাদ" (Latest News) section
+//    with ONLY 1 latest news item from the SAME category the user is browsing.
+//    THEN below, show the category-specific news section (existing code below).
+//    Home page stays UNCHANGED. Search page stays UNCHANGED.
+//    Only fires when $currentCat is set AND not a search query.
+//    ★ v3.80: Changed from "6 items across all categories" to
+//             "1 item from the same category", rendered as a big featured card.
+if ($currentCat && !$searchQuery && isset($pdo)) {
+    $_v379_latestCards = [];
+    try {
+        @$pdo->exec("SET NAMES utf8mb4");
+        @$pdo->exec("SET time_zone = '+05:30'");
+
+        // Build query — filter by SAME category (and subcategory if set)
+        $_v379_cat = isset($_GET['cat']) ? $_GET['cat'] : '';
+        $_v379_sub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
+
+        $_v379_sql = "SELECT n.id, n.title, n.image, n.created_at, c.name as cat_name
+                      FROM news n
+                      LEFT JOIN categories c ON n.category_id = c.id
+                      WHERE n.status = 'published'
+                        AND n.created_at <= NOW()
+                        AND n.created_at >= (NOW() - INTERVAL 30 DAY)";
+        $_v379_params = array();
+
+        if ($_v379_cat !== '') {
+            $_v379_sql .= " AND c.name = ?";
+            $_v379_params[] = $_v379_cat;
+        }
+        if ($_v379_sub > 0) {
+            $_v379_sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)";
+            $_v379_params[] = $_v379_sub;
+        }
+
+        // ★ v3.80: LIMIT 1 — only ONE latest news item from the same category
+        $_v379_sql .= " ORDER BY n.created_at DESC LIMIT 1";
+
+        $_v379_stmt = $pdo->prepare($_v379_sql);
+        $_v379_stmt->execute($_v379_params);
+        $_v379_rows = $_v379_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $_v379_placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250'%3E%3Crect width='400' height='250' fill='%23e8e4de'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'%3E%E0%A6%9B%E0%A6%AC%E0%A6%BF%3C/text%3E%3C/svg%3E";
+
+        foreach ($_v379_rows as $_v379_row) {
+            // Image URL (same logic as v3.78 block)
+            $_v379_img = $_v379_placeholder;
+            if (!empty($_v379_row['image'])) {
+                $_v379_imgRaw = trim($_v379_row['image']);
+                if ($_v379_imgRaw !== '' && $_v379_imgRaw !== '0') {
+                    if (preg_match('#^https?://#i', $_v379_imgRaw) || strpos($_v379_imgRaw, '//') === 0) {
+                        $_v379_img = $_v379_imgRaw;
+                    } else {
+                        while (strpos($_v379_imgRaw, 'uploads/uploads/') === 0) {
+                            $_v379_imgRaw = substr($_v379_imgRaw, 8);
+                        }
+                        if (strpos($_v379_imgRaw, 'uploads/') !== 0 && strpos($_v379_imgRaw, '/') !== 0) {
+                            $_v379_img = 'uploads/' . $_v379_imgRaw;
+                        } else {
+                            $_v379_img = $_v379_imgRaw;
+                        }
+                    }
+                }
+            }
+
+            // Time ago
+            $_v379_time = '';
+            if (function_exists('timeAgo')) {
+                $_v379_time = timeAgo($_v379_row['created_at']);
+            } else {
+                $_v379_time = date('d M Y', strtotime($_v379_row['created_at']));
+            }
+
+            $_v379_latestCards[] = [
+                'href'  => '?page=single&id=' . (int)$_v379_row['id'],
+                'img'   => $_v379_img,
+                'title' => $_v379_row['title'],
+                'cat'   => $_v379_row['cat_name'],
+                'time'  => $_v379_time,
+            ];
+        }
+    } catch (Exception $_v379_e) {
+        // Silent fail — section just won't appear
+    }
+
+    // Render "সর্বশেষ সংবাদ" section — ONE big featured-card style item
+    // ★ v3.87: If on a subcategory page, show the subcategory name (e.g., "কলকাতা")
+    //    instead of "সর্বশেষ সংবাদ". $_subName is set earlier in the section-title logic.
+    if (!empty($_v379_latestCards)) {
+        if (!empty($_subName)) {
+            $_v379_latestLabel = $_subName;  // Show subcategory name (কলকাতা)
+        } else {
+            $_v379_latestLabel = $isEnglish ? 'Latest News' : 'সর্বশেষ সংবাদ';
+        }
+        $newHTML .= <<<HTML
+<div class="section-head">
+    <div class="sh-title">{$_v379_latestLabel}</div>
+</div>
+HTML;
+        foreach ($_v379_latestCards as $_v379_nc) {
+            // Apply translation for English mode (same logic as main grid below)
+            $_v379_title = $_v379_nc['title'];
+            $_v379_cat   = $_v379_nc['cat'];
+            if ($isEnglish && function_exists('bn_to_en')) {
+                $_v379_title = bn_to_en($_v379_title);
+                if (function_exists('en_label')) $_v379_cat = en_label($_v379_cat);
+            } elseif (function_exists('en_label') && $_v379_cat !== '') {
+                $_v379_cat = en_label($_v379_cat);
+            }
+            $_v379_timeHtml = !empty($_v379_nc['time']) ? '<span><i class="far fa-clock"></i> ' . htmlspecialchars($_v379_nc['time']) . '</span>' : '';
+            $_v379_catHtml  = !empty($_v379_cat) ? htmlspecialchars($_v379_cat) : '';
+            // ★ v3.80: Use featured-card style (big, full-width) — same as home page
+            $newHTML .= <<<HTML
+<a href="{$_v379_nc['href']}" class="featured-card">
+    <img src="{$_v379_nc['img']}" alt="" class="fc-img" loading="eager">
+    <div class="fc-body">
+        <span class="fc-cat">{$_v379_catHtml}</span>
+        <h2 class="fc-title">{$_v379_title}</h2>
+        <div class="fc-meta">
+            <span class="author"><i class="fas fa-user"></i>{$L['appName']}</span>
+            {$_v379_timeHtml}
+        </div>
+    </div>
+</a>
+HTML;
+        }
+    }
+}
+
 // Section title
 $newHTML .= <<<HTML
 <div class="section-head">
@@ -3235,23 +3703,87 @@ $newHTML .= <<<HTML
 HTML;
 
 // News grid
+// ★ v3.68: Pagination — show only 4 news per page, with Prev/Next buttons.
+//    Page number comes from $_GET['p'] (1-based). Preserves cat/q/sub/lang params.
+// ★ v3.71: $newsCards contains .nc cards + .cat-panel-cards (merged with dedup).
+//    This is the SAME source the home page uses, so category page shows the same
+//    latest news in the same order. array_slice preserves order — just takes 4 at a time.
 if (!empty($newsCards)) {
+    $perPage     = 4;
+    $totalCards  = count($newsCards);
+    $totalPages  = $totalCards > 0 ? (int)ceil($totalCards / $perPage) : 1;
+    // ★ v3.74: Use $moPageNum (from 'mop' GET param) instead of $_GET['p'].
+    //    'p' is index.php's own pagination param — using it here caused conflicts
+    //    and made the category page show only index.php's page-1 cards.
+    $currentPage = max(1, $moPageNum);
+    if ($currentPage > $totalPages) $currentPage = $totalPages;
+    $offset     = ($currentPage - 1) * $perPage;
+    $pagedCards = array_slice($newsCards, $offset, $perPage);
+
     $newHTML .= '<div class="news-grid">';
-    foreach ($newsCards as $nc) {
+    foreach ($pagedCards as $nc) {
+        // ★ v3.75: Apply bn_to_en() for English mode (database titles are Bengali)
+        $_nc_title = $nc['title'];
+        $_nc_cat   = $nc['cat'];
+        if ($isEnglish && function_exists('bn_to_en')) {
+            $_nc_title = bn_to_en($_nc_title);
+            if (function_exists('en_label')) $_nc_cat = en_label($_nc_cat);
+        } elseif (function_exists('en_label') && $_nc_cat !== '') {
+            // Even in Bengali mode, en_label() returns the same Bengali name (no-op)
+            $_nc_cat = en_label($_nc_cat);
+        }
         $timeStr = !empty($nc['time']) ? '<div class="nc-time"><i class="far fa-clock"></i>' . htmlspecialchars($nc['time']) . '</div>' : '';
-        $catStr  = !empty($nc['cat']) ? '<div class="nc-cat">' . htmlspecialchars($nc['cat']) . '</div>' : '';
+        $catStr  = !empty($_nc_cat) ? '<div class="nc-cat">' . htmlspecialchars($_nc_cat) . '</div>' : '';
         $newHTML .= <<<HTML
 <a href="{$nc['href']}" class="news-card">
     <img src="{$nc['img']}" alt="" class="nc-img" loading="lazy">
     <div class="nc-body">
         {$catStr}
-        <div class="nc-title">{$nc['title']}</div>
+        <div class="nc-title">{$_nc_title}</div>
         {$timeStr}
     </div>
 </a>
 HTML;
     }
     $newHTML .= '</div>';
+
+    // ★ v3.74: Pagination controls — use 'mop' param (NOT 'p' which belongs to index.php)
+    if ($totalPages > 1) {
+        // Build base query string preserving cat / q / sub / lang
+        $baseParams = '';
+        if (!empty($currentCat))  $baseParams .= '&cat=' . urlencode($currentCat);
+        if (!empty($searchQuery)) $baseParams .= '&q=' . urlencode($searchQuery);
+        if (isset($_GET['sub']) && $_GET['sub'] !== '') $baseParams .= '&sub=' . (int)$_GET['sub'];
+        if (isset($_GET['lang']) && in_array($_GET['lang'], ['bn','en'], true)) {
+            $baseParams .= '&lang=' . $_GET['lang'];
+        }
+
+        $prevPage = max(1, $currentPage - 1);
+        $nextPage = min($totalPages, $currentPage + 1);
+
+        // ★ v3.74: Use 'mop' (mo page) instead of 'p'
+        $prevHref = '?page=home' . $baseParams . '&mop=' . $prevPage;
+        $nextHref = '?page=home' . $baseParams . '&mop=' . $nextPage;
+
+        $prevLabel = $isEnglish ? '&#8592; Previous' : '&#8592; আগের';
+        $nextLabel = $isEnglish ? 'Next &#8594;' : 'পরবর্তী &#8594;';
+        $pageLabel = $isEnglish ? 'Page' : 'পৃষ্ঠা';
+
+        $prevHtml = ($currentPage <= 1)
+            ? '<span class="pg-btn pg-disabled">' . $prevLabel . '</span>'
+            : '<a href="' . htmlspecialchars($prevHref) . '" class="pg-btn">' . $prevLabel . '</a>';
+        $nextHtml = ($currentPage >= $totalPages)
+            ? '<span class="pg-btn pg-disabled">' . $nextLabel . '</span>'
+            : '<a href="' . htmlspecialchars($nextHref) . '" class="pg-btn">' . $nextLabel . '</a>';
+
+        $newHTML .= <<<HTML
+<div class="pagination">
+    {$prevHtml}
+    <span class="pg-info">{$pageLabel} {$currentPage} / {$totalPages}</span>
+    {$nextHtml}
+</div>
+HTML;
+    }
 } else {
     $newHTML .= <<<HTML
 <div class="no-results">
@@ -3268,7 +3800,7 @@ HTML;
 // ★ v3.38: Duplicate "খেলাধুলা" sports panel REMOVED — already shown in forced category panels below.
 
 // ★ v3.39: Force exactly 4 category panels: জাতীয়, আন্তর্জাতিক, খেলাধুলা, বিনোদন
-// "শীর্ষ সংবাদ" is now the side-list title above (no duplicate).
+// ★ v3.68: "শীর্ষ সংবাদ" (Top Stories) side-list removed above; only these 4 panels remain on home.
 if ($page === 'home' && !$searchQuery && !$currentCat) {
     $forcedCats = [
         ['bn' => 'জাতীয়',       'en' => 'National',       'icon' => 'fa-flag'],

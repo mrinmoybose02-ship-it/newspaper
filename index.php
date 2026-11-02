@@ -1630,12 +1630,12 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .lang-dropdown a{display:block;padding:8px 15px;font-size:12px;color:#333;text-decoration:none;transition:background .2s}
 .lang-dropdown a:hover{background:#f0f0f0}
 
-.breaking-bar{background:var(--red-dark);color:#fff;overflow:hidden;white-space:nowrap;height:38px;display:flex;align-items:center;position:relative}
-.breaking-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:110px;background:linear-gradient(to right,var(--red-dark) 0%,var(--red-dark) 55%,rgba(127,0,0,0.4) 78%,transparent 100%);z-index:3;pointer-events:none}
+.breaking-bar{background:var(--red-dark);color:#fff;overflow:hidden;white-space:nowrap;height:42px;display:flex;align-items:center;position:relative}
+.breaking-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:110px;background:linear-gradient(to right,var(--red-dark) 0%,var(--red-dark) 25%,rgba(127,0,0,0.4) 60%,transparent 100%);z-index:3;pointer-events:none}
 .breaking-bar::after{content:'';position:absolute;right:0;top:0;bottom:0;width:50px;background:linear-gradient(to left,var(--red-dark) 0%,transparent 100%);z-index:3;pointer-events:none}
 .breaking-label{background:var(--gold);color:#000;padding:0 16px;font-weight:700;font-size:12px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.5px;position:relative;z-index:5;box-shadow:4px 0 10px rgba(127,0,0,0.45);align-self:stretch}
-.breaking-track{display:flex;align-items:center;height:100%;width:max-content;animation:bts <?= (int)$breakingNewsSpeed ?>s linear infinite;padding-left:55px;will-change:transform;position:relative;z-index:1}
-.breaking-track span{padding:0 40px;font-size:13px;font-weight:500;white-space:nowrap;display:flex;align-items:center;text-align:center}
+.breaking-track{display:flex;align-items:center;height:100%;width:max-content;animation:bts <?= (int)$breakingNewsSpeed ?>s linear infinite;padding-left:55px;will-change:transform;position:relative;z-index:1;font-family:'Noto Serif Bengali','Hind Siliguri',sans-serif}
+.breaking-track span{padding:0 40px;font-size:15px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;line-height:1.6;font-family:'Noto Serif Bengali','Hind Siliguri',sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;letter-spacing:.3px;text-shadow:0 0 1px rgba(255,255,255,.45)}
 @keyframes bts{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .breaking-bar:hover .breaking-track{animation-play-state:paused}
 

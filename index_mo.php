@@ -873,11 +873,12 @@ if (isset($pdo) && !empty($newsCards) && !empty($_v392_subNameMap) && !empty($_v
     }
 }
 
-// ★ v3.97: Helper function — Detect duplicate subcategory scenarios.
-//    User's instructions (combined v3.95 + v3.96 + v3.97):
+// ★ v3.99: Helper function — Detect duplicate subcategory scenarios.
+//    User's instructions (combined v3.95 + v3.96 + v3.99):
 //    1. If cat has '/' → subcategory already in red → keep all red, NO gold sub.
-//    2. If DB sub matches text in cat → duplicate → NO gold sub.
-//    3. ★ v3.97: If cat and sub are SAME NAME (e.g., "বিনোদন / বিনোদন") → NO gold sub.
+//    2. If DB sub is substring of cat (e.g., cat="জাতীয় কলকাতা", sub="কলকাতা") → NO gold sub.
+//    3. ★ v3.99: If cat and sub are SAME NAME → STILL show gold sub (user wants it!).
+//       Example: cat="বিনোদন", sub="বিনোদন" → show "বিনোদন / বিনোদন" (red + gold).
 //    4. Otherwise → gold sub WILL be added.
 function _v395_parseCatSub($catField, $dbSub = '') {
     $result = ['cat' => $catField, 'sub' => '', 'subAlreadyInCat' => false];
@@ -893,27 +894,20 @@ function _v395_parseCatSub($catField, $dbSub = '') {
         return $result;
     }
 
-    // ★ v3.97: If cat and dbSub are the SAME NAME (case-insensitive), it's a duplicate.
-    //    Example: cat="বিনোদন", dbSub="বিনোদন" → don't show "বিনোদন / বিনোদন"
+    // ★ v3.95: Check if DB sub is substring of cat (e.g., cat="জাতীয় কলকাতা", sub="কলকাতা")
+    //    Only suppress if sub is CONTAINED in cat (true duplicate), NOT if they're equal.
+    //    ★ v3.99: REMOVED the same-name suppression — user wants "বিনোদন / বিনোদন" to show.
     if (!empty($dbSub)) {
-        $_v397_catTrim = trim($catField);
-        $_v397_subTrim = trim($dbSub);
-        // Case-insensitive comparison (Bengali-aware)
-        if (function_exists('mb_strtolower')) {
-            $_v397_catLower = mb_strtolower($_v397_catTrim, 'UTF-8');
-            $_v397_subLower = mb_strtolower($_v397_subTrim, 'UTF-8');
-        } else {
-            $_v397_catLower = strtolower($_v397_catTrim);
-            $_v397_subLower = strtolower($_v397_subTrim);
-        }
-        if ($_v397_catLower === $_v397_subLower) {
-            $result['subAlreadyInCat'] = true;
-            return $result;
-        }
-
-        // ★ v3.95: Check if DB sub is substring of cat (e.g., cat="জাতীয় কলকাতা", sub="কলকাতা")
         if (mb_stripos($catField, $dbSub, 0, 'UTF-8') !== false) {
-            $result['subAlreadyInCat'] = true;
+            // Sub is substring of cat — but only suppress if cat is LONGER than sub
+            // (i.e., cat contains MORE than just the sub name)
+            $_v399_catLen = mb_strlen($catField, 'UTF-8');
+            $_v399_subLen = mb_strlen($dbSub, 'UTF-8');
+            if ($_v399_catLen > $_v399_subLen) {
+                // cat is longer → sub is part of a longer cat string → suppress (real duplicate)
+                $result['subAlreadyInCat'] = true;
+            }
+            // If catLen === subLen → cat and sub are the SAME → DON'T suppress (v3.99)
         }
     }
 
@@ -4394,19 +4388,17 @@ HTML;
                 $pcTime = !empty($pc['time']) ? '<div class="nc-time"><i class="far fa-clock"></i> ' . htmlspecialchars($pc['time']) . '</div>' : '';
                 // ★ v3.88: Look up subcategory for this panel card via batch map
                 $_pc_sub = $ncGetSub($pc['href']);
-                // ★ v3.95+v3.97: Duplicate checks — don't add gold sub if:
-                //    (a) catLabel already contains the sub, OR
-                //    (b) catLabel and sub are the SAME NAME (e.g., "বিনোদন / বিনোদন")
-                if (!empty($_pc_sub)) {
-                    $_v397_pcCatLower = function_exists('mb_strtolower') ? mb_strtolower(trim($catLabel), 'UTF-8') : strtolower(trim($catLabel));
-                    $_v397_pcSubLower = function_exists('mb_strtolower') ? mb_strtolower(trim($_pc_sub), 'UTF-8') : strtolower(trim($_pc_sub));
-                    if ($_v397_pcCatLower === $_v397_pcSubLower) {
-                        // Same name — don't add gold sub
-                        $_pc_sub = '';
-                    } elseif (mb_stripos($catLabel, $_pc_sub, 0, 'UTF-8') !== false) {
-                        // Sub is substring of cat — don't add gold sub
+                // ★ v3.95+v3.99: Duplicate check — don't add gold sub ONLY if:
+                //    catLabel contains sub AND catLabel is LONGER than sub (real duplicate).
+                //    ★ v3.99: If cat and sub are SAME NAME → STILL show gold sub.
+                if (!empty($_pc_sub) && mb_stripos($catLabel, $_pc_sub, 0, 'UTF-8') !== false) {
+                    $_v399_pcCatLen = mb_strlen($catLabel, 'UTF-8');
+                    $_v399_pcSubLen = mb_strlen($_pc_sub, 'UTF-8');
+                    if ($_v399_pcCatLen > $_v399_pcSubLen) {
+                        // cat is longer → sub is part of longer cat → suppress (real duplicate)
                         $_pc_sub = '';
                     }
+                    // If catLen === subLen → same name → DON'T suppress (v3.99)
                 }
                 if ($isEnglish && function_exists('en_label') && $_pc_sub !== '') {
                     $_pc_sub = en_label($_pc_sub);

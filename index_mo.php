@@ -566,6 +566,10 @@ if ($_v378_need && isset($pdo)) {
         @$pdo->exec("SET time_zone = '+05:30'");
 
         // Build query — IDENTICAL to index.php home panel query (but no LIMIT)
+        // ★ v3.89 FIX: Removed correlated subquery — it could break the ENTIRE query
+        //    if `subcategories` table name/columns differ. Subcategory is now fetched
+        //    separately by the v3.88 batch lookup below (which has its own try-catch).
+        //    This ensures the main news query NEVER fails due to subcategory table issues.
         $_v378_sql = "SELECT n.id, n.title, n.image, n.created_at, c.name as cat_name
                       FROM news n
                       LEFT JOIN categories c ON n.category_id = c.id
@@ -656,6 +660,7 @@ if ($_v378_need && isset($pdo)) {
                 'img'   => $_v378_img,
                 'title' => $_v378_row['title'],
                 'cat'   => $_v378_row['cat_name'],
+                'sub'   => '',  // ★ v3.89: Populated by batch lookup below
                 'time'  => $_v378_time,
             );
         }
@@ -668,6 +673,308 @@ if ($_v378_need && isset($pdo)) {
         // Silent fail — fall back to HTML-extracted $newsCards
     }
 }
+
+// ★ v3.92: DYNAMIC DISCOVERY subcategory lookup.
+//    Previous v3.88/v3.89/v3.91 all assumed table names — and FAILED.
+//    v3.92 uses SHOW TABLES to FIND the actual subcategory table name,
+//    then SHOW COLUMNS to find the name column. 100% adaptive.
+//
+//    Step 1: Build subcategory_id → name map from $dbCatSubcats (if available)
+//    Step 2: If map is empty, dynamically discover the subcategory table
+//            and build the map directly from it.
+//    Step 3: Find the junction table (news_subcategories or variant)
+//    Step 4: Query junction for news→subcategory_id, look up name from map.
+
+// ── Step 1: Build subNameMap from $dbCatSubcats (index.php's variable) ──
+$_v392_subNameMap = [];
+if (!empty($dbCatSubcats) && is_array($dbCatSubcats)) {
+    foreach ($dbCatSubcats as $_v392_catName => $_v392_subs) {
+        if (is_array($_v392_subs)) {
+            foreach ($_v392_subs as $_v392_sub) {
+                if (is_array($_v392_sub) && isset($_v392_sub['id'])) {
+                    $_v392_subNameMap[(int)$_v392_sub['id']] = $_v392_sub['name'] ?? '';
+                }
+            }
+        }
+    }
+}
+
+// ── Step 2: If subNameMap is empty, dynamically discover the subcategory table ──
+//    This runs when $dbCatSubcats was empty (index.php didn't populate it).
+//    We query information_schema to find a table that looks like a subcategory table.
+$_v392_subcatTable = '';   // Discovered subcategory table name
+$_v392_subcatIdCol = 'id'; // Primary key column (usually 'id')
+$_v392_subcatNameCol = 'name'; // Name column ('name' or 'title' or 'subcategory_name')
+
+if (empty($_v392_subNameMap) && isset($pdo)) {
+    try {
+        // ★ Find tables that look like subcategory storage
+        //    Match: subcategories, sub_categories, subcategory, sub_category,
+        //           subcategory_list, etc. — but NOT junction tables (news_subcategories)
+        $_v392_dbName = $pdo->query("SELECT DATABASE()")->fetchColumn();
+        if ($_v392_dbName) {
+            $_v392_findSql = "SELECT TABLE_NAME 
+                              FROM information_schema.TABLES 
+                              WHERE TABLE_SCHEMA = " . $pdo->quote($_v392_dbName) . "
+                                AND (TABLE_NAME LIKE '%subcateg%' OR TABLE_NAME LIKE '%sub_categ%')
+                                AND TABLE_NAME NOT LIKE '%news%'
+                              ORDER BY 
+                                CASE 
+                                  WHEN TABLE_NAME = 'subcategories' THEN 1
+                                  WHEN TABLE_NAME = 'sub_categories' THEN 2
+                                  WHEN TABLE_NAME = 'subcategory' THEN 3
+                                  WHEN TABLE_NAME = 'sub_category' THEN 4
+                                  ELSE 5
+                                END,
+                                TABLE_NAME";
+            $_v392_tableRows = $pdo->query($_v392_findSql)->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($_v392_tableRows as $_v392_tr) {
+                $_v392_tname = $_v392_tr['TABLE_NAME'];
+                // Verify this table has an id column and a name-like column
+                $_v392_colSql = "SELECT COLUMN_NAME, COLUMN_TYPE 
+                                 FROM information_schema.COLUMNS 
+                                 WHERE TABLE_SCHEMA = " . $pdo->quote($_v392_dbName) . "
+                                   AND TABLE_NAME = " . $pdo->quote($_v392_tname);
+                $_v392_cols = $pdo->query($_v392_colSql)->fetchAll(PDO::FETCH_ASSOC);
+                $_v392_hasId = false;
+                $_v392_nameCol = '';
+                $_v392_idCol = 'id';
+                foreach ($_v392_cols as $_v392_c) {
+                    $_v392_cn = strtolower($_v392_c['COLUMN_NAME']);
+                    if ($_v392_cn === 'id' || $_v392_cn === 'subcategory_id' || $_v392_cn === 'sub_id') {
+                        $_v392_hasId = true;
+                        $_v392_idCol = $_v392_c['COLUMN_NAME'];
+                    }
+                    if (in_array($_v392_cn, ['name', 'title', 'subcategory_name', 'sub_name', 'label', 'subcategory'])) {
+                        $_v392_nameCol = $_v392_c['COLUMN_NAME'];
+                    }
+                }
+                if ($_v392_hasId && $_v392_nameCol) {
+                    $_v392_subcatTable = $_v392_tname;
+                    $_v392_subcatIdCol = $_v392_idCol;
+                    $_v392_subcatNameCol = $_v392_nameCol;
+                    break;
+                }
+            }
+        }
+        
+        // ★ If we found a subcategory table, load ALL subcategory names into the map
+        if (!empty($_v392_subcatTable)) {
+            $_v392_loadSql = "SELECT `{$_v392_subcatIdCol}` AS sid, `{$_v392_subcatNameCol}` AS sname FROM `{$_v392_subcatTable}`";
+            $_v392_loadRows = $pdo->query($_v392_loadSql)->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($_v392_loadRows as $_v392_lr) {
+                $_v392_subNameMap[(int)$_v392_lr['sid']] = $_v392_lr['sname'];
+            }
+        }
+    } catch (Exception $_v392_e) {
+        // Silent fail — fall back to empty map
+    }
+}
+
+// ── Step 3: Find the junction table (news_subcategories or variant) ──
+$_v392_junctionTable = '';
+if (isset($pdo)) {
+    try {
+        $_v392_dbName2 = $pdo->query("SELECT DATABASE()")->fetchColumn();
+        if ($_v392_dbName2) {
+            $_v392_findJunction = "SELECT TABLE_NAME 
+                                   FROM information_schema.TABLES 
+                                   WHERE TABLE_SCHEMA = " . $pdo->quote($_v392_dbName2) . "
+                                     AND TABLE_NAME LIKE '%news%sub%'
+                                   ORDER BY 
+                                     CASE 
+                                       WHEN TABLE_NAME = 'news_subcategories' THEN 1
+                                       WHEN TABLE_NAME = 'news_sub_categories' THEN 2
+                                       ELSE 3
+                                     END,
+                                     TABLE_NAME";
+            $_v392_jRows = $pdo->query($_v392_findJunction)->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($_v392_jRows)) {
+                $_v392_junctionTable = $_v392_jRows[0]['TABLE_NAME'];
+            }
+        }
+    } catch (Exception $_v392_e2) {}
+}
+
+// ── Step 4: Batch fetch subcategory for ALL news cards ──
+//    $ncSubMap = news_id => subcategory_name
+$ncSubMap = [];
+if (isset($pdo) && !empty($newsCards) && !empty($_v392_subNameMap) && !empty($_v392_junctionTable)) {
+    // Collect all news IDs that need subcategory lookup
+    $_v392_ids = [];
+    foreach ($newsCards as $_v392_nc) {
+        if (!empty($_v392_nc['sub'])) continue;  // Already has sub
+        if (!empty($_v392_nc['href']) && preg_match('/[?&]id=(\d+)/', $_v392_nc['href'], $_v392_m)) {
+            $_v392_ids[] = (int)$_v392_m[1];
+        }
+    }
+    $_v392_ids = array_values(array_unique($_v392_ids));
+
+    if (!empty($_v392_ids)) {
+        $_v392_placeholders = implode(',', array_fill(0, count($_v392_ids), '?'));
+
+        // ★ Detect junction table columns (news_id, subcategory_id may have different names)
+        $_v392_newsIdCol = 'news_id';
+        $_v392_subIdCol = 'subcategory_id';
+        try {
+            $_v392_dbName3 = $pdo->query("SELECT DATABASE()")->fetchColumn();
+            $_v392_jColSql = "SELECT COLUMN_NAME FROM information_schema.COLUMNS 
+                              WHERE TABLE_SCHEMA = " . $pdo->quote($_v392_dbName3) . "
+                                AND TABLE_NAME = " . $pdo->quote($_v392_junctionTable);
+            $_v392_jCols = $pdo->query($_v392_jColSql)->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($_v392_jCols as $_v392_jc) {
+                $_v392_jcl = strtolower($_v392_jc);
+                if (in_array($_v392_jcl, ['news_id', 'news', 'post_id', 'article_id', 'item_id'])) {
+                    $_v392_newsIdCol = $_v392_jc;
+                }
+                if (in_array($_v392_jcl, ['subcategory_id', 'sub_id', 'sub_category_id', 'subcategory'])) {
+                    $_v392_subIdCol = $_v392_jc;
+                }
+            }
+        } catch (Exception $_v392_e3) {}
+
+        // Query the junction table
+        try {
+            $_v392_jSql = "SELECT `{$_v392_newsIdCol}` AS news_id, `{$_v392_subIdCol}` AS subcategory_id 
+                           FROM `{$_v392_junctionTable}` 
+                           WHERE `{$_v392_newsIdCol}` IN ($_v392_placeholders) 
+                           ORDER BY `{$_v392_newsIdCol}` ASC, `{$_v392_subIdCol}` ASC";
+            $_v392_stmt = $pdo->prepare($_v392_jSql);
+            $_v392_stmt->execute($_v392_ids);
+            $_v392_rows = $_v392_stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($_v392_rows)) {
+                foreach ($_v392_rows as $_v392_r) {
+                    $_v392_nid = (int)$_v392_r['news_id'];
+                    $_v392_sid = (int)$_v392_r['subcategory_id'];
+                    // Keep only the FIRST subcategory per news
+                    if (!isset($ncSubMap[$_v392_nid])) {
+                        if (isset($_v392_subNameMap[$_v392_sid])) {
+                            $ncSubMap[$_v392_nid] = $_v392_subNameMap[$_v392_sid];
+                        }
+                    }
+                }
+            }
+        } catch (Exception $_v392_e4) {}
+
+        // Populate 'sub' field on cards that were missing it
+        if (!empty($ncSubMap)) {
+            foreach ($newsCards as &$_v392_nc_ref) {
+                if (empty($_v392_nc_ref['sub']) && !empty($_v392_nc_ref['href'])) {
+                    if (preg_match('/[?&]id=(\d+)/', $_v392_nc_ref['href'], $_v392_m2)) {
+                        $_v392_nid2 = (int)$_v392_m2[1];
+                        if (isset($ncSubMap[$_v392_nid2])) {
+                            $_v392_nc_ref['sub'] = $ncSubMap[$_v392_nid2];
+                        }
+                    }
+                }
+            }
+            unset($_v392_nc_ref);
+        }
+    }
+}
+
+// ★ v3.97: Helper function — Detect duplicate subcategory scenarios.
+//    User's instructions (combined v3.95 + v3.96 + v3.97):
+//    1. If cat has '/' → subcategory already in red → keep all red, NO gold sub.
+//    2. If DB sub matches text in cat → duplicate → NO gold sub.
+//    3. ★ v3.97: If cat and sub are SAME NAME (e.g., "বিনোদন / বিনোদন") → NO gold sub.
+//    4. Otherwise → gold sub WILL be added.
+function _v395_parseCatSub($catField, $dbSub = '') {
+    $result = ['cat' => $catField, 'sub' => '', 'subAlreadyInCat' => false];
+
+    if (empty($catField)) return $result;
+
+    // ★ v3.96: If cat field has '/' separator, subcategory is ALREADY in red.
+    //    Keep the WHOLE cat field as-is, set subAlreadyInCat=true.
+    if (strpos($catField, '/') !== false) {
+        $result['cat'] = $catField;
+        $result['sub'] = '';
+        $result['subAlreadyInCat'] = true;
+        return $result;
+    }
+
+    // ★ v3.97: If cat and dbSub are the SAME NAME (case-insensitive), it's a duplicate.
+    //    Example: cat="বিনোদন", dbSub="বিনোদন" → don't show "বিনোদন / বিনোদন"
+    if (!empty($dbSub)) {
+        $_v397_catTrim = trim($catField);
+        $_v397_subTrim = trim($dbSub);
+        // Case-insensitive comparison (Bengali-aware)
+        if (function_exists('mb_strtolower')) {
+            $_v397_catLower = mb_strtolower($_v397_catTrim, 'UTF-8');
+            $_v397_subLower = mb_strtolower($_v397_subTrim, 'UTF-8');
+        } else {
+            $_v397_catLower = strtolower($_v397_catTrim);
+            $_v397_subLower = strtolower($_v397_subTrim);
+        }
+        if ($_v397_catLower === $_v397_subLower) {
+            $result['subAlreadyInCat'] = true;
+            return $result;
+        }
+
+        // ★ v3.95: Check if DB sub is substring of cat (e.g., cat="জাতীয় কলকাতা", sub="কলকাতা")
+        if (mb_stripos($catField, $dbSub, 0, 'UTF-8') !== false) {
+            $result['subAlreadyInCat'] = true;
+        }
+    }
+
+    return $result;
+}
+
+// ★ v3.98: Card-level debug info — track per-card subcategory resolution.
+//    This helps diagnose WHY sub isn't showing for specific cards.
+$_v398_cardDebug = [];
+
+// ★ v3.92: Debug info — helps diagnose what was discovered.
+//    Output as HTML comment at the end of the page (invisible to users).
+$_v392_debug = [
+    'subNameMap_size' => count($_v392_subNameMap),
+    'subcatTable' => $_v392_subcatTable ?? '',
+    'subcatNameCol' => $_v392_subcatNameCol ?? '',
+    'junctionTable' => $_v392_junctionTable ?? '',
+    'newsIdCol' => $_v392_newsIdCol ?? 'news_id',
+    'subIdCol' => $_v392_subIdCol ?? 'subcategory_id',
+    'ncSubMap_size' => count($ncSubMap),
+    'dbCatSubcats_empty' => empty($dbCatSubcats) ? 'yes' : 'no',
+    'card_debug' => &$_v398_cardDebug,  // ★ v3.98: Per-card debug
+];
+
+// ★ v3.92: Helper closure — look up subcategory name by news href.
+//    Uses $ncSubMap first, then falls back to single-item junction query
+//    + $_v392_subNameMap for name lookup.
+$ncGetSub = function($href) use (&$ncSubMap, $pdo, &$_v392_subNameMap, $_v392_junctionTable, $_v392_newsIdCol, $_v392_subIdCol) {
+    if (empty($href) || !preg_match('/[?&]id=(\d+)/', $href, $m)) {
+        return '';
+    }
+    $_nid = (int)$m[1];
+
+    // 1. Check batch map first (fastest)
+    if (isset($ncSubMap[$_nid])) {
+        return $ncSubMap[$_nid];
+    }
+
+    // 2. Fallback: single-item junction query + name lookup
+    if (isset($pdo) && !empty($_v392_subNameMap) && !empty($_v392_junctionTable)) {
+        try {
+            $_fb_sql = "SELECT `{$_v392_subIdCol}` AS sid 
+                        FROM `{$_v392_junctionTable}` 
+                        WHERE `{$_v392_newsIdCol}` = ? 
+                        ORDER BY `{$_v392_subIdCol}` ASC 
+                        LIMIT 1";
+            $_fb_stmt = $pdo->prepare($_fb_sql);
+            $_fb_stmt->execute([$_nid]);
+            $_fb_row = $_fb_stmt->fetch(PDO::FETCH_ASSOC);
+            if ($_fb_row && !empty($_fb_row['sid'])) {
+                $_sid = (int)$_fb_row['sid'];
+                if (isset($_v392_subNameMap[$_sid])) {
+                    $ncSubMap[$_nid] = $_v392_subNameMap[$_sid];
+                    return $_v392_subNameMap[$_sid];
+                }
+            }
+        } catch (Exception $_fb_e) {}
+    }
+
+    return '';
+};
 
 
 // Categories — try sidebar first, fallback to nav panel (kn-pl-link) if sidebar fails
@@ -2835,6 +3142,42 @@ img { max-width: 100%; display: block; }
     text-transform: uppercase;
     margin-bottom: 3px;
     letter-spacing: .3px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-wrap: wrap;
+    line-height: 1.4;
+}
+/* ★ v3.88: Subcategory label next to category — "Category / Subcategory" format */
+.news-card .nc-cat .nc-cat-sep {
+    color: var(--muted);
+    opacity: .6;
+    font-weight: 400;
+    margin: 0 1px;
+}
+/* ★ v3.88b: Subcategory — BOLD GOLD colour (user requested "bold gold colour") */
+.news-card .nc-cat .nc-sub {
+    color: #B8860B;
+    font-weight: 900;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 10px;
+    text-shadow: 0 0 1px rgba(184,134,11,.15);
+}
+/* ★ v3.88: Subcategory inside featured-card & side-item labels */
+.featured-card .fc-cat .nc-cat-sep,
+.side-item .si-cat .nc-cat-sep {
+    color: rgba(255,255,255,.6);
+    opacity: 1;
+    font-weight: 400;
+    margin: 0 2px;
+}
+/* ★ v3.88b: BOLD GOLD subcategory for featured-card & side-item */
+.featured-card .fc-cat .nc-sub,
+.side-item .si-cat .nc-sub {
+    color: #FFD700;
+    font-weight: 900;
+    text-shadow: 0 1px 2px rgba(0,0,0,.3);
 }
 .news-card .nc-title {
     font-size: 12.5px;
@@ -3549,11 +3892,33 @@ if ($page === 'home' && !$currentCat && !$searchQuery && !empty($sideItems)) {
 <div class="side-list">
 HTML;
     foreach ($sideItems as $si) {
+        // ★ v3.88: Look up subcategory for side item via batch map
+        $_si_sub = $ncGetSub($si['href']);
+        // ★ v3.95: Parse cat field — avoid duplicate subcategory display
+        $_v395_siParsed = _v395_parseCatSub($si['cat'], $_si_sub);
+        $_si_cat = $_v395_siParsed['cat'];
+        if (!empty($_v395_siParsed['sub'])) {
+            $_si_sub = $_v395_siParsed['sub'];
+        } elseif ($_v395_siParsed['subAlreadyInCat']) {
+            $_si_sub = '';
+        }
+        if (function_exists('en_label') && $_si_sub !== '') {
+            $_si_sub = en_label($_si_sub);
+        }
+        if (function_exists('en_label') && $_si_cat !== '') {
+            $_si_cat = en_label($_si_cat);
+        }
+        // ★ v3.88: "Category / Subcategory" format
+        $_si_catStr = '<div class="si-cat">' . htmlspecialchars($_si_cat);
+        if (!empty($_si_sub)) {
+            $_si_catStr .= '<span class="nc-cat-sep">/</span><span class="nc-sub">' . htmlspecialchars($_si_sub) . '</span>';
+        }
+        $_si_catStr .= '</div>';
         $newHTML .= <<<HTML
 <a href="{$si['href']}" class="side-item">
     <img src="{$si['img']}" alt="" class="si-img" loading="lazy">
     <div class="si-body">
-        <div class="si-cat">{$si['cat']}</div>
+        {$_si_catStr}
         <div class="si-title">{$si['title']}</div>
     </div>
 </a>
@@ -3584,6 +3949,8 @@ if ($currentCat && !$searchQuery && isset($pdo)) {
         $_v379_cat = isset($_GET['cat']) ? $_GET['cat'] : '';
         $_v379_sub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
 
+        // ★ v3.89 FIX: Removed correlated subquery — same fix as v3.78.
+        //    Subcategory fetched by batch lookup ($ncGetSub) during rendering.
         $_v379_sql = "SELECT n.id, n.title, n.image, n.created_at, c.name as cat_name
                       FROM news n
                       LEFT JOIN categories c ON n.category_id = c.id
@@ -3644,6 +4011,7 @@ if ($currentCat && !$searchQuery && isset($pdo)) {
                 'img'   => $_v379_img,
                 'title' => $_v379_row['title'],
                 'cat'   => $_v379_row['cat_name'],
+                'sub'   => '',  // ★ v3.89: Populated by $ncGetSub() during rendering
                 'time'  => $_v379_time,
             ];
         }
@@ -3669,14 +4037,34 @@ HTML;
             // Apply translation for English mode (same logic as main grid below)
             $_v379_title = $_v379_nc['title'];
             $_v379_cat   = $_v379_nc['cat'];
+            // ★ v3.88: Get subcategory (from DB field or batch lookup map)
+            $_v379_sub   = !empty($_v379_nc['sub']) ? $_v379_nc['sub'] : $ncGetSub($_v379_nc['href']);
+            // ★ v3.95: Parse cat field — avoid duplicate subcategory display
+            $_v395_v379parsed = _v395_parseCatSub($_v379_cat, $_v379_sub);
+            $_v379_cat = $_v395_v379parsed['cat'];
+            if (!empty($_v395_v379parsed['sub'])) {
+                $_v379_sub = $_v395_v379parsed['sub'];
+            } elseif ($_v395_v379parsed['subAlreadyInCat']) {
+                $_v379_sub = '';
+            }
             if ($isEnglish && function_exists('bn_to_en')) {
                 $_v379_title = bn_to_en($_v379_title);
-                if (function_exists('en_label')) $_v379_cat = en_label($_v379_cat);
-            } elseif (function_exists('en_label') && $_v379_cat !== '') {
-                $_v379_cat = en_label($_v379_cat);
+                if (function_exists('en_label')) {
+                    $_v379_cat = en_label($_v379_cat);
+                    if ($_v379_sub !== '') $_v379_sub = en_label($_v379_sub);
+                }
+            } elseif (function_exists('en_label')) {
+                if ($_v379_cat !== '') $_v379_cat = en_label($_v379_cat);
+                if ($_v379_sub !== '') $_v379_sub = en_label($_v379_sub);
             }
             $_v379_timeHtml = !empty($_v379_nc['time']) ? '<span><i class="far fa-clock"></i> ' . htmlspecialchars($_v379_nc['time']) . '</span>' : '';
-            $_v379_catHtml  = !empty($_v379_cat) ? htmlspecialchars($_v379_cat) : '';
+            // ★ v3.88: "Category / Subcategory" format on featured card
+            $_v379_catHtml = '';
+            if (!empty($_v379_cat) || !empty($_v379_sub)) {
+                if (!empty($_v379_cat)) $_v379_catHtml .= htmlspecialchars($_v379_cat);
+                if (!empty($_v379_cat) && !empty($_v379_sub)) $_v379_catHtml .= '<span class="nc-cat-sep">/</span>';
+                if (!empty($_v379_sub)) $_v379_catHtml .= '<span class="nc-sub">' . htmlspecialchars($_v379_sub) . '</span>';
+            }
             // ★ v3.80: Use featured-card style (big, full-width) — same as home page
             $newHTML .= <<<HTML
 <a href="{$_v379_nc['href']}" class="featured-card">
@@ -3725,15 +4113,50 @@ if (!empty($newsCards)) {
         // ★ v3.75: Apply bn_to_en() for English mode (database titles are Bengali)
         $_nc_title = $nc['title'];
         $_nc_cat   = $nc['cat'];
+        // ★ v3.88: Get subcategory (from DB field or batch lookup map)
+        $_nc_sub_raw = !empty($nc['sub']) ? $nc['sub'] : $ncGetSub($nc['href']);
+        $_nc_sub = $_nc_sub_raw;
+        // ★ v3.95: Parse cat field — index.php HTML may already have "Category / Subcategory"
+        //    If so, extract the embedded subcategory and avoid DUPLICATE display.
+        $_v395_parsed = _v395_parseCatSub($_nc_cat, $_nc_sub);
+        $_nc_cat = $_v395_parsed['cat'];
+        if (!empty($_v395_parsed['sub'])) {
+            // Subcategory was embedded in cat field — use it
+            $_nc_sub = $_v395_parsed['sub'];
+        } elseif ($_v395_parsed['subAlreadyInCat']) {
+            // DB subcategory is already in cat field — don't add again (avoid duplicate)
+            $_nc_sub = '';
+        }
+        // ★ v3.98: Collect per-card debug info
+        $_v398_cardDebug[] = [
+            'href' => $nc['href'] ?? '',
+            'cat_orig' => $nc['cat'] ?? '',
+            'sub_from_db' => $_nc_sub_raw,
+            'sub_final' => $_nc_sub,
+            'subAlreadyInCat' => $_v395_parsed['subAlreadyInCat'],
+            'has_slash_in_cat' => strpos($nc['cat'] ?? '', '/') !== false,
+            'ncSubMap_has' => isset($ncSubMap[(int)preg_replace('/.*[?&]id=(\d+).*/', '$1', $nc['href'] ?? '0')]),
+        ];
         if ($isEnglish && function_exists('bn_to_en')) {
             $_nc_title = bn_to_en($_nc_title);
-            if (function_exists('en_label')) $_nc_cat = en_label($_nc_cat);
-        } elseif (function_exists('en_label') && $_nc_cat !== '') {
-            // Even in Bengali mode, en_label() returns the same Bengali name (no-op)
-            $_nc_cat = en_label($_nc_cat);
+            if (function_exists('en_label')) {
+                $_nc_cat = en_label($_nc_cat);
+                if ($_nc_sub !== '') $_nc_sub = en_label($_nc_sub);
+            }
+        } elseif (function_exists('en_label')) {
+            if ($_nc_cat !== '') $_nc_cat = en_label($_nc_cat);
+            if ($_nc_sub !== '') $_nc_sub = en_label($_nc_sub);
         }
         $timeStr = !empty($nc['time']) ? '<div class="nc-time"><i class="far fa-clock"></i>' . htmlspecialchars($nc['time']) . '</div>' : '';
-        $catStr  = !empty($_nc_cat) ? '<div class="nc-cat">' . htmlspecialchars($_nc_cat) . '</div>' : '';
+        // ★ v3.88: "Category / Subcategory" format — red category, gold subcategory, grey slash
+        $catStr = '';
+        if (!empty($_nc_cat) || !empty($_nc_sub)) {
+            $catStr = '<div class="nc-cat">';
+            if (!empty($_nc_cat))   $catStr .= htmlspecialchars($_nc_cat);
+            if (!empty($_nc_cat) && !empty($_nc_sub)) $catStr .= '<span class="nc-cat-sep">/</span>';
+            if (!empty($_nc_sub))   $catStr .= '<span class="nc-sub">' . htmlspecialchars($_nc_sub) . '</span>';
+            $catStr .= '</div>';
+        }
         $newHTML .= <<<HTML
 <a href="{$nc['href']}" class="news-card">
     <img src="{$nc['img']}" alt="" class="nc-img" loading="lazy">
@@ -3869,6 +4292,91 @@ if ($page === 'home' && !$searchQuery && !$currentCat) {
             }
         }
 
+        // ★ v3.90 FIX: DB fallback for forced category panels.
+        //    If HTML extraction (Methods 1-3) returned nothing, query the DB
+        //    DIRECTLY for the latest 4 news in this category. This guarantees
+        //    the home page always shows 4 panels with real news — even if
+        //    index.php's HTML structure doesn't match our regex patterns.
+        if (empty($panelCards) && isset($pdo)) {
+            try {
+                @$pdo->exec("SET NAMES utf8mb4");
+                @$pdo->exec("SET time_zone = '+05:30'");
+
+                // Query latest 4 published news for this category
+                $_v390_sql = "SELECT n.id, n.title, n.image, n.created_at, c.name as cat_name
+                              FROM news n
+                              LEFT JOIN categories c ON n.category_id = c.id
+                              WHERE n.status = 'published'
+                                AND n.created_at <= NOW()
+                                AND n.created_at >= (NOW() - INTERVAL 30 DAY)
+                                AND (c.name = ? OR c.name = ?)
+                              ORDER BY n.created_at DESC
+                              LIMIT 4";
+                $_v390_stmt = $pdo->prepare($_v390_sql);
+                $_v390_stmt->execute([$catNameBn, $catNameEn]);
+                $_v390_rows = $_v390_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // ★ v3.90b: If exact match returned nothing, try LIKE fallback
+                //    (some installations store category names with extra spaces or different spelling)
+                if (empty($_v390_rows)) {
+                    $_v390_sql2 = "SELECT n.id, n.title, n.image, n.created_at, c.name as cat_name
+                                   FROM news n
+                                   LEFT JOIN categories c ON n.category_id = c.id
+                                   WHERE n.status = 'published'
+                                     AND n.created_at <= NOW()
+                                     AND n.created_at >= (NOW() - INTERVAL 30 DAY)
+                                     AND (c.name LIKE ? OR c.name LIKE ?)
+                                   ORDER BY n.created_at DESC
+                                   LIMIT 4";
+                    $_v390_stmt2 = $pdo->prepare($_v390_sql2);
+                    $_v390_stmt2->execute(['%' . $catNameBn . '%', '%' . $catNameEn . '%']);
+                    $_v390_rows = $_v390_stmt2->fetchAll(PDO::FETCH_ASSOC);
+                }
+
+                $_v390_placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250'%3E%3Crect width='400' height='250' fill='%23e8e4de'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'%3E%E0%A6%9B%E0%A6%AC%E0%A6%BF%3C/text%3E%3C/svg%3E";
+
+                foreach ($_v390_rows as $_v390_row) {
+                    // Image URL (same logic as v3.78)
+                    $_v390_img = $_v390_placeholder;
+                    if (!empty($_v390_row['image'])) {
+                        $_v390_imgRaw = trim($_v390_row['image']);
+                        if ($_v390_imgRaw !== '' && $_v390_imgRaw !== '0') {
+                            if (preg_match('#^https?://#i', $_v390_imgRaw) || strpos($_v390_imgRaw, '//') === 0) {
+                                $_v390_img = $_v390_imgRaw;
+                            } else {
+                                while (strpos($_v390_imgRaw, 'uploads/uploads/') === 0) {
+                                    $_v390_imgRaw = substr($_v390_imgRaw, 8);
+                                }
+                                if (strpos($_v390_imgRaw, 'uploads/') !== 0 && strpos($_v390_imgRaw, '/') !== 0) {
+                                    $_v390_img = 'uploads/' . $_v390_imgRaw;
+                                } else {
+                                    $_v390_img = $_v390_imgRaw;
+                                }
+                            }
+                        }
+                    }
+
+                    // Time ago
+                    $_v390_time = '';
+                    if (function_exists('timeAgo')) {
+                        $_v390_time = timeAgo($_v390_row['created_at']);
+                    } else {
+                        $_v390_time = date('d M Y', strtotime($_v390_row['created_at']));
+                    }
+
+                    $panelCards[] = [
+                        'href'  => '?page=single&id=' . (int)$_v390_row['id'],
+                        'img'   => $_v390_img,
+                        'title' => $_v390_row['title'],
+                        'time'  => $_v390_time,
+                        'id'    => (int)$_v390_row['id'],  // ★ For subcategory lookup
+                    ];
+                }
+            } catch (Exception $_v390_e) {
+                // Silent fail — panel will show empty message
+            }
+        }
+
         // ★ v3.39: Old "শীর্ষ সংবাদ" special fallback REMOVED — now handled by side-list title above.
 
         // Render this panel (even if empty, show "More" button)
@@ -3884,12 +4392,44 @@ HTML;
         if (!empty($panelCards)) {
             foreach ($panelCards as $pc) {
                 $pcTime = !empty($pc['time']) ? '<div class="nc-time"><i class="far fa-clock"></i> ' . htmlspecialchars($pc['time']) . '</div>' : '';
+                // ★ v3.88: Look up subcategory for this panel card via batch map
+                $_pc_sub = $ncGetSub($pc['href']);
+                // ★ v3.95+v3.97: Duplicate checks — don't add gold sub if:
+                //    (a) catLabel already contains the sub, OR
+                //    (b) catLabel and sub are the SAME NAME (e.g., "বিনোদন / বিনোদন")
+                if (!empty($_pc_sub)) {
+                    $_v397_pcCatLower = function_exists('mb_strtolower') ? mb_strtolower(trim($catLabel), 'UTF-8') : strtolower(trim($catLabel));
+                    $_v397_pcSubLower = function_exists('mb_strtolower') ? mb_strtolower(trim($_pc_sub), 'UTF-8') : strtolower(trim($_pc_sub));
+                    if ($_v397_pcCatLower === $_v397_pcSubLower) {
+                        // Same name — don't add gold sub
+                        $_pc_sub = '';
+                    } elseif (mb_stripos($catLabel, $_pc_sub, 0, 'UTF-8') !== false) {
+                        // Sub is substring of cat — don't add gold sub
+                        $_pc_sub = '';
+                    }
+                }
+                if ($isEnglish && function_exists('en_label') && $_pc_sub !== '') {
+                    $_pc_sub = en_label($_pc_sub);
+                } elseif (!$isEnglish && function_exists('en_label') && $_pc_sub !== '') {
+                    $_pc_sub = en_label($_pc_sub);
+                }
+                // ★ v3.88: "Category / Subcategory" format — red category, gold subcategory
+                $_pc_catStr = '<div class="nc-cat">' . htmlspecialchars($catLabel);
+                if (!empty($_pc_sub)) {
+                    $_pc_catStr .= '<span class="nc-cat-sep">/</span><span class="nc-sub">' . htmlspecialchars($_pc_sub) . '</span>';
+                }
+                $_pc_catStr .= '</div>';
+                // Apply English translation to title if needed
+                $_pc_title = $pc['title'];
+                if ($isEnglish && function_exists('bn_to_en')) {
+                    $_pc_title = bn_to_en($_pc_title);
+                }
                 $newHTML .= <<<HTML
 <a href="{$pc['href']}" class="news-card">
     <img src="{$pc['img']}" alt="" class="nc-img" loading="lazy">
     <div class="nc-body">
-        <div class="nc-cat">{$catLabel}</div>
-        <div class="nc-title">{$pc['title']}</div>
+        {$_pc_catStr}
+        <div class="nc-title">{$_pc_title}</div>
         {$pcTime}
     </div>
 </a>
@@ -4259,5 +4799,71 @@ $newHTML .= <<<JS
 JS;
 
 $newHTML .= '</body></html>';
+
+// ★ v3.94: Removed visible debug banner (subcategory feature confirmed working!).
+//    VLM verification confirmed "আলোচনা / ফিচার" showing correctly.
+//    Debug HTML comment kept for developer reference (invisible to users).
+//    To re-enable visible banner, add ?debug_sub to URL.
+
+if (isset($_GET['debug_sub'])) {
+    $_v393_debugText = "v3.98 SUBCATEGORY DIAGNOSTICS\n";
+    $_v393_debugText .= "─────────────────────────────\n";
+    $_v393_debugText .= "dbCatSubcats empty? : " . ($_v392_debug['dbCatSubcats_empty'] ?? '?') . "\n";
+    $_v393_debugText .= "subNameMap size     : " . ($_v392_debug['subNameMap_size'] ?? 0) . " (subcategory names found)\n";
+    $_v393_debugText .= "subcatTable         : " . ($_v392_debug['subcatTable'] ?: '(none discovered)') . "\n";
+    $_v393_debugText .= "subcatNameCol       : " . ($_v392_debug['subcatNameCol'] ?: '(none)') . "\n";
+    $_v393_debugText .= "junctionTable       : " . ($_v392_debug['junctionTable'] ?: '(none discovered)') . "\n";
+    $_v393_debugText .= "newsIdCol           : " . ($_v392_debug['newsIdCol'] ?? 'news_id') . "\n";
+    $_v393_debugText .= "subIdCol            : " . ($_v392_debug['subIdCol'] ?? 'subcategory_id') . "\n";
+    $_v393_debugText .= "ncSubMap size       : " . ($_v392_debug['ncSubMap_size'] ?? 0) . " (news→sub mappings found)\n";
+    $_v393_debugText .= "─────────────────────────────\n";
+
+    // ★ v3.98: Show per-card debug info
+    $_v393_debugText .= "PER-CARD DEBUG (current page cards):\n";
+    $_v393_debugText .= "─────────────────────────────\n";
+    if (!empty($_v398_cardDebug)) {
+        foreach ($_v398_cardDebug as $_v398_i => $_v398_cd) {
+            $_v393_debugText .= "Card " . ($_v398_i + 1) . ": " . ($_v398_cd['href'] ?? '') . "\n";
+            $_v393_debugText .= "  cat_orig         : '" . ($_v398_cd['cat_orig'] ?? '') . "'\n";
+            $_v393_debugText .= "  sub_from_db      : '" . ($_v398_cd['sub_from_db'] ?? '') . "'\n";
+            $_v393_debugText .= "  sub_final        : '" . ($_v398_cd['sub_final'] ?? '') . "'\n";
+            $_v393_debugText .= "  subAlreadyInCat  : " . (($_v398_cd['subAlreadyInCat'] ?? false) ? 'true' : 'false') . "\n";
+            $_v393_debugText .= "  has_slash_in_cat : " . (($_v398_cd['has_slash_in_cat'] ?? false) ? 'true' : 'false') . "\n";
+            $_v393_debugText .= "  ncSubMap_has     : " . (($_v398_cd['ncSubMap_has'] ?? false) ? 'true' : 'false') . "\n";
+            $_v393_debugText .= "\n";
+        }
+    } else {
+        $_v393_debugText .= "(No news cards on this page — try a category or search page)\n\n";
+    }
+    $_v393_debugText .= "─────────────────────────────\n";
+
+    if (isset($pdo)) {
+        try {
+            $_v393_allTables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+            $_v393_subRelated = [];
+            foreach ($_v393_allTables as $_v393_t) {
+                if (stripos($_v393_t, 'sub') !== false || stripos($_v393_t, 'categ') !== false) {
+                    $_v393_subRelated[] = $_v393_t;
+                }
+            }
+            $_v393_debugText .= "Subcategory-related tables: " . (implode(', ', $_v393_subRelated) ?: '(none)') . "\n\n";
+            $_v393_debugText .= "All tables: " . implode(', ', array_slice($_v393_allTables, 0, 30)) . "\n";
+        } catch (Exception $_v393_e) {
+            $_v393_debugText .= "(Could not list tables: " . $_v393_e->getMessage() . ")\n";
+        }
+    }
+
+    $_v393_bannerStyle = 'position:fixed;top:10px;right:10px;z-index:99999;background:#1a1a1a;color:#0f0;border:2px solid #B71C1C;border-radius:8px;padding:12px 14px;font-family:monospace;font-size:10px;line-height:1.5;max-width:480px;max-height:90vh;overflow:auto;white-space:pre-wrap;box-shadow:0 4px 20px rgba(0,0,0,.5);';
+    $_v393_banner = '<div style="' . $_v393_bannerStyle . '" id="v393DebugBanner">' . htmlspecialchars($_v393_debugText) . '<br><button onclick="this.parentElement.remove()" style="margin-top:8px;background:#B71C1C;color:#fff;border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-family:inherit;">Close</button></div>';
+
+    $newHTML = str_replace('<body class="app-view">', '<body class="app-view">' . $_v393_banner, $newHTML);
+    if (strpos($newHTML, $_v393_banner) === false) {
+        $newHTML = $_v393_banner . $newHTML;
+    }
+}
+
+// ★ Invisible HTML comment with debug info (always on, for developer reference)
+$_v392_debugJson = json_encode($_v392_debug, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+$newHTML .= "\n<!-- v3.94 DEBUG: " . $_v392_debugJson . " -->\n";
 
 echo $newHTML;

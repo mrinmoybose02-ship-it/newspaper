@@ -118,6 +118,7 @@ function hasPerm($perm) {
     'breaking' => ['label' => 'Breaking News', 'icon' => 'fas fa-bolt'],
     'categories' => ['label' => 'Categories', 'icon' => 'fas fa-folder-tree'],
     'home_panels' => ['label' => 'Home Panels', 'icon' => 'fas fa-table-cells'],
+    'breaking_speed' => ['label' => 'Breaking Speed', 'icon' => 'fas fa-gauge-high'],
     'social' => ['label' => 'Social Media', 'icon' => 'fas fa-share-nodes'],
     'contact' => ['label' => 'Contact Details', 'icon' => 'fas fa-address-book'],
     'ads' => ['label' => 'Advertisements', 'icon' => 'fas fa-rectangle-ad'],
@@ -130,7 +131,7 @@ function hasPerm($perm) {
  $allRoles = [
     'super_admin' => ['label' => 'Super Admin', 'icon' => 'fas fa-crown', 'color' => 'var(--purple)', 'description' => 'Full access to everything.', 'permissions' => null],
     'editor' => ['label' => 'Editor', 'icon' => 'fas fa-user-pen', 'color' => 'var(--blue)', 'description' => 'Can add, edit, and manage news articles.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'password']],
-    'publisher' => ['label' => 'Publisher', 'icon' => 'fas fa-newspaper', 'color' => 'var(--green)', 'description' => 'Can manage news, categories, breaking news, and home panels.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'breaking', 'categories', 'home_panels', 'password']],
+    'publisher' => ['label' => 'Publisher', 'icon' => 'fas fa-newspaper', 'color' => 'var(--green)', 'description' => 'Can manage news, categories, breaking news, and home panels.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'breaking', 'categories', 'home_panels', 'breaking_speed', 'password']],
     'ad_manager' => ['label' => 'Ad Manager', 'icon' => 'fas fa-rectangle-ad', 'color' => 'var(--gold)', 'description' => 'Can manage advertisements and ad embed codes.', 'permissions' => ['dashboard', 'ads', 'password']],
     'social_manager' => ['label' => 'Social Manager', 'icon' => 'fas fa-share-nodes', 'color' => '#25D366', 'description' => 'Can manage social media, contact details, and videos.', 'permissions' => ['dashboard', 'social', 'contact', 'videos', 'password']],
     'market_viewer' => ['label' => 'Market Viewer', 'icon' => 'fas fa-chart-line', 'color' => '#FF9933', 'description' => 'Can view NSE market data and dashboard only.', 'permissions' => ['dashboard', 'nse_market', 'password']],
@@ -211,7 +212,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "users", "date_requests", "visitor_stats"];
+ $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "breaking_speed", "users", "date_requests", "visitor_stats"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -831,6 +832,26 @@ if ($section === "videos" && $_SERVER["REQUEST_METHOD"] === "POST") {
  $homeSuccess = ""; $homeError = ""; $homeSettings = loadSettings($pdo, ['home_cat_panels']); $homeCatPanels = json_decode($homeSettings['home_cat_panels'] ?? '[]', true); if (!is_array($homeCatPanels)) $homeCatPanels = [];
 if ($section === "home_panels" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $homeError = "Token mismatch."; } else { $selected = $_POST['home_cats'] ?? []; if (!is_array($selected)) $selected = []; saveSettings($pdo, ['home_cat_panels' => json_encode($selected)]); $homeCatPanels = $selected; $homeSuccess = "Home panels updated successfully."; } }
 
+// ====== Breaking News Speed Controller ======
+$brkSpeedSuccess = ""; $brkSpeedError = "";
+$brkSpeedSettings = loadSettings($pdo, ['breaking_news_speed']);
+$breakingNewsSpeed = (int)($brkSpeedSettings['breaking_news_speed'] ?? 45);
+if ($breakingNewsSpeed < 10) $breakingNewsSpeed = 10;
+if ($breakingNewsSpeed > 180) $breakingNewsSpeed = 180;
+if ($section === "breaking_speed" && $_SERVER["REQUEST_METHOD"] === "POST") {
+    if (!verifyCSRF()) { $brkSpeedError = "Token mismatch."; }
+    else {
+        $newSpeed = (int)($_POST['breaking_news_speed'] ?? 45);
+        if ($newSpeed < 10 || $newSpeed > 180) {
+            $brkSpeedError = "স্পিড ১০ থেকে ১৮০ সেকেন্ডের মধ্যে হতে হবে।";
+        } else {
+            saveSettings($pdo, ['breaking_news_speed' => (string)$newSpeed]);
+            $breakingNewsSpeed = $newSpeed;
+            $brkSpeedSuccess = "ব্রেকিং নিউজ স্পিড সফলভাবে আপডেট হয়েছে — " . $newSpeed . " সেকেন্ড।";
+        }
+    }
+}
+
 if (!function_exists('secLink')) { function secLink($s, $i, $l, $b = "") { global $section; $a = ($section === $s) ? " active" : ""; $bg = $b ? "<span class=\"badge\">$b</span>" : ""; return "<a href=\"?page=admin_dashboard&section=$s\" class=\"$a\"><i class=\"fas $i\"></i> $l$bg</a>"; } }
 
  $pendingUsersCount = 0;
@@ -1085,6 +1106,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php if (hasPerm('home_panels')): ?>
 <?= secLink("home_panels","fa-table-cells","Home Page Panels") ?>
 <?php endif; ?>
+<?php if (hasPerm('breaking_speed')): ?>
+<?= secLink("breaking_speed","fa-gauge-high","Breaking News Speed") ?>
+<?php endif; ?>
 <?php if (hasPerm('social')): ?>
 <?= secLink("social","fa-share-nodes","Social Media") ?>
 <?php endif; ?>
@@ -1145,7 +1169,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
             <div class="season">ঋতু: <?php echo $todayBengali['season_bn']; ?></div>
         </div>
         <div class="topbar-actions">
-            <a href="http://localhost/Newspaper/index.php#" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a>
+            <a href="https://songbadsongolon.infinityfree.me/?" target="_blank" class="topbar-btn topbar-btn-outline"><i class="fas fa-globe"></i> Newspaper Portal</a>
             <?php if (hasPerm('add_news')): ?><a href="?page=admin_dashboard&section=add" class="topbar-btn topbar-btn-primary"><i class="fas fa-plus"></i> Add News</a><?php endif; ?>
         </div>
     </div>
@@ -1966,6 +1990,214 @@ if (tagPillsContainer) {
 <div class="home-cat-item"><label class="switch"><input type="checkbox" name="home_cats[]" value="videos_section" <?= in_array("videos_section", $homeCatPanels) ? 'checked' : '' ?>><span class="switch-slider"></span></label><div><div style="font-weight:600;font-size:14px">ভিডিও সংবাদ</div><div style="font-size:10px;color:var(--muted)">Type: video_section</div></div></div>
 <div class="home-cat-item"><label class="switch"><input type="checkbox" name="home_cats[]" value="latest_news_section" <?= in_array("latest_news_section", $homeCatPanels) ? 'checked' : '' ?>><span class="switch-slider"></span></label><div><div style="font-weight:600;font-size:14px">সর্বশেষ সংবাদ</div><div style="font-size:10px;color:var(--muted)">Type: latest_news_section</div></div></div>
 <?php if(empty($catList)): ?><div class="empty-state"><i class="fas fa-folder-open"></i><p>No categories found. Please add categories first.</p></div><?php endif; ?></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Panels</button></div></form></div>
+
+<?php elseif ($section === "breaking_speed" && hasPerm('breaking_speed')): ?>
+<div class="admin-topbar"><h1><i class="fas fa-gauge-high" style="color:var(--accent)"></i> Breaking News Speed Controller</h1></div>
+<?php if ($brkSpeedError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($brkSpeedError) ?></div><?php endif; ?>
+<?php if ($brkSpeedSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($brkSpeedSuccess) ?></div><?php endif; ?>
+
+<!-- Info Panel -->
+<div class="panel" style="border-left:5px solid var(--accent)">
+    <div class="panel-body" style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;">
+        <i class="fas fa-circle-info" style="color:var(--accent);font-size:22px;flex-shrink:0;margin-top:2px;"></i>
+        <div style="font-size:13px;color:var(--fg);line-height:1.7;">
+            <strong style="color:var(--accent);">এই সেটিং কী করে?</strong><br>
+            ওয়েবসাইটের হোমপেজে উপরে যে ব্রেকিং নিউজ বারটি স্ক্রল করে চলে, তার <strong>স্পিড</strong> এখান থেকে কন্ট্রোল করা যায়।
+            ছোট মান (যেমন <code>20s</code>) = দ্রুত স্ক্রল, বড় মান (যেমন <code>80s</code>) = ধীর স্ক্রল।
+            বাংলা টেক্সট পড়তে সহজ হওয়ার জন্য <strong>৩৫–৫০ সেকেন্ড</strong> আদর্শ।
+        </div>
+    </div>
+</div>
+
+<!-- Speed Control Form -->
+<div class="panel">
+    <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-sliders"></i> স্পিড সেট করুন</div>
+        <span style="font-size:11px;color:var(--muted);background:var(--bg);padding:4px 12px;border-radius:14px;border:1px solid var(--border);">
+            বর্তমান: <strong style="color:var(--accent);" id="currentSpeedBadge"><?= $breakingNewsSpeed ?>s</strong>
+        </span>
+    </div>
+    <form method="POST" id="brkSpeedForm">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>">
+        <div class="panel-body">
+
+            <!-- Range Slider -->
+            <div class="form-group">
+                <label class="form-label" style="display:flex;align-items:center;justify-content:space-between;">
+                    <span><i class="fas fa-gauge-high" style="color:var(--accent);margin-right:6px;"></i> স্ক্রল স্পিড (সেকেন্ড)</span>
+                    <span style="font-size:24px;font-weight:800;color:var(--accent);font-family:monospace;">
+                        <span id="speedDisplay"><?= $breakingNewsSpeed ?></span>s
+                    </span>
+                </label>
+                <input type="range" name="breaking_news_speed" id="speedRange" min="10" max="180" value="<?= $breakingNewsSpeed ?>" 
+                       style="width:100%;height:8px;border-radius:4px;background:linear-gradient(90deg,#dc2626 0%,#eab308 25%,#22c55e 50%,#eab308 75%,#dc2626 100%);outline:none;appearance:none;-webkit-appearance:none;cursor:pointer;">
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px;font-weight:600;">
+                    <span>১০s (খুব দ্রুত)</span>
+                    <span>৪৫s (আদর্শ)</span>
+                    <span>১৮০s (খুব ধীর)</span>
+                </div>
+                <input type="number" name="breaking_news_speed_num" id="speedNum" min="10" max="180" value="<?= $breakingNewsSpeed ?>" 
+                       class="form-input" style="margin-top:12px;max-width:160px;text-align:center;font-weight:700;font-size:16px;color:var(--accent);">
+                <div class="form-hint">অথবা সরাসরি সংখ্যা লিখুন (১০ থেকে ১৮০)।</div>
+            </div>
+
+            <!-- Preset Buttons -->
+            <div class="form-group">
+                <label class="form-label"><i class="fas fa-bolt" style="color:var(--gold);margin-right:6px;"></i> কুইক প্রিসেট</label>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    <button type="button" class="btn btn-sm btn-outline brk-preset" data-speed="20" style="padding:8px 14px;">
+                        <i class="fas fa-forward-fast"></i> ২০s — খুব দ্রুত
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline brk-preset" data-speed="30" style="padding:8px 14px;">
+                        <i class="fas fa-forward"></i> ৩০s — দ্রুত
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline brk-preset" data-speed="45" style="padding:8px 14px;">
+                        <i class="fas fa-gauge"></i> ৪৫s — আদর্শ
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline brk-preset" data-speed="60" style="padding:8px 14px;">
+                        <i class="fas fa-gauge-simple"></i> ৬০s — একটু ধীর
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline brk-preset" data-speed="90" style="padding:8px 14px;">
+                        <i class="fas fa-hourglass-half"></i> ৯০s — ধীর
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline brk-preset" data-speed="120" style="padding:8px 14px;">
+                        <i class="fas fa-hourglass"></i> ১২০s — খুব ধীর
+                    </button>
+                </div>
+            </div>
+
+            <!-- Live Preview -->
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label"><i class="fas fa-eye" style="color:var(--green);margin-right:6px;"></i> লাইভ প্রিভিউ</label>
+                <div style="background:#1a1a1a;border-radius:8px;padding:12px;border:1px solid var(--border);">
+                    <style>
+                        .brk-prev-bar{background:#7F0000;color:#fff;overflow:hidden;white-space:nowrap;height:38px;display:flex;align-items:center;position:relative;border-radius:4px}
+                        .brk-prev-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:120px;background:linear-gradient(to right,#7F0000 0%,#7F0000 60%,rgba(127,0,0,0.6) 80%,transparent 100%);z-index:3;pointer-events:none}
+                        .brk-prev-bar::after{content:'';position:absolute;right:0;top:0;bottom:0;width:40px;background:linear-gradient(to left,#7F0000 0%,transparent 100%);z-index:3;pointer-events:none}
+                        .brk-prev-label{background:#D4950A;color:#000;padding:0 14px;font-weight:700;font-size:12px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.5px;position:relative;z-index:5;box-shadow:6px 0 12px rgba(127,0,0,0.8)}
+                        .brk-prev-track{display:flex;align-items:center;height:100%;width:max-content;animation:brkPrevScroll <?= $breakingNewsSpeed ?>s linear infinite;padding-left:20px;will-change:transform;position:relative;z-index:1}
+                        .brk-prev-track span{padding:0 30px;font-size:13px;font-weight:500;white-space:nowrap;color:#fff}
+                        @keyframes brkPrevScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+                        .brk-prev-bar:hover .brk-prev-track{animation-play-state:paused}
+                        /* ★ Preset selected state — persistent highlight */
+                        .brk-preset.selected{background:var(--accent) !important;color:#fff !important;border-color:var(--accent) !important;box-shadow:0 4px 12px rgba(196,30,58,.3);transform:translateY(-1px)}
+                        .brk-preset.selected i{color:#fff !important}
+                        .brk-preset{transition:all .2s ease}
+                        .brk-preset:hover:not(.selected){border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+                    </style>
+                    <div class="brk-prev-bar">
+                        <div class="brk-prev-label"><i class="fas fa-bolt"></i> ব্রেকিং</div>
+                        <div class="brk-prev-track" id="brkPrevTrack">
+                            <span>ভারতের অর্থনীতি বিশ্বের পঞ্চম বৃহত্তম হতে চলেছে</span>
+                            <span>পশ্চিমবঙ্গে আজ ভীষণ বৃষ্টির পূর্বাভাস</span>
+                            <span>শেয়ার বাজারে সেন্সেক্স ৫০০ পয়েন্ট লাফ</span>
+                            <span>আন্তর্জাতিক ক্রিকেটে ভারতের জয়রথ অব্যাহত</span>
+                        </div>
+                    </div>
+                    <div style="text-align:center;margin-top:8px;font-size:11px;color:#aaa;">
+                        <i class="fas fa-info-circle"></i> এই প্রিভিউটি বর্তমান স্পিডে চলছে — স্লাইডার বদলালে প্রিভিউও বদলাবে
+                    </div>
+                </div>
+            </div>
+
+        </div>
+        <div class="form-actions-bar">
+            <div style="font-size:12px;color:var(--muted);">
+                <i class="fas fa-lightbulb" style="color:var(--gold);"></i>
+                পরিবর্তন সেভ করলে ওয়েবসাইটের হোমপেজে সাথে সাথেই কাজ করবে (Ctrl+F5 করতে হতে পারে)।
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i> স্পিড সেভ করুন
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Speed Guide Panel -->
+<div class="panel" style="border-color:var(--gold);">
+    <div class="panel-header" style="background:linear-gradient(90deg,#D4A017,#b8860b);border-bottom:2px solid var(--accent-dark);">
+        <div class="panel-title" style="color:#fff;"><i class="fas fa-circle-question"></i> কোন স্পিড বেছে নেবেন?</div>
+    </div>
+    <div class="panel-body" style="padding:0;">
+        <table class="data-table">
+            <thead>
+                <tr><th>স্পিড</th><th>ব্যবহার</th><th>সাফল্য</th></tr>
+            </thead>
+            <tbody>
+                <tr><td style="font-weight:700;color:#dc2626;">২০–৩০s</td><td>খুব দ্রুত স্ক্রল — সংক্ষিপ্ত ব্রেকিং নিউজের জন্য</td><td><span class="status-badge status-pending"><i class="fas fa-circle"></i> পড়তে কষ্ট হতে পারে</span></td></tr>
+                <tr><td style="font-weight:700;color:var(--gold);">৩৫–৫০s</td><td><strong>আদর্শ</strong> — বাংলা টেক্সট পড়ার জন্য সবচেয়ে ভালো</td><td><span class="status-badge status-active"><i class="fas fa-circle"></i> সুপারিশকৃত</span></td></tr>
+                <tr><td style="font-weight:700;color:var(--blue);">৬০–৯০s</td><td>একটু ধীর — দীর্ঘ ব্রেকিং নিউজ আইটেমের জন্য</td><td><span class="status-badge status-active"><i class="fas fa-circle"></i> ভালো</span></td></tr>
+                <tr><td style="font-weight:700;color:var(--green);">১২০s+</td><td>খুব ধীর — শুধুমাত্র বিশেষ ক্ষেত্রে</td><td><span class="status-badge status-pending"><i class="fas fa-circle"></i> একঘেয়ে লাগতে পারে</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+(function(){
+    var slider = document.getElementById('speedRange');
+    var numInput = document.getElementById('speedNum');
+    var display = document.getElementById('speedDisplay');
+    var badge = document.getElementById('currentSpeedBadge');
+    var track = document.getElementById('brkPrevTrack');
+    var form = document.getElementById('brkSpeedForm');
+    if (!slider || !numInput) return;
+
+    function updateAll(val) {
+        val = parseInt(val, 10);
+        if (isNaN(val)) val = 45;
+        if (val < 10) val = 10;
+        if (val > 180) val = 180;
+        slider.value = val;
+        numInput.value = val;
+        if (display) display.textContent = val;
+        if (badge) badge.textContent = val + 's';
+        // ★ Live preview animation duration update
+        if (track) {
+            track.style.animationDuration = val + 's';
+            // Restart animation so new speed applies immediately
+            track.style.animation = 'none';
+            // force reflow
+            void track.offsetWidth;
+            track.style.animation = "brkPrevScroll " + val + "s linear infinite";
+        }
+        // ★ Sync preset highlight — remove from all, add to matching one (if any)
+        var presets = document.querySelectorAll('.brk-preset');
+        presets.forEach(function(p){
+            var ps = parseInt(p.getAttribute('data-speed'), 10);
+            if (ps === val) p.classList.add('selected');
+            else p.classList.remove('selected');
+        });
+    }
+
+    slider.addEventListener('input', function(){ updateAll(this.value); });
+    numInput.addEventListener('input', function(){ updateAll(this.value); });
+    numInput.addEventListener('change', function(){ updateAll(this.value); });
+
+    // ★ Preset click — persistent selection (no more 800ms flash)
+    document.querySelectorAll('.brk-preset').forEach(function(btn){
+        btn.addEventListener('click', function(){
+            var s = parseInt(this.getAttribute('data-speed'), 10);
+            updateAll(s);  // updateAll() handles the .selected class automatically
+        });
+    });
+
+    // ★ On page load: highlight preset matching current speed
+    updateAll(slider.value);
+
+    // Form submit: ensure both range and number have same value (use number if user typed)
+    form.addEventListener('submit', function(e){
+        // The hidden input "breaking_news_speed" is the slider — sync it to current value
+        var v = parseInt(numInput.value, 10);
+        if (isNaN(v) || v < 10 || v > 180) {
+            e.preventDefault();
+            alert('স্পিড ১০ থেকে ১৮০ সেকেন্ডের মধ্যে হতে হবে।');
+            return false;
+        }
+        slider.value = v;
+    });
+})();
+</script>
 
 <?php elseif ($section === "social" && hasPerm('social')): ?>
 <div class="admin-topbar"><h1><i class="fas fa-share-nodes" style="color:var(--blue)"></i> Social Media</h1></div>

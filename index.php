@@ -1193,6 +1193,12 @@ try {
     if (!is_array($activeCatIds)) $activeCatIds = [];
     if (in_array('videos_section', $activeCatIds)) $showHomeVideos = true;
     if (in_array('latest_news_section', $activeCatIds)) $showLatestNews = true;
+
+    // ====== Breaking News Speed Controller — load from DB (set in Admin Dashboard) ======
+    $brkSpeedSettings = loadSettings($pdo, ['breaking_news_speed']);
+    $breakingNewsSpeed = (int)($brkSpeedSettings['breaking_news_speed'] ?? 45);
+    if ($breakingNewsSpeed < 10) $breakingNewsSpeed = 10;
+    if ($breakingNewsSpeed > 180) $breakingNewsSpeed = 180;
     $numericCatIds = array_filter($activeCatIds, 'is_numeric');
     if (!empty($numericCatIds)) {
         $inQuery = implode(',', array_fill(0, count($numericCatIds), '?'));
@@ -1625,10 +1631,10 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .lang-dropdown a:hover{background:#f0f0f0}
 
 .breaking-bar{background:var(--red-dark);color:#fff;overflow:hidden;white-space:nowrap;height:38px;display:flex;align-items:center;position:relative}
-.breaking-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:130px;background:linear-gradient(to right,var(--red-dark) 0%,var(--red-dark) 60%,rgba(127,0,0,0.6) 80%,transparent 100%);z-index:3;pointer-events:none}
+.breaking-bar::before{content:'';position:absolute;left:0;top:0;bottom:0;width:110px;background:linear-gradient(to right,var(--red-dark) 0%,var(--red-dark) 55%,rgba(127,0,0,0.4) 78%,transparent 100%);z-index:3;pointer-events:none}
 .breaking-bar::after{content:'';position:absolute;right:0;top:0;bottom:0;width:50px;background:linear-gradient(to left,var(--red-dark) 0%,transparent 100%);z-index:3;pointer-events:none}
-.breaking-label{background:var(--gold);color:#000;padding:0 16px;font-weight:700;font-size:12px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.5px;position:relative;z-index:5;box-shadow:6px 0 12px rgba(127,0,0,0.8);align-self:stretch}
-.breaking-track{display:flex;align-items:center;height:100%;width:max-content;animation:bts 40s linear infinite;padding-left:30px;will-change:transform;position:relative;z-index:1}
+.breaking-label{background:var(--gold);color:#000;padding:0 16px;font-weight:700;font-size:12px;height:100%;display:flex;align-items:center;justify-content:center;flex-shrink:0;letter-spacing:.5px;position:relative;z-index:5;box-shadow:4px 0 10px rgba(127,0,0,0.45);align-self:stretch}
+.breaking-track{display:flex;align-items:center;height:100%;width:max-content;animation:bts <?= (int)$breakingNewsSpeed ?>s linear infinite;padding-left:55px;will-change:transform;position:relative;z-index:1}
 .breaking-track span{padding:0 40px;font-size:13px;font-weight:500;white-space:nowrap;display:flex;align-items:center;text-align:center}
 @keyframes bts{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .breaking-bar:hover .breaking-track{animation-play-state:paused}
@@ -2584,14 +2590,16 @@ foreach ($paragraphs as $i => $p) {
 }
 echo '<div class="single-content">' . bn_to_en_html($out) . '</div>';
 ?>
-<?php if (!empty($singleNews['tags'])): $sTags = array_filter(array_map('trim', explode(',', $singleNews['tags']))); if (!empty($sTags)): ?>
+<?php
+// ★ FIX: "ট্যাগ:" লেবেল সবসময় দেখাবে — ট্যাগ না থাকলেও লেবেল ফাঁকা থাকবে (blank)
+$sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',', $singleNews['tags']))) : [];
+?>
 <div class="single-tags">
 <span class="single-tags-label"><i class="fas fa-tags"></i> ট্যাগ:</span>
-<?php foreach ($sTags as $st): ?>
+<?php if (!empty($sTags)): foreach ($sTags as $st): ?>
 <a href="?q=<?= urlencode($st) ?>" class="tag-pill"><i class="fas fa-hashtag"></i> <?= htmlspecialchars($st) ?></a>
-<?php endforeach; ?>
+<?php endforeach; endif; ?>
 </div>
-<?php endif; endif; ?>
 </article>
 
 <?php if (!empty($adContentBottom)) echo $adContentBottom; ?>
@@ -3082,6 +3090,11 @@ if ($page === 'single' && !empty($singleNews)): ?>
 </div>
 
 <!-- HTML Fallback Popup for New News -->
+<style>
+@keyframes nnPopupSlideIn { 0% { transform: translateX(120%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+@keyframes nnPopupPulse { 0%,100% { box-shadow: 0 10px 30px rgba(0,0,0,.3), 0 0 0 0 rgba(183,28,28,.5); } 50% { box-shadow: 0 10px 30px rgba(0,0,0,.3), 0 0 0 12px rgba(183,28,28,0); } }
+#newNewsPopup { animation: nnPopupSlideIn .4s ease-out, nnPopupPulse 2s infinite 0.4s !important; }
+</style>
 <div id="newNewsPopup" style="display:none;position:fixed;bottom:20px;right:20px;width:350px;max-width:90%;background:#fff;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);z-index:100000;overflow:hidden;border-top:4px solid var(--red);">
     <div style="padding:15px 20px;display:flex;align-items:center;gap:15px;">
         <div style="width:40px;height:40px;background:rgba(183,28,28,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -3534,9 +3547,13 @@ var latestNewsTitleJS = <?= $latestNewsTitleJS ?>;
 function showLatestOnLoad() {
     if (!NEWS_POPUP_ON_LOAD || latestNewsId <= 0) return;
     var url = '?page=single&id=' + latestNewsId;
-    var ok = showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'New news published' : 'নতুন খবর প্রকাশিত হয়েছে') ?>, latestNewsTitleJS, url);
-    // Notification API-হীন খুব পুরোনো ব্রাউজারে ফলব্যাক — পেজের ভিতরে পপ-আপ
-    if (!ok && !("Notification" in window)) showHtmlPopup(latestNewsTitleJS, url);
+    // ★ FIX: সিস্টেম নোটিফিকেশন পাঠানোর চেষ্টা করা হবে; ব্যর্থ হলে (permission default/denied,
+    // API অসমর্থিত, OS ব্লক) সবসময় পেজের ভিতরের HTML পপ-আপ দেখাবে — আগে পপ-আপ চুপচাপ মিস হতো।
+    var systemShown = false;
+    try {
+        systemShown = showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'New news published' : 'নতুন খবর প্রকাশিত হয়েছে') ?>, latestNewsTitleJS, url);
+    } catch (e) { systemShown = false; }
+    if (!systemShown) showHtmlPopup(latestNewsTitleJS, url);
 }
 if (NEWS_POPUP_ON_LOAD) {
     setTimeout(function() {
@@ -3575,18 +3592,21 @@ function checkForNewNews() {
             var url = '?page=single&id=' + latestItem.id;
             var newsTitle = (latestItem.title && String(latestItem.title).trim()) ? latestItem.title : <?= json_encode($SITE_LANG === 'en' ? 'New news has arrived' : 'নতুন খবর এসেছে') ?>;
 
-            // ★ v6.9 (ইউজারের নির্দেশ: "need system Notifications"): শুধুমাত্র সিস্টেম
-            // নোটিফিকেশন (Windows টোস্ট / Action Center) পাঠানো হবে — পেজের ভিতরের
-            // পপ-আপ আর দেখানো হবে না। Notification API-হীন খুব পুরোনো ব্রাউজারেই
-            // কেবল ফলব্যাক হিসেবে পেজ-পপ-আপ যাবে।
-            var systemShown = showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'New news published' : 'নতুন খবর প্রকাশিত হয়েছে') ?>, newsTitle, url);
-            if (!systemShown && !("Notification" in window)) {
+            // ★ FIX: সিস্টেম নোটিফিকেশন (Windows টোস্ট) পাঠানোর চেষ্টা করা হবে; ব্যর্থ হলে
+            // (permission default/denied, API অসমর্থিত, OS ব্লক) সবসময় পেজের ভিতরের HTML পপ-আপ
+            // দেখাবে — আগে permission না থাকলে কিছুই দেখা যেত না, খবর মিস হতো।
+            var systemShown = false;
+            try {
+                systemShown = showSystemNotification(<?= json_encode($SITE_LANG === 'en' ? 'New news published' : 'নতুন খবর প্রকাশিত হয়েছে') ?>, newsTitle, url);
+            } catch (e) { systemShown = false; }
+            if (!systemShown) {
                 showHtmlPopup(newsTitle, url);
             }
 
-            // টোস্ট পাঠানো গেলে ৬ সেকেন্ড পর পেজ রিফ্রেশ (নতুন খবর হোমপেজে চলে আসবে);
-            // পারমিশন না থাকলে কিছুই পাঠানো হয়নি — অকারণ রিফ্রেশে বিভ্রান্তি হবে, তাই রিফ্রেশ নয়
-            if (systemShown) {
+            // নোটিফিকেশন (সিস্টেম টোস্ট অথবা HTML পপ-আপ) দেখানো গেলে ৬ সেকেন্ড পর পেজ রিফ্রেশ
+            // (নতুন খবর হোমপেজে চলে আসবে)।
+            var popupVisible = (newNewsPopup && newNewsPopup.style.display === 'block');
+            if (systemShown || popupVisible) {
                 if (window.__nnReloadTimer) clearTimeout(window.__nnReloadTimer);
                 window.__nnReloadTimer = setTimeout(function(){ window.location.reload(); }, 6000);
             }

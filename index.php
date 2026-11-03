@@ -1274,26 +1274,80 @@ if ($page === 'single') {
     $sql .= $dateLimitSQL;
     $countSql .= $dateLimitSQL;
 
+    // v7.13: Force NEWS_PER_PAGE = 6 for category pages (home page keeps its own logic)
+    if (!defined('NEWS_PER_PAGE')) define('NEWS_PER_PAGE', 6);
+    $perPage = 6;
+
     $gridSql = $sql . " ORDER BY n.created_at DESC";
     $gridCountSql = $countSql;
     if (!$searchQuery && !$currentSub && !$archYear && !$archMonth) {
-        $hasRealFeatured = false;
-        try { $stmt = $pdo->prepare($sql . " AND n.is_featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {}
-        if (!$hasRealFeatured) { try { $stmt = $pdo->prepare($sql . " AND n.featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {} }
-        if (!$hasRealFeatured) { $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); }
-        if ($hasRealFeatured) { try { $gridSql = $sql . " AND n.is_featured = 0 ORDER BY n.created_at DESC"; $gridCountSql = $countSql . " AND n.is_featured = 0"; } catch (PDOException $e) { try { $gridSql = $sql . " AND n.featured = 0 ORDER BY n.created_at DESC"; $gridCountSql = $countSql . " AND n.featured = 0"; } catch (PDOException $e) { $gridSql = $sql . " ORDER BY n.created_at DESC"; $gridCountSql = $countSql; } } }
-    }
-    $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
-    $currentPage = max(1, intval($_GET['p'] ?? 1)); $totalPages = max(1, ceil($totalGrid / NEWS_PER_PAGE));
-    if ($currentPage > $totalPages) $currentPage = $totalPages;
-    $offset = ($currentPage - 1) * NEWS_PER_PAGE;
-    $stmt = $pdo->prepare($gridSql . " LIMIT " . NEWS_PER_PAGE . " OFFSET " . $offset); $stmt->execute($params);
-    $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
-    if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth) {
-        $stmt = $pdo->prepare($sql . " LIMIT " . NEWS_PER_PAGE . " OFFSET 0"); $stmt->execute($params);
-        $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
-        $stmt = $pdo->prepare($countSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
-        $totalPages = max(1, ceil($totalGrid / NEWS_PER_PAGE));
+        $isCategoryPage = !empty($currentCat);
+
+        if ($isCategoryPage) {
+            // ===== v7.13 CATEGORY PAGE =====
+            // EVERY page: 1 big banner (latest news) + 5 grid cards = 6 total
+            // The banner is always the same latest news; grid shows items 2-6, 7-11, 12-16, etc.
+            $currentPage = max(1, intval($_GET['p'] ?? 1));
+
+            // ----- Step 1: Fetch latest news for banner (shown on EVERY page) -----
+            $displayFeatured = [];
+            $hasRealFeatured = false;
+            try {
+                $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC, n.id DESC LIMIT 1");
+                $stmt->execute($params);
+                $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
+                if (!empty($displayFeatured)) $hasRealFeatured = true;
+            } catch (PDOException $e) {}
+
+            // ----- Step 2: Exclude banner item from grid + fetch 6 cards per page -----
+            if ($hasRealFeatured && !empty($displayFeatured)) {
+                $topFeatIds = array_map(function($r){ return (int)$r['id']; }, $displayFeatured);
+                $topFeatIds = array_filter($topFeatIds, function($x){ return $x > 0; });
+                if (!empty($topFeatIds)) {
+                    $excludeClause = " AND n.id NOT IN (" . implode(',', $topFeatIds) . ")";
+                    $gridSql = $sql . $excludeClause . " ORDER BY n.created_at DESC";
+                    $gridCountSql = $countSql . $excludeClause;
+                }
+            }
+
+            // Grid: 6 items per page (banner is additional)
+            $gridLimit = 6;
+
+            // Fetch total grid count (excluding banner item)
+            $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params);
+            $remainingCount = (int)$stmt->fetchColumn();
+            $totalGrid = $remainingCount + 1; // total including banner
+            // Total pages = ceil(remainingCount / 6)
+            $totalPages = max(1, ($gridLimit > 0) ? (int)ceil($remainingCount / $gridLimit) : 1);
+            if ($currentPage > $totalPages) $currentPage = $totalPages;
+
+            // Grid offset: page 1 -> 0, page 2 -> 6, page 3 -> 12, etc.
+            $gridOffset = ($currentPage - 1) * $gridLimit;
+
+            // Fetch 6 grid items
+            $stmt = $pdo->prepare($gridSql . " LIMIT " . $gridLimit . " OFFSET " . $gridOffset);
+            $stmt->execute($params);
+            $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
+        } else {
+            // ===== HOME PAGE: original is_featured priority logic (unchanged) =====
+            $hasRealFeatured = false;
+            try { $stmt = $pdo->prepare($sql . " AND n.is_featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {}
+            if (!$hasRealFeatured) { try { $stmt = $pdo->prepare($sql . " AND n.featured = 1 ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); if (!empty($displayFeatured)) $hasRealFeatured = true; } catch (PDOException $e) {} }
+            if (!$hasRealFeatured) { $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC LIMIT 5"); $stmt->execute($params); $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll())); }
+            if ($hasRealFeatured) { try { $gridSql = $sql . " AND n.is_featured = 0 ORDER BY n.created_at DESC"; $gridCountSql = $countSql . " AND n.is_featured = 0"; } catch (PDOException $e) { try { $gridSql = $sql . " AND n.featured = 0 ORDER BY n.created_at DESC"; $gridCountSql = $countSql . " AND n.featured = 0"; } catch (PDOException $e) { $gridSql = $sql . " ORDER BY n.created_at DESC"; $gridCountSql = $countSql; } } }
+            $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
+            $currentPage = max(1, intval($_GET['p'] ?? 1)); $totalPages = max(1, ceil($totalGrid / $perPage));
+            if ($currentPage > $totalPages) $currentPage = $totalPages;
+            $offset = ($currentPage - 1) * $perPage;
+            $stmt = $pdo->prepare($gridSql . " LIMIT " . $perPage . " OFFSET " . $offset); $stmt->execute($params);
+            $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
+            if (empty($pagedGrid) && !empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth) {
+                $stmt = $pdo->prepare($sql . " LIMIT " . $perPage . " OFFSET 0"); $stmt->execute($params);
+                $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
+                $stmt = $pdo->prepare($countSql); $stmt->execute($params); $totalGrid = (int)$stmt->fetchColumn();
+                $totalPages = max(1, ceil($totalGrid / $perPage));
+            }
+        }
     }
 }
 
@@ -1305,7 +1359,41 @@ if ($searchQuery) $pagBase .= '&q=' . urlencode($searchQuery);
 if ($currentSub) $pagBase .= '&sub=' . $currentSub;
 if ($archYear) $pagBase .= '&y=' . $archYear;
 if ($archMonth) $pagBase .= '&m=' . $archMonth;
- $paginationHTML = renderPagination($currentPage, $totalPages, $pagBase);
+ // v7.14: ALWAYS use our new stylish pagination (override config.php renderPagination if it exists)
+$paginationHTML = '';
+if ($totalPages > 1) {
+    $paginationHTML .= '<div class="pg">';
+    // Previous button - just arrow
+    if ($currentPage > 1) {
+        $paginationHTML .= '<a href="' . htmlspecialchars($pagBase . '&p=' . ($currentPage - 1)) . '" title="পূর্ববর্তী"><i class="fas fa-chevron-left"></i></a> ';
+    } else {
+        $paginationHTML .= '<span class="pdd" title="পূর্ববর্তী"><i class="fas fa-chevron-left"></i></span> ';
+    }
+    $startP = max(1, $currentPage - 2);
+    $endP = min($totalPages, $currentPage + 2);
+    if ($startP > 1) {
+        $paginationHTML .= '<a href="' . htmlspecialchars($pagBase . '&p=1') . '">1</a> ';
+        if ($startP > 2) $paginationHTML .= '<span class="pdd">...</span> ';
+    }
+    for ($i = $startP; $i <= $endP; $i++) {
+        if ($i == $currentPage) {
+            $paginationHTML .= '<span class="pa">' . $i . '</span> ';
+        } else {
+            $paginationHTML .= '<a href="' . htmlspecialchars($pagBase . '&p=' . $i) . '">' . $i . '</a> ';
+        }
+    }
+    if ($endP < $totalPages) {
+        if ($endP < $totalPages - 1) $paginationHTML .= '<span class="pdd">...</span> ';
+        $paginationHTML .= '<a href="' . htmlspecialchars($pagBase . '&p=' . $totalPages) . '">' . $totalPages . '</a> ';
+    }
+    // Next button - arrow + "পরেরটা" text
+    if ($currentPage < $totalPages) {
+        $paginationHTML .= '<a href="' . htmlspecialchars($pagBase . '&p=' . ($currentPage + 1)) . '" title="পরেরটা">পরেরটা <i class="fas fa-chevron-right"></i></a>';
+    } else {
+        $paginationHTML .= '<span class="pdd" title="পরেরটা">পরেরটা <i class="fas fa-chevron-right"></i></span>';
+    }
+    $paginationHTML .= '</div>';
+}
 
  $navCatIcons = ['প্রধান খবর'=>'fa-fire','জাতীয়'=>'fa-flag','রাজনীতি'=>'fa-landmark','আন্তর্জাতিক'=>'fa-globe','অর্থনীতি'=>'fa-chart-line','খেলাধুলা'=>'fa-futbol','বিনোদন'=>'fa-film','শিক্ষা'=>'fa-graduation-cap','প্রযুক্তি'=>'fa-microchip','স্বাস্থ্য'=>'fa-heart-pulse','বিশেষ সংবাদ'=>'fa-star','লাইফস্টাইল'=>'fa-spa','ধর্ম'=>'fa-mosque','সংস্কৃতি'=>'fa-masks-theater','মতামত'=>'fa-comment-dots','ক্রাইম'=>'fa-gavel','কৃষি'=>'fa-seedling','ভ্রমণ'=>'fa-plane','চাকরি'=>'fa-briefcase','আর্কাইভ'=>'fa-clock-rotate-left'];
 
@@ -1900,12 +1988,29 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 @media(max-width:640px){.video-page-grid{grid-template-columns:1fr}}
 /* ============================== */
 
-.pg{display:flex;justify-content:center;align-items:center;gap:4px;padding:24px 0 12px;flex-wrap:wrap}
-.pg a,.pg span{display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 10px;border:1px solid var(--border);border-radius:4px;font-size:13px;font-weight:600;transition:all .2s;cursor:pointer;text-decoration:none}
-.pg a:hover{border-color:var(--red);color:var(--red)}
-.pg .pa{background:var(--red);color:#fff;border-color:var(--red)}
-.pg .pd{opacity:.4;pointer-events:none}
-.pg .pdd{border:none;cursor:default}
+/* ====== v7.12 STYLISH PAGINATION (red theme, centered) ====== */
+.pg{display:flex;justify-content:center;align-items:center;gap:8px;padding:32px 0 18px;flex-wrap:wrap;background:transparent;margin:24px auto;max-width:100%}
+.pg a,.pg span{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:44px;padding:0 16px;background:#fff;border:2px solid var(--border);border-radius:10px;font-size:15px;font-weight:700;color:var(--fg);transition:all .3s cubic-bezier(.4,0,.2,1);cursor:pointer;text-decoration:none;box-shadow:0 3px 8px rgba(0,0,0,.08);font-family:'Hind Siliguri',sans-serif;position:relative;overflow:hidden}
+.pg a::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(183,28,28,.05),rgba(212,149,10,.05));opacity:0;transition:opacity .3s}
+.pg a:hover{background:#fff;border-color:var(--red);color:var(--red);transform:translateY(-3px);box-shadow:0 8px 18px rgba(183,28,28,.22)}
+.pg a:hover::before{opacity:1}
+/* Active page (current) - red stylish */
+.pg .pa{background:linear-gradient(135deg,var(--red) 0%,var(--red-dark) 100%);color:#fff;border-color:var(--red-dark);box-shadow:0 6px 16px rgba(183,28,28,.42);transform:translateY(-2px);font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.2)}
+.pg .pa:hover{background:linear-gradient(135deg,var(--red-dark) 0%,#5a0000 100%);color:#fff;border-color:#5a0000;transform:translateY(-3px)}
+/* Disabled buttons */
+.pg .pd{opacity:.5;pointer-events:none;background:#f5f1eb;border-color:var(--border)}
+/* Ellipsis (...) - no box */
+.pg .pdd{border:none;background:transparent;box-shadow:none;cursor:default;color:var(--red);font-weight:800;font-size:18px;letter-spacing:2px;min-width:24px;padding:0 4px;display:inline-flex;align-items:center;justify-content:center}
+/* Prev/Next arrow buttons - red text on hover */
+.pg a[title="পূর্ববর্তী"],
+.pg a[title="পরেরটা"]{background:#fff;color:var(--red);border-color:var(--red);box-shadow:0 3px 10px rgba(183,28,28,.18)}
+.pg a[title="পূর্ববর্তী"]:hover,
+.pg a[title="পরেরটা"]:hover{background:var(--red);color:#fff;border-color:var(--red-dark);box-shadow:0 8px 20px rgba(183,28,28,.35)}
+/* Mobile responsive */
+@media(max-width:640px){
+    .pg a,.pg span{min-width:38px;height:38px;padding:0 12px;font-size:14px;border-radius:8px;border-width:2px}
+    .pg{gap:6px;padding:24px 0 14px}
+}
 .rel-sec{padding:20px 0 8px}
 .rel-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .no-res{text-align:center;padding:50px 20px;color:var(--muted)}

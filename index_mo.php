@@ -550,6 +550,61 @@ if ($_runFallbackV73) {
         }
     }
 }
+
+// ★ v3.103: Helper functions — detect video files and render video thumbnails.
+//    admin_dashboard.php saves uploaded .mp4 files into the news `image` field.
+//    Browser <img> tags can't display .mp4 — so we detect video files and use
+//    <video> tags instead (which show the first frame as a thumbnail).
+/**
+ * Check if a URL/path points to a video file (not an image).
+ */
+function _isVideoFilePath($url) {
+    if (empty($url)) return false;
+    $urlClean = preg_replace('/[?#].*$/', '', $url);
+    return (bool)preg_match('#\.(mp4|webm|ogg|mov|m4v|avi|mkv|flv|wmv|3gp)$#i', $urlClean);
+}
+
+/**
+ * Render a thumbnail for a news card — uses <video> if the file is a video,
+ * <img> otherwise. Adds a play-icon overlay for videos so users know to click.
+ * ★ v3.104: Also handles 'video-embed:' prefix (Facebook/Vimeo embeds with no thumbnail).
+ */
+function _renderCardThumb($imgUrl, $cssClass) {
+    if (empty($imgUrl)) {
+        // Placeholder SVG
+        $placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250'%3E%3Crect width='400' height='250' fill='%23e8e4de'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'%3E%E0%A6%9B%E0%A6%AC%E0%A6%BF%3C/text%3E%3C/svg%3E";
+        return '<img src="' . $placeholder . '" alt="" class="' . $cssClass . '" loading="lazy">';
+    }
+    // ★ v3.104: 'video-embed:' prefix = Facebook/Vimeo/Twitter embed (no thumbnail available)
+    //    Show a dark gradient background with a large play icon.
+    if (strpos($imgUrl, 'video-embed:') === 0) {
+        return '<div style="position:relative;width:100%;aspect-ratio:16/10;overflow:hidden;background:linear-gradient(135deg,#1a1a1a,#2d2d2d);">'
+             . '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:50px;height:50px;background:rgba(183,28,28,.9);border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.4);">'
+             . '<i class="fas fa-play" style="color:#fff;font-size:18px;margin-left:3px;"></i>'
+             . '</div>'
+             . '<div style="position:absolute;bottom:6px;left:8px;color:rgba(255,255,255,.5);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">'
+             . '<i class="fas fa-video" style="margin-right:3px;"></i>Video'
+             . '</div></div>';
+    }
+    if (_isVideoFilePath($imgUrl)) {
+        // ★ Video file → use <video> tag (shows first frame as thumbnail) + play icon overlay
+        return '<div style="position:relative;width:100%;aspect-ratio:16/10;overflow:hidden;background:#000;">'
+             . '<video src="' . htmlspecialchars($imgUrl) . '" class="' . $cssClass . '" loading="lazy" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video>'
+             . '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:40px;height:40px;background:rgba(183,28,28,.85);border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;">'
+             . '<i class="fas fa-play" style="color:#fff;font-size:14px;margin-left:2px;"></i>'
+             . '</div></div>';
+    }
+    // ★ v3.104: For YouTube thumbnails, add a play-icon overlay on top of the image
+    if (preg_match('#img\.youtube\.com/vi/#i', $imgUrl) || preg_match('#img\.vimeo\.com#i', $imgUrl)) {
+        return '<div style="position:relative;width:100%;aspect-ratio:16/10;overflow:hidden;background:#000;">'
+             . '<img src="' . htmlspecialchars($imgUrl) . '" alt="" class="' . $cssClass . '" loading="lazy" style="width:100%;height:100%;object-fit:cover;">'
+             . '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:44px;height:44px;background:rgba(183,28,28,.85);border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.4);">'
+             . '<i class="fas fa-play" style="color:#fff;font-size:16px;margin-left:2px;"></i>'
+             . '</div></div>';
+    }
+    return '<img src="' . htmlspecialchars($imgUrl) . '" alt="" class="' . $cssClass . '" loading="lazy">';
+}
+
 // ★ v3.78: SUPER SIMPLE DB QUERY for category/search pages
 //    Replaces complex v3.75-v3.77 logic with a straightforward approach.
 //    On category/search pages, query DB directly for latest news (same as home panel).
@@ -558,6 +613,35 @@ $_v378_cat = isset($_GET['cat']) ? $_GET['cat'] : '';
 $_v378_q   = isset($_GET['q']) ? trim($_GET['q']) : '';
 $_v378_sub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
 $_v378_need = (($_v378_cat !== '') || ($_v378_q !== ''));
+
+// ★ v3.101 FIX 1b: Resolve Video category name to actual DB name.
+//    If the user typed ?cat=Video directly (or clicked an old bookmark),
+//    but the DB stores the category as 'ভিডিও', the news query would fail.
+//    Here we resolve any Video-related input to the actual category name
+//    stored in the categories table, so the query always matches.
+if ($_v378_cat !== '' && isset($pdo)) {
+    $_v378_catLowerTmp = strtolower($_v378_cat);
+    $_v378_isVideoInput = (
+        $_v378_catLowerTmp === 'video' || $_v378_catLowerTmp === 'videos' ||
+        $_v378_cat === 'ভিডিও' || $_v378_cat === 'ভিডিওসমূহ' ||
+        strpos($_v378_catLowerTmp, 'video') !== false ||
+        mb_stripos($_v378_cat, 'ভিডিও', 0, 'UTF-8') !== false
+    );
+    if ($_v378_isVideoInput) {
+        try {
+            @$pdo->exec("SET NAMES utf8mb4");
+            $_v378_resolveSql = "SELECT name FROM categories
+                                 WHERE name IN ('Video', 'ভিডিও', 'Videos', 'ভিডিওসমূহ', 'video', 'videos')
+                                    OR LOWER(name) LIKE '%video%'
+                                    OR name LIKE '%ভিডিও%'
+                                 LIMIT 1";
+            $_v378_resolvedName = $pdo->query($_v378_resolveSql)->fetchColumn();
+            if ($_v378_resolvedName && $_v378_resolvedName !== '' && $_v378_resolvedName !== $_v378_cat) {
+                $_v378_cat = $_v378_resolvedName;
+            }
+        } catch (Exception $_v378_re) {}
+    }
+}
 
 if ($_v378_need && isset($pdo)) {
     try {
@@ -671,6 +755,226 @@ if ($_v378_need && isset($pdo)) {
         }
     } catch (Exception $_v378_e) {
         // Silent fail — fall back to HTML-extracted $newsCards
+    }
+}
+
+// ★ v3.101 FIX 2: Videos table fallback.
+//    If the current category is Video-related AND no news items were found
+//    from the news table (the $_v378 block above), check if there's a
+//    separate `videos` table (where admin_dashboard.php may upload videos).
+//    If found, dynamically discover its columns and query it, then convert
+//    the results into $newsCards so they render on the Video category page.
+//
+//    This handles BOTH scenarios:
+//      (a) Videos stored as news items with a Video/ভিডিও category → handled
+//          by $_v378 block + Fix 1 (actual category name detection).
+//      (b) Videos stored in a dedicated `videos` table → handled here.
+$_v378_isVideoCat = false;
+if ($_v378_cat !== '') {
+    $_v378_catLower = strtolower($_v378_cat);
+    if ($_v378_catLower === 'video' || $_v378_catLower === 'videos' ||
+        $_v378_cat === 'ভিডিও' || $_v378_cat === 'ভিডিওসমূহ' ||
+        strpos($_v378_catLower, 'video') !== false ||
+        mb_stripos($_v378_cat, 'ভিডিও', 0, 'UTF-8') !== false) {
+        $_v378_isVideoCat = true;
+    }
+}
+
+if ($_v378_isVideoCat && empty($newsCards) && isset($pdo)) {
+    try {
+        @$pdo->exec("SET NAMES utf8mb4");
+        @$_v378_vDb = $pdo->query("SELECT DATABASE()")->fetchColumn();
+
+        if ($_v378_vDb) {
+            // Step 1: Discover the videos table (videos, video, video_uploads, etc.)
+            $_v378_findVTableSql = "SELECT TABLE_NAME FROM information_schema.TABLES
+                                    WHERE TABLE_SCHEMA = " . $pdo->quote($_v378_vDb) . "
+                                      AND (TABLE_NAME LIKE '%video%')
+                                    ORDER BY
+                                      CASE
+                                        WHEN TABLE_NAME = 'videos' THEN 1
+                                        WHEN TABLE_NAME = 'video' THEN 2
+                                        WHEN TABLE_NAME = 'video_uploads' THEN 3
+                                        ELSE 4
+                                      END,
+                                      TABLE_NAME";
+            $_v378_vTableRows = $pdo->query($_v378_findVTableSql)->fetchAll(PDO::FETCH_ASSOC);
+            $_v378_videosTable = '';
+            if (!empty($_v378_vTableRows)) {
+                $_v378_videosTable = $_v378_vTableRows[0]['TABLE_NAME'];
+            }
+
+            if ($_v378_videosTable !== '') {
+                // Step 2: Discover columns of the videos table
+                $_v378_vColSql = "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS
+                                  WHERE TABLE_SCHEMA = " . $pdo->quote($_v378_vDb) . "
+                                    AND TABLE_NAME = " . $pdo->quote($_v378_videosTable);
+                $_v378_vCols = $pdo->query($_v378_vColSql)->fetchAll(PDO::FETCH_ASSOC);
+
+                $_v378_colId = 'id';
+                $_v378_colTitle = '';
+                $_v378_colThumb = '';
+                $_v378_colVideo = '';
+                $_v378_colDate = '';
+                $_v378_colDesc = '';
+                $_v378_colNewsId = '';
+                $_v378_colStatus = '';
+
+                foreach ($_v378_vCols as $_v378_vc) {
+                    $_v378_cn = strtolower($_v378_vc['COLUMN_NAME']);
+                    // ID column
+                    if ($_v378_cn === 'id' || $_v378_cn === 'video_id' || $_v378_cn === 'vid') {
+                        $_v378_colId = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // Title column
+                    if (in_array($_v378_cn, ['title', 'name', 'heading', 'video_title', 'caption', 'subject'])) {
+                        $_v378_colTitle = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // Thumbnail / image column
+                    if (in_array($_v378_cn, ['thumbnail', 'thumb', 'image', 'img', 'poster', 'cover', 'picture', 'photo', 'thumbnail_url', 'image_url'])) {
+                        $_v378_colThumb = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // Video file / URL / embed code column
+                    // ★ v3.104: Added 'code' — admin_dashboard.php stores embed HTML in `code` column
+                    if (in_array($_v378_cn, ['video', 'video_url', 'url', 'file', 'file_url', 'video_file', 'source', 'src', 'embed', 'embed_url', 'embed_code', 'code', 'youtube_url', 'link', 'iframe'])) {
+                        $_v378_colVideo = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // Date column
+                    if (in_array($_v378_cn, ['created_at', 'uploaded_at', 'date', 'timestamp', 'created', 'upload_date', 'added_at', 'post_date'])) {
+                        $_v378_colDate = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // Description column
+                    if (in_array($_v378_cn, ['description', 'desc', 'content', 'details', 'summary', 'body'])) {
+                        $_v378_colDesc = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // News foreign key (if video is linked to a news article)
+                    if (in_array($_v378_cn, ['news_id', 'article_id', 'post_id', 'news_link'])) {
+                        $_v378_colNewsId = $_v378_vc['COLUMN_NAME'];
+                    }
+                    // Status column (only treat as status if it's a varchar/enum type)
+                    if ($_v378_cn === 'status' && in_array(strtolower($_v378_vc['DATA_TYPE']), ['varchar', 'enum', 'char'])) {
+                        $_v378_colStatus = $_v378_vc['COLUMN_NAME'];
+                    }
+                }
+
+                // Step 3: Build SELECT query — only select columns that exist
+                $_v378_vSelectParts = ["`{$_v378_colId}` AS vid"];
+                if ($_v378_colTitle !== '') $_v378_vSelectParts[] = "`{$_v378_colTitle}` AS vtitle";
+                if ($_v378_colThumb !== '') $_v378_vSelectParts[] = "`{$_v378_colThumb}` AS vthumb";
+                if ($_v378_colVideo !== '') $_v378_vSelectParts[] = "`{$_v378_colVideo}` AS vurl";
+                if ($_v378_colDate !== '') $_v378_vSelectParts[] = "`{$_v378_colDate}` AS vdate";
+                if ($_v378_colDesc !== '') $_v378_vSelectParts[] = "`{$_v378_colDesc}` AS vdesc";
+                if ($_v378_colNewsId !== '') $_v378_vSelectParts[] = "`{$_v378_colNewsId}` AS vnewsid";
+
+                $_v378_vSelectSql = "SELECT " . implode(', ', $_v378_vSelectParts) . " FROM `{$_v378_videosTable}`";
+
+                // Add status filter if a status column exists
+                $_v378_vParams = [];
+                if ($_v378_colStatus !== '') {
+                    $_v378_vSelectSql .= " WHERE (`{$_v378_colStatus}` = 'published' OR `{$_v378_colStatus}` IS NULL OR `{$_v378_colStatus}` = '')";
+                }
+
+                // Order by date if available, else by id
+                if ($_v378_colDate !== '') {
+                    $_v378_vSelectSql .= " ORDER BY `vdate` DESC";
+                } else {
+                    $_v378_vSelectSql .= " ORDER BY vid DESC";
+                }
+                $_v378_vSelectSql .= " LIMIT 100";
+
+                $_v378_vStmt = $pdo->prepare($_v378_vSelectSql);
+                $_v378_vStmt->execute($_v378_vParams);
+                $_v378_vRows = $_v378_vStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Step 4: Convert video rows to $newsCards format
+                $_v378_placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='250'%3E%3Crect width='400' height='250' fill='%23e8e4de'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-family='sans-serif' font-size='14'%3E%E0%A6%9B%E0%A6%AC%E0%A6%BF%3C/text%3E%3C/svg%3E";
+
+                $_v378_videoCatLabel = $isEnglish ? 'Video' : 'ভিডিও';
+
+                foreach ($_v378_vRows as $_v378_vr) {
+                    // Thumbnail — try thumbnail column, then extract from embed code
+                    // ★ v3.104: admin_dashboard.php's videos table has NO thumbnail column.
+                    //    The `code` column contains embed HTML (iframe/URL). So we:
+                    //    1. Try the thumbnail column if it exists
+                    //    2. Extract YouTube thumbnail from the embed code
+                    //    3. Fall back to a play-icon placeholder
+                    $_v378_vImg = $_v378_placeholder;
+                    if (!empty($_v378_vr['vthumb'])) {
+                        $_v378_vImgRaw = trim($_v378_vr['vthumb']);
+                        if ($_v378_vImgRaw !== '' && $_v378_vImgRaw !== '0') {
+                            if (preg_match('#^https?://#i', $_v378_vImgRaw) || strpos($_v378_vImgRaw, '//') === 0) {
+                                $_v378_vImg = $_v378_vImgRaw;
+                            } else {
+                                while (strpos($_v378_vImgRaw, 'uploads/uploads/') === 0) {
+                                    $_v378_vImgRaw = substr($_v378_vImgRaw, 8);
+                                }
+                                if (strpos($_v378_vImgRaw, 'uploads/') !== 0 && strpos($_v378_vImgRaw, '/') !== 0) {
+                                    $_v378_vImg = 'uploads/' . $_v378_vImgRaw;
+                                } else {
+                                    $_v378_vImg = $_v378_vImgRaw;
+                                }
+                            }
+                        }
+                    }
+
+                    // ★ v3.104: If no thumbnail, try to extract one from the embed code
+                    //    YouTube embed → https://img.youtube.com/vi/VIDEO_ID/hqdefault.jpg
+                    //    Direct video file → the file URL itself (_renderCardThumb will use <video>)
+                    //    Other (Facebook/Vimeo iframe) → play-icon placeholder SVG
+                    if ($_v378_vImg === $_v378_placeholder && !empty($_v378_vr['vurl'])) {
+                        $_v378_embedCode = trim($_v378_vr['vurl']);
+                        // YouTube ID extraction (works with embed URLs, watch URLs, youtu.be, iframe src)
+                        if (preg_match('#(?:youtube\.com/(?:embed/|watch\?v=|v/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{6,15})#', $_v378_embedCode, $_v378_ytM)) {
+                            $_v378_vImg = 'https://img.youtube.com/vi/' . $_v378_ytM[1] . '/hqdefault.jpg';
+                        }
+                        // Direct video file → store the URL itself; _renderCardThumb will render <video>
+                        elseif (preg_match('#https?://[^\s<"]+\.(mp4|webm|ogg|mov|m4v)#i', $_v378_embedCode, $_v378_fM) ||
+                                preg_match('#(uploads/[^\s<"]+\.(mp4|webm|ogg|mov|m4v))#i', $_v378_embedCode, $_v378_fM)) {
+                            $_v378_vImg = $_v378_fM[1] ?? $_v378_fM[0];
+                        }
+                        // Otherwise: it's a Facebook/Vimeo/Twitter iframe embed → use a special
+                        // "video-embed" marker so _renderCardThumb shows a play-icon placeholder
+                        else {
+                            $_v378_vImg = 'video-embed:' . md5($_v378_embedCode);
+                        }
+                    }
+
+                    // Title — fallback to 'Video #ID' if no title column
+                    $_v378_vTitle = !empty($_v378_vr['vtitle']) ? $_v378_vr['vtitle'] : ('Video #' . (int)($_v378_vr['vid'] ?? 0));
+
+                    // Time ago
+                    $_v378_vTime = '';
+                    if (!empty($_v378_vr['vdate'])) {
+                        if (function_exists('timeAgo')) {
+                            $_v378_vTime = timeAgo($_v378_vr['vdate']);
+                        } else {
+                            $_v378_vTime = date('d M Y', strtotime($_v378_vr['vdate']));
+                        }
+                    }
+
+                    // Link: if there's a news_id foreign key, link to that news article;
+                    // otherwise link to single page with the video ID (single-page renderer
+                    // will need to look up the videos table if news lookup fails — see below).
+                    $_v378_vHref = '';
+                    if (!empty($_v378_vr['vnewsid']) && (int)$_v378_vr['vnewsid'] > 0) {
+                        $_v378_vHref = '?page=single&id=' . (int)$_v378_vr['vnewsid'];
+                    } else {
+                        $_v378_vHref = '?page=single&id=' . (int)($_v378_vr['vid'] ?? 0) . '&vid=' . (int)($_v378_vr['vid'] ?? 0);
+                    }
+
+                    $newsCards[] = [
+                        'href'  => $_v378_vHref,
+                        'img'   => $_v378_vImg,
+                        'title' => $_v378_vTitle,
+                        'cat'   => $_v378_videoCatLabel,
+                        'sub'   => '',
+                        'time'  => $_v378_vTime,
+                    ];
+                }
+            }
+        }
+    } catch (Exception $_v378_vE) {
+        // Silent fail — fall back to whatever $newsCards currently has
     }
 }
 
@@ -1098,6 +1402,121 @@ foreach ($dbCategories as $cat) {
     ];
 }
 
+// ★ v3.100: USER REQUEST — "Video" category already exists in index.php.
+//    Ensure it ALWAYS appears in the footer hamburger menu (the floating
+//    FAB button near the footer that opens the sidebar). Both the home-page
+//    sidebar AND the single-article sidebar render from this $catList, so
+//    adding it here covers both. Dedup check avoids double entry when
+//    index.php's HTML extraction already picked it up.
+//
+// ★ v3.101 FIX: Videos uploaded from admin_dashboard.php were not showing
+//    because the href was hardcoded to '?cat=Video' (English), but the DB
+//    category may be stored as 'ভিডিও' (Bengali) or another variant. Now we
+//    DETECT the actual category name from the DB and use it for the href,
+//    so the category page query matches correctly.
+$_videoAlreadyInList = false;
+foreach ($catList as $_vclItem) {
+    $_vclLower = strtolower(trim($_vclItem['name']));
+    if ($_vclLower === 'video' || $_vclItem['name'] === 'ভিডিও' || $_vclLower === 'videos' || $_vclItem['name'] === 'ভিডিওসমূহ') {
+        $_videoAlreadyInList = true;
+        break;
+    }
+}
+if (!$_videoAlreadyInList) {
+    // ★ v3.101: Detect the ACTUAL Video category name from the DB.
+    //    Tries exact English + Bengali matches first, then case-insensitive
+    //    LIKE matches. This ensures the href uses whatever name the admin
+    //    actually created (e.g., 'ভিডিও' or 'Video' or 'Videos').
+    $_videoActualCatName = '';
+    if (isset($pdo)) {
+        try {
+            @$pdo->exec("SET NAMES utf8mb4");
+            // Exact matches first (fastest, most accurate)
+            $_videoProbeSql = "SELECT name FROM categories
+                               WHERE name IN ('Video', 'ভিডিও', 'Videos', 'ভিডিওসমূহ', 'video', 'videos')
+                               LIMIT 1";
+            $_videoProbeRow = $pdo->query($_videoProbeSql)->fetch(PDO::FETCH_ASSOC);
+            if ($_videoProbeRow && !empty($_videoProbeRow['name'])) {
+                $_videoActualCatName = $_videoProbeRow['name'];
+            } else {
+                // Case-insensitive / partial match fallback
+                $_videoProbeSql2 = "SELECT name FROM categories
+                                    WHERE LOWER(name) LIKE '%video%'
+                                       OR name LIKE '%ভিডিও%'
+                                    LIMIT 1";
+                $_videoProbeRow2 = $pdo->query($_videoProbeSql2)->fetch(PDO::FETCH_ASSOC);
+                if ($_videoProbeRow2 && !empty($_videoProbeRow2['name'])) {
+                    $_videoActualCatName = $_videoProbeRow2['name'];
+                }
+            }
+        } catch (Exception $_ve) {}
+    }
+
+    // Use actual DB name if found; otherwise default to 'Video'.
+    // The href MUST use the DB name so the category-page query (c.name = ?)
+    // matches. The display label stays bilingual for the UI.
+    $_videoCatNameForHref = ($_videoActualCatName !== '') ? $_videoActualCatName : 'Video';
+
+    // ★ Try to use the real DB count/subs if index.php exposed them under any common key.
+    $_videoDbCount = 0;
+    foreach (['Video', 'ভিডিও', 'Videos', 'ভিডিওসমূহ'] as $_videoKeyProbe) {
+        if (isset($dbCatPostCounts[$_videoKeyProbe])) {
+            $_videoDbCount = (int)$dbCatPostCounts[$_videoKeyProbe];
+            break;
+        }
+    }
+    // ★ v3.101: If index.php didn't expose a count, count news directly from DB
+    //    using the actual category name we just detected.
+    if ($_videoDbCount === 0 && $_videoActualCatName !== '' && isset($pdo)) {
+        try {
+            $_videoCountStmt = $pdo->prepare("SELECT COUNT(*) FROM news n
+                                              LEFT JOIN categories c ON n.category_id = c.id
+                                              WHERE n.status = 'published'
+                                                AND n.created_at <= NOW()
+                                                AND c.name = ?");
+            $_videoCountStmt->execute([$_videoActualCatName]);
+            $_videoDbCount = (int)$_videoCountStmt->fetchColumn();
+        } catch (Exception $_vce) {}
+    }
+    // ★ v3.105 FIX: Also count videos from the dedicated `videos` table.
+    //    admin_dashboard.php uploads videos to a separate `videos` table (id, title,
+    //    code, created_at) — these are NOT in the `news` table. So the news count
+    //    above returns 0 even though videos exist. We add the videos table count
+    //    so the sidebar shows the REAL total (news videos + videos table entries).
+    if (isset($pdo)) {
+        try {
+            // First check if the videos table exists
+            $_videoTableExists = $pdo->query("SHOW TABLES LIKE '%video%'")->fetchColumn();
+            if ($_videoTableExists) {
+                $_videoTableCountStmt = $pdo->query("SELECT COUNT(*) FROM `{$_videoTableExists}`");
+                $_videoTableCount = (int)$_videoTableCountStmt->fetchColumn();
+                $_videoDbCount += $_videoTableCount;
+            }
+        } catch (Exception $_vtce) {}
+    }
+    $_videoDbSubs = [];
+    foreach (['Video', 'ভিডিও', 'Videos', 'ভিডিওসমূহ'] as $_videoSubProbe) {
+        if (isset($dbCatSubcats[$_videoSubProbe]) && !empty($dbCatSubcats[$_videoSubProbe])) {
+            $_videoDbSubs = $dbCatSubcats[$_videoSubProbe];
+            break;
+        }
+    }
+    // Bengali label for Video category (matches index.php's bilingual approach)
+    $_videoDisplayLabel = $isEnglish ? 'Video' : 'ভিডিও';
+    // ★ v3.106: Link to ?page=videos (index.php's dedicated video page), NOT ?cat=Video.
+    //    index.php renders videos from the `videos` table at ?page=videos with embedded
+    //    iframes in a grid layout. The old ?cat=Video link showed nothing because videos
+    //    aren't in the `news` table.
+    $catList[] = [
+        'name'        => 'videos_page',  // Internal identifier (not a DB category name)
+        'displayName' => $_videoDisplayLabel,
+        'href'        => '?page=videos',
+        'icon'        => 'fa-video',
+        'count'       => $_videoDbCount,
+        'subs'        => $_videoDbSubs,
+    ];
+}
+
 // ★ Single article extraction (for new single-page UI)
 // Extract title, image, headline, content, meta, tags, related news from index.php's HTML.
 $article = [
@@ -1373,6 +1792,333 @@ if ($isSinglePage) {
                 }
             }
         }
+    }
+}
+
+// ★ v3.101 FIX 3: Single-page video fallback.
+//    If article extraction failed (empty title) AND the URL has a video ID
+//    (either ?vid=X from the category page, or ?id=X that doesn't exist in
+//    news), try loading the video from the dedicated `videos` table and
+//    populate $article so the normal single-page renderer displays it with
+//    an embedded video player.
+if ($isSinglePage && empty($article['title']) && isset($pdo)) {
+    // Determine which ID to look up: ?vid takes priority, then ?id
+    $_vidLookupId = 0;
+    if (isset($_GET['vid']) && (int)$_GET['vid'] > 0) {
+        $_vidLookupId = (int)$_GET['vid'];
+    } elseif (isset($_GET['id']) && (int)$_GET['id'] > 0) {
+        $_vidLookupId = (int)$_GET['id'];
+    }
+
+    if ($_vidLookupId > 0) {
+        try {
+            @$pdo->exec("SET NAMES utf8mb4");
+            @$_vidDb = $pdo->query("SELECT DATABASE()")->fetchColumn();
+
+            if ($_vidDb) {
+                // Discover the videos table
+                $_vidFindTableSql = "SELECT TABLE_NAME FROM information_schema.TABLES
+                                     WHERE TABLE_SCHEMA = " . $pdo->quote($_vidDb) . "
+                                       AND TABLE_NAME LIKE '%video%'
+                                     ORDER BY
+                                       CASE
+                                         WHEN TABLE_NAME = 'videos' THEN 1
+                                         WHEN TABLE_NAME = 'video' THEN 2
+                                         WHEN TABLE_NAME = 'video_uploads' THEN 3
+                                         ELSE 4
+                                       END,
+                                       TABLE_NAME";
+                $_vidTableRows = $pdo->query($_vidFindTableSql)->fetchAll(PDO::FETCH_ASSOC);
+                $_vidTable = '';
+                if (!empty($_vidTableRows)) {
+                    $_vidTable = $_vidTableRows[0]['TABLE_NAME'];
+                }
+
+                if ($_vidTable !== '') {
+                    // Discover columns
+                    $_vidColSql = "SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS
+                                   WHERE TABLE_SCHEMA = " . $pdo->quote($_vidDb) . "
+                                     AND TABLE_NAME = " . $pdo->quote($_vidTable);
+                    $_vidCols = $pdo->query($_vidColSql)->fetchAll(PDO::FETCH_ASSOC);
+
+                    $_vidColId = 'id';
+                    $_vidColTitle = '';
+                    $_vidColVideo = '';
+                    $_vidColThumb = '';
+                    $_vidColDate = '';
+                    $_vidColDesc = '';
+                    $_vidColNewsId = '';
+
+                    foreach ($_vidCols as $_vidc) {
+                        $_vidcn = strtolower($_vidc['COLUMN_NAME']);
+                        if ($_vidcn === 'id' || $_vidcn === 'video_id' || $_vidcn === 'vid') {
+                            $_vidColId = $_vidc['COLUMN_NAME'];
+                        }
+                        if (in_array($_vidcn, ['title', 'name', 'heading', 'video_title', 'caption', 'subject'])) {
+                            $_vidColTitle = $_vidc['COLUMN_NAME'];
+                        }
+                        // ★ v3.104: Added 'code', 'embed_code', 'iframe' — admin_dashboard.php uses `code` column
+                        if (in_array($_vidcn, ['video', 'video_url', 'url', 'file', 'file_url', 'video_file', 'source', 'src', 'embed', 'embed_url', 'embed_code', 'code', 'youtube_url', 'link', 'iframe'])) {
+                            $_vidColVideo = $_vidc['COLUMN_NAME'];
+                        }
+                        if (in_array($_vidcn, ['thumbnail', 'thumb', 'image', 'img', 'poster', 'cover', 'picture', 'photo', 'thumbnail_url', 'image_url'])) {
+                            $_vidColThumb = $_vidc['COLUMN_NAME'];
+                        }
+                        if (in_array($_vidcn, ['created_at', 'uploaded_at', 'date', 'timestamp', 'created', 'upload_date', 'added_at', 'post_date'])) {
+                            $_vidColDate = $_vidc['COLUMN_NAME'];
+                        }
+                        if (in_array($_vidcn, ['description', 'desc', 'content', 'details', 'summary', 'body'])) {
+                            $_vidColDesc = $_vidc['COLUMN_NAME'];
+                        }
+                        if (in_array($_vidcn, ['news_id', 'article_id', 'post_id', 'news_link'])) {
+                            $_vidColNewsId = $_vidc['COLUMN_NAME'];
+                        }
+                    }
+
+                    // Build and run the query
+                    $_vidSelParts = ["`{$_vidColId}` AS vid"];
+                    if ($_vidColTitle !== '') $_vidSelParts[] = "`{$_vidColTitle}` AS vtitle";
+                    if ($_vidColVideo !== '') $_vidSelParts[] = "`{$_vidColVideo}` AS vurl";
+                    if ($_vidColThumb !== '') $_vidSelParts[] = "`{$_vidColThumb}` AS vthumb";
+                    if ($_vidColDate !== '') $_vidSelParts[] = "`{$_vidColDate}` AS vdate";
+                    if ($_vidColDesc !== '') $_vidSelParts[] = "`{$_vidColDesc}` AS vdesc";
+                    if ($_vidColNewsId !== '') $_vidSelParts[] = "`{$_vidColNewsId}` AS vnewsid";
+
+                    $_vidSelSql = "SELECT " . implode(', ', $_vidSelParts) . " FROM `{$_vidTable}` WHERE `{$_vidColId}` = ? LIMIT 1";
+                    $_vidStmt = $pdo->prepare($_vidSelSql);
+                    $_vidStmt->execute([$_vidLookupId]);
+                    $_vidRow = $_vidStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($_vidRow && !empty($_vidRow['vtitle'])) {
+                        // If there's a linked news_id, redirect attention there by loading
+                        // the news article instead (so related news, tags, etc. work).
+                        if (!empty($_vidRow['vnewsid']) && (int)$_vidRow['vnewsid'] > 0) {
+                            // Re-include index.php would be heavy; instead just set the
+                            // article fields from the news row directly.
+                            $_vidNewsId = (int)$_vidRow['vnewsid'];
+                            $_vidNewsStmt = $pdo->prepare("SELECT n.id, n.title, n.image, n.content, n.created_at, c.name as cat_name
+                                                           FROM news n LEFT JOIN categories c ON n.category_id = c.id
+                                                           WHERE n.id = ? AND n.status = 'published' LIMIT 1");
+                            $_vidNewsStmt->execute([$_vidNewsId]);
+                            $_vidNewsRow = $_vidNewsStmt->fetch(PDO::FETCH_ASSOC);
+                            if ($_vidNewsRow) {
+                                $article['title']    = $_vidNewsRow['title'];
+                                $article['category'] = $_vidNewsRow['cat_name'] ?? ($isEnglish ? 'Video' : 'ভিডিও');
+                                $article['catHref']  = '?cat=' . urlencode($article['category']);
+                                $article['image']    = $_vidNewsRow['image'] ?? '';
+                                $article['content']  = $_vidNewsRow['content'] ?? '';
+                                $article['date']     = function_exists('timeAgo') ? timeAgo($_vidNewsRow['created_at']) : date('d M Y', strtotime($_vidNewsRow['created_at']));
+                                $article['author']   = $L['appName'];
+                                $article['shareUrl'] = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/?page=single&id=' . $_vidNewsId;
+                            }
+                        } else {
+                            // No linked news article — render the video directly.
+                            $article['title']    = $_vidRow['vtitle'];
+                            $article['category'] = $isEnglish ? 'Video' : 'ভিডিও';
+                            $article['catHref']  = '?cat=' . urlencode($article['category']);
+
+                            // Thumbnail
+                            $_vidThumbUrl = '';
+                            if (!empty($_vidRow['vthumb'])) {
+                                $_vidThumbRaw = trim($_vidRow['vthumb']);
+                                if ($_vidThumbRaw !== '' && $_vidThumbRaw !== '0') {
+                                    if (preg_match('#^https?://#i', $_vidThumbRaw) || strpos($_vidThumbRaw, '//') === 0) {
+                                        $_vidThumbUrl = $_vidThumbRaw;
+                                    } else {
+                                        while (strpos($_vidThumbRaw, 'uploads/uploads/') === 0) {
+                                            $_vidThumbRaw = substr($_vidThumbRaw, 8);
+                                        }
+                                        if (strpos($_vidThumbRaw, 'uploads/') !== 0 && strpos($_vidThumbRaw, '/') !== 0) {
+                                            $_vidThumbUrl = 'uploads/' . $_vidThumbRaw;
+                                        } else {
+                                            $_vidThumbUrl = $_vidThumbRaw;
+                                        }
+                                    }
+                                }
+                            }
+                            $article['image'] = $_vidThumbUrl;
+
+                            // Date
+                            if (!empty($_vidRow['vdate'])) {
+                                $article['date'] = function_exists('timeAgo') ? timeAgo($_vidRow['vdate']) : date('d M Y', strtotime($_vidRow['vdate']));
+                            }
+
+                            // Headline (description)
+                            if (!empty($_vidRow['vdesc'])) {
+                                $article['headline'] = strip_tags($_vidRow['vdesc']);
+                            }
+
+                            $article['author'] = $L['appName'];
+                            $article['shareUrl'] = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/?page=single&id=' . $_vidLookupId . '&vid=' . $_vidLookupId;
+
+                            // Build video embed as content
+                            $_vidVideoUrl = !empty($_vidRow['vurl']) ? trim($_vidRow['vurl']) : '';
+                            $_vidEmbedHtml = '';
+
+                            // ★ v3.102 FIX: If no video URL was found in the expected column,
+                            //    check if the thumbnail field itself contains a video file
+                            //    (admin may have uploaded the .mp4 into the thumbnail/image
+                            //    field). Also scan ALL columns for a video-URL-like value.
+                            if ($_vidVideoUrl === '') {
+                                // Check if thumbnail is actually a video file
+                                if (!empty($_vidThumbUrl) && preg_match('#\.(mp4|webm|ogg|mov|m4v)(\?.*)?$#i', $_vidThumbUrl)) {
+                                    $_vidVideoUrl = $_vidThumbUrl;
+                                } else {
+                                    // Scan all columns in this row for a video-URL-like value
+                                    foreach ($_vidRow as $_vidScanKey => $_vidScanVal) {
+                                        if (in_array($_vidScanKey, ['vid', 'vnewsid'])) continue;
+                                        $_vidScanStr = trim((string)$_vidScanVal);
+                                        if ($_vidScanStr === '') continue;
+                                        // Direct video file
+                                        if (preg_match('#\.(mp4|webm|ogg|mov|m4v)(\?.*)?$#i', $_vidScanStr)) {
+                                            $_vidVideoUrl = $_vidScanStr;
+                                            break;
+                                        }
+                                        // YouTube/Vimeo/Facebook URL
+                                        if (preg_match('#(?:youtube\.com|youtu\.be|vimeo\.com|facebook\.com/.+?/videos)#i', $_vidScanStr)) {
+                                            $_vidVideoUrl = $_vidScanStr;
+                                            break;
+                                        }
+                                        // Already an embed HTML
+                                        if (preg_match('#^<iframe|<embed|<video#i', $_vidScanStr)) {
+                                            $_vidVideoUrl = $_vidScanStr;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if ($_vidVideoUrl !== '') {
+                                // ★ v3.104: First check if the code contains an <iframe>, <embed>, or <video>
+                                //    tag ANYWHERE (admin_dashboard.php stores full embed HTML in `code` column).
+                                //    Extract the tag and render it in our video wrapper.
+                                if (preg_match('#(<iframe[^>]*>.*?</iframe>|<iframe[^>]*/?>|<video[^>]*>.*?</video>|<video[^>]*/?>|<embed[^>]*>)#is', $_vidVideoUrl, $_vidTagM)) {
+                                    $_vidEmbedHtml = '<div class="news-video-wrapper">' . $_vidTagM[1] . '</div>';
+                                }
+                                // YouTube — convert watch URL to embed
+                                elseif (preg_match('#(?:youtube\.com/(?:watch\?v=|embed/|v/|shorts/)|youtu\.be/)([A-Za-z0-9_-]{6,15})#', $_vidVideoUrl, $_vidYtM)) {
+                                    $_vidYtId = $_vidYtM[1];
+                                    $_vidEmbedHtml = '<div class="news-video-wrapper"><iframe src="https://www.youtube.com/embed/' . htmlspecialchars($_vidYtId) . '" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe></div>';
+                                }
+                                // Vimeo
+                                elseif (preg_match('#vimeo\.com/(?:video/)?(\d+)#', $_vidVideoUrl, $_vidVmM)) {
+                                    $_vidVmId = $_vidVmM[1];
+                                    $_vidEmbedHtml = '<div class="news-video-wrapper"><iframe src="https://player.vimeo.com/video/' . htmlspecialchars($_vidVmId) . '" allowfullscreen></iframe></div>';
+                                }
+                                // Facebook video (plugin URL or direct video URL)
+                                elseif (preg_match('#facebook\.com#i', $_vidVideoUrl)) {
+                                    $_vidEmbedHtml = '<div class="news-video-wrapper"><iframe src="https://www.facebook.com/plugins/video.php?href=' . rawurlencode($_vidVideoUrl) . '&show_text=false&width=560&height=400" allowfullscreen scrolling="no" style="border:none;overflow:hidden"></iframe></div>';
+                                }
+                                // Direct video file (.mp4, .webm, etc.) → use <video> tag
+                                elseif (preg_match('#\.(mp4|webm|ogg|mov|m4v)(\?.*)?$#i', $_vidVideoUrl)) {
+                                    // ★ v3.102: Use thumbnail as poster only if it's an IMAGE (not a video file)
+                                    $_vidPosterAttr = '';
+                                    if (!empty($_vidThumbUrl) && !preg_match('#\.(mp4|webm|ogg|mov|m4v)(\?.*)?$#i', $_vidThumbUrl)) {
+                                        $_vidPosterAttr = ' poster="' . htmlspecialchars($_vidThumbUrl) . '"';
+                                    }
+                                    $_vidEmbedHtml = '<div class="news-video-wrapper"><video controls preload="metadata"' . $_vidPosterAttr . '><source src="' . htmlspecialchars($_vidVideoUrl) . '"></video></div>';
+                                }
+                                // Fallback: plain link
+                                else {
+                                    $_vidEmbedHtml = '<p><a href="' . htmlspecialchars($_vidVideoUrl) . '" target="_blank" rel="noopener">' . htmlspecialchars($_vidVideoUrl) . '</a></p>';
+                                }
+                            }
+
+                            // ★ v3.102 FIX: Put VIDEO EMBED FIRST in content (before description).
+                            //    The single page shows content in "collapsed" mode — only the
+                            //    FIRST child element is visible until user clicks "Read More".
+                            //    Previously the description <p> was first, so the video was
+                            //    hidden and users only saw text + the thumbnail image above
+                            //    (which they reported as "onno kono chobi").
+                            //    Now the video embed is FIRST → video player shows immediately.
+                            //
+                            // ★ v3.102 FIX 2: Clear the thumbnail image when there's a video
+                            //    embed, so the <img> block above the content doesn't show a
+                            //    static image instead of the video player. The video wrapper
+                            //    itself provides the visual.
+                            if ($_vidEmbedHtml !== '') {
+                                $article['image'] = '';  // No static image — video player replaces it
+                                $article['is_video'] = true;  // ★ Flag: don't collapse content for video articles
+                            }
+
+                            $_vidContentParts = [];
+                            if ($_vidEmbedHtml !== '') {
+                                $_vidContentParts[] = $_vidEmbedHtml;  // ★ Video FIRST
+                            }
+                            if (!empty($_vidRow['vdesc'])) {
+                                $_vidContentParts[] = '<p>' . nl2br(htmlspecialchars($_vidRow['vdesc'])) . '</p>';
+                            }
+                            // If no video embed AND no description, show a placeholder
+                            if (empty($_vidContentParts)) {
+                                $_vidContentParts[] = '<p style="text-align:center;color:#999;padding:20px;">' . ($isEnglish ? 'Video content not available.' : 'ভিডিও কনটেন্ট পাওয়া যায়নি।') . '</p>';
+                            }
+                            $article['content'] = implode("\n", $_vidContentParts);
+                        }
+                    }
+                }
+            }
+        } catch (Exception $_vidE) {
+            // Silent fail — the normal "No news found" message will show
+        }
+    }
+}
+
+// ★ v3.103 FIX: Detect video URLs/files in article content and convert to embeds.
+//    When admin uploads a video via admin_dashboard.php, the video file path or
+//    YouTube link might be stored in the content as plain text (not as an <iframe>
+//    or <video> embed). This step scans the content for bare video URLs and
+//    converts them to proper video players.
+//    Also: if the article `image` field is a video file (.mp4), inject a video
+//    player at the TOP of the content so it plays when the user opens the article.
+if ($isSinglePage && !empty($article['content'])) {
+    // Step 1: Convert bare video URLs in content to embeds
+    // Match plain-text video URLs (not already inside <iframe>/<video>/<source>/<a> tags)
+    if (preg_match('/[\x{0980}-\x{09FF}]/u', $article['content']) || true) {
+        // YouTube URLs as plain text → embed
+        $article['content'] = preg_replace_callback(
+            '#(?<!["\'>=])(?:https?://)?(?:www\.)?(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([A-Za-z0-9_-]{6,15})#u',
+            function($m) {
+                return '<div class="news-video-wrapper"><iframe src="https://www.youtube.com/embed/' . $m[1] . '" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe></div>';
+            },
+            $article['content']
+        );
+        // Vimeo URLs as plain text → embed
+        $article['content'] = preg_replace_callback(
+            '#(?<!["\'>=])(?:https?://)?(?:www\.)?vimeo\.com/(?:video/)?(\d{6,15})#u',
+            function($m) {
+                return '<div class="news-video-wrapper"><iframe src="https://player.vimeo.com/video/' . $m[1] . '" allowfullscreen></iframe></div>';
+            },
+            $article['content']
+        );
+        // Direct video file URLs as plain text → <video> tag
+        // (matches https://site.com/video.mp4, //site.com/v.mp4, uploads/video.mp4)
+        // ★ v3.103b: Narrowed regex — only matches full URLs and uploads/ paths,
+        //    NOT random text or HTML attribute values (avoids breaking <img src="...">).
+        $article['content'] = preg_replace_callback(
+            '#(?<!["\'=>])(?:(?:https?://|//)[^\s<"]+|uploads/[^\s<"]+)\.(mp4|webm|ogg|mov|m4v)(?:\?[^\s<"]*)?(?=["<\s]|$)#iu',
+            function($m) {
+                $_url = trim($m[0]);
+                return '<div class="news-video-wrapper"><video controls preload="metadata"><source src="' . htmlspecialchars($_url) . '"></video></div>';
+            },
+            $article['content']
+        );
+    }
+
+    // Step 2: If the article image is a video file AND content doesn't already have
+    //    a video embed, inject the video player at the TOP of the content.
+    //    (The .art-img div above will ALSO render the video — so to avoid double
+    //    players, we clear the image and put the player in content instead.)
+    if (!empty($article['image']) && _isVideoFilePath($article['image'])) {
+        if (strpos($article['content'], 'news-video-wrapper') === false &&
+            strpos($article['content'], '<video') === false &&
+            strpos($article['content'], '<iframe') === false) {
+            // No video embed in content yet → inject one at the top
+            $_injectVideo = '<div class="news-video-wrapper"><video controls preload="metadata" playsinline><source src="' . htmlspecialchars($article['image']) . '"></video></div>';
+            $article['content'] = $_injectVideo . $article['content'];
+        }
+        // The .art-img rendering will also detect this and show a <video> player there.
+        // That's fine — the image position player IS the main player.
+        // If content also has one, it'll show below too. Acceptable redundancy.
     }
 }
 
@@ -1819,6 +2565,23 @@ img { max-width: 100%; display: block; }
     width: 100% !important;
     height: 100% !important;
     margin: 0;
+}
+/* ★ v3.102: Direct <video> tag styling (for uploaded .mp4 files) */
+.art-content .news-video-wrapper video {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0;
+    object-fit: contain;
+    background: #000;
+}
+.art-content .news-video-wrapper video::-webkit-media-controls {
+    width: 100%;
+}
+/* ★ v3.102: Play button overlay for <video> — ensures user knows to click */
+.art-content .news-video-wrapper video[controls] {
+    cursor: pointer;
 }
 .art-content .twitter-embed-wrapper {
     max-width: 550px;
@@ -2285,7 +3048,17 @@ HTML;
 
     // Image
     if (!empty($article['image'])) {
-        $newSingleHTML .= '<div class="art-img"><img src="' . htmlspecialchars($article['image']) . '" alt="' . htmlspecialchars($article['title']) . '" decoding="async" fetchpriority="high"></div>';
+        // ★ v3.103: If the image field actually contains a video file (.mp4 etc.),
+        //    render a <video> player instead of <img>. admin_dashboard.php saves
+        //    uploaded videos into the news `image` field, and <img> can't play them.
+        if (_isVideoFilePath($article['image'])) {
+            $article['is_video'] = true;  // Also expands content below
+            $newSingleHTML .= '<div class="art-img" style="background:#000;border-radius:6px;overflow:hidden;margin-bottom:14px;">';
+            $newSingleHTML .= '<video controls preload="metadata" playsinline style="width:100%;display:block;max-height:500px;object-fit:contain;" src="' . htmlspecialchars($article['image']) . '"></video>';
+            $newSingleHTML .= '</div>';
+        } else {
+            $newSingleHTML .= '<div class="art-img"><img src="' . htmlspecialchars($article['image']) . '" alt="' . htmlspecialchars($article['title']) . '" decoding="async" fetchpriority="high"></div>';
+        }
     }
 
     // Meta
@@ -2305,8 +3078,18 @@ HTML;
     if (!empty($article['content'])) {
         $readMoreLabel = $isEnglish ? 'Read More' : 'আরও পড়ুন';
         $readLessLabel = $isEnglish ? 'Read Less' : 'কম পড়ুন';
-        $newSingleHTML .= '<div class="art-content art-content-collapsed" id="artContent">' . $article['content'] . '</div>';
-        $newSingleHTML .= '<div style="text-align:center;margin:10px 0 0;"><button id="readMoreBtn" data-more="' . $readMoreLabel . '" data-less="' . $readLessLabel . '" onclick="toggleReadMore()" style="background:var(--red);color:#fff;border:none;padding:8px 24px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;"><i class="fas fa-chevron-down" style="margin-right:5px;"></i> ' . $readMoreLabel . '</button></div>';
+
+        // ★ v3.102: Video articles — show content EXPANDED (not collapsed).
+        //    Collapsed mode hides everything after the first child AND adds a
+        //    white gradient at the bottom that covers video controls.
+        //    For video articles we skip collapsing and the Read More button.
+        $_isVideoArticle = !empty($article['is_video']);
+        if ($_isVideoArticle) {
+            $newSingleHTML .= '<div class="art-content art-content-expanded" id="artContent">' . $article['content'] . '</div>';
+        } else {
+            $newSingleHTML .= '<div class="art-content art-content-collapsed" id="artContent">' . $article['content'] . '</div>';
+            $newSingleHTML .= '<div style="text-align:center;margin:10px 0 0;"><button id="readMoreBtn" data-more="' . $readMoreLabel . '" data-less="' . $readLessLabel . '" onclick="toggleReadMore()" style="background:var(--red);color:#fff;border:none;padding:8px 24px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;"><i class="fas fa-chevron-down" style="margin-right:5px;"></i> ' . $readMoreLabel . '</button></div>';
+        }
     }
 
     // ★ v3.41: Text-to-Speech (TTS) button — Bengali & English
@@ -2355,7 +3138,9 @@ HTML;
         foreach ($article['related'] as $rel) {
             $relTimeStr = !empty($rel['time']) ? '<div class="rc-time"><i class="far fa-clock"></i> ' . htmlspecialchars($rel['time']) . '</div>' : '';
             $relCatStr  = !empty($rel['cat']) ? '<div class="rc-cat">' . htmlspecialchars($rel['cat']) . '</div>' : '';
-            $newSingleHTML .= '<a href="' . $rel['href'] . '" class="rel-card"><img src="' . $rel['img'] . '" alt="" loading="lazy"><div class="rc-body">' . $relCatStr . '<div class="rc-title">' . $rel['title'] . '</div>' . $relTimeStr . '</div></a>';
+            // ★ v3.103: Use video thumbnail if image is .mp4
+            $_rel_thumb = _renderCardThumb($rel['img'], '');
+            $newSingleHTML .= '<a href="' . $rel['href'] . '" class="rel-card">' . $_rel_thumb . '<div class="rc-body">' . $relCatStr . '<div class="rc-title">' . $rel['title'] . '</div>' . $relTimeStr . '</div></a>';
         }
         $newSingleHTML .= '</div></div>';
     }
@@ -2695,6 +3480,317 @@ JS;
     $newSingleHTML .= '</body></html>';
 
     echo $newSingleHTML;
+    return;
+}
+
+// ★ v3.106: Dedicated Video Page (?page=videos) — matches index.php's video page.
+//    Renders videos from the `videos` table in a mobile-optimized grid with embedded
+//    iframes. Each card shows the video embed + title + date.
+if ($page === 'videos' || $page === 'video') {
+
+    // Fetch videos directly from the DB (more reliable than HTML extraction)
+    $_pageVideos = [];
+    if (isset($pdo)) {
+        try {
+            @$pdo->exec("SET NAMES utf8mb4");
+            $_pageVideos = $pdo->query("SELECT * FROM videos ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $_pve) { $_pageVideos = []; }
+    }
+
+    // Also try extracting from index.php's HTML (fallback if DB query fails)
+    if (empty($_pageVideos)) {
+        // index.php renders .vp-card elements with .video-embed, .vp-title, .vp-date
+        if (preg_match_all('#<div class="vp-card"[^>]*>\s*<div class="video-embed"[^>]*>(.*?)</div>\s*<div class="vp-body"[^>]*>\s*<h3 class="vp-title"[^>]*>(.*?)</h3>\s*<p class="vp-date"[^>]*>(.*?)</p>#us', $html, $_vm)) {
+            foreach ($_vm[1] as $_vi => $_vcode) {
+                $_pageVideos[] = [
+                    'code' => $_vcode,
+                    'title' => html_entity_decode(trim(strip_tags($_vm[2][$_vi])), ENT_QUOTES, 'UTF-8'),
+                    'created_at' => '',
+                    'date_html' => trim($_vm[3][$_vi]),
+                ];
+            }
+        }
+    }
+
+    $_videoPageTitle = $isEnglish ? 'Video News' : 'ভিডিও সংবাদ';
+    $_noVideosMsg = $isEnglish ? 'No videos available' : 'কোনো ভিডিও নেই';
+    $_noVideosDesc = $isEnglish ? 'No videos available at the moment.' : 'এই মুহূর্তে কোনো ভিডিও উপলব্ধ নেই।';
+
+    // Build the video page HTML (same header/footer/sidebar structure as home)
+    $_videoPageHTML = <<<HTML
+<!DOCTYPE html>
+<html lang="{$langAttr}" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=5.0">
+<meta name="theme-color" content="#B71C1C">
+<title>{$_videoPageTitle} — {$L['appName']}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+:root{--red:#B71C1C;--red-dark:#7F0000;--gold:#D4950A;--bg:#F4F1EB;--card-bg:#FFFFFF;--text:#1A1A1A;--muted:#666;--border:#E5E0D8;--tab-bg:#F5F5F5}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-tap-highlight-color:transparent}
+a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
+.app-header{background:var(--red);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.app-header .brand{display:flex;align-items:center;gap:8px;font-family:'Noto Serif Bengali',serif;font-size:17px;font-weight:700;white-space:nowrap;flex-shrink:0}
+.app-header .brand i{font-size:18px;color:var(--gold)}
+.app-header .actions{display:flex;align-items:center;gap:4px;margin-left:auto}
+.app-header .icon-btn{width:38px;height:38px;border:none;background:rgba(255,255,255,.12);color:#fff;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px}
+.header-datetime{display:flex;flex-direction:column;align-items:center;background:rgba(0,0,0,.25);padding:2px 5px;border-radius:3px;white-space:nowrap;flex-shrink:0;line-height:1.1}
+.header-datetime .hd-date{font-size:8px;color:rgba(255,255,255,.65)}
+.header-datetime .hd-time{font-family:monospace;color:#80DEEA;font-weight:700;font-size:9px}
+.icon-btn.lang-btn{background:rgba(255,255,255,.18);font-size:11px;font-weight:700;padding:0 10px;width:auto;min-width:38px;border-radius:19px}
+.content-wrap{padding:12px 0}
+.video-page-head{padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
+.video-page-head .vph-icon{width:32px;height:32px;background:var(--red);color:#fff;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.video-page-head .vph-title{font-family:'Noto Serif Bengali',serif;font-size:18px;font-weight:700;color:var(--text)}
+.video-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 10px 24px}
+.video-card{background:var(--card-bg);border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);border:1px solid var(--border);border-bottom:3px solid var(--red);cursor:pointer;transition:transform .2s,box-shadow .2s}
+.video-card:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,.12)}
+.video-embed-box{position:relative;width:100%;aspect-ratio:16/9;background:#000;overflow:hidden}
+.video-embed-box iframe,.video-embed-box video{position:absolute;top:0;left:0;width:100%!important;height:100%!important;border:0}
+/* Poster thumbnail + play button overlay (click to play) */
+.video-poster{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:2;transition:transform .3s}
+.video-card:hover .video-poster{transform:scale(1.05)}
+.video-play-btn{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:52px;height:52px;background:rgba(183,28,28,.85);border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:3;transition:all .2s;box-shadow:0 2px 12px rgba(0,0,0,.4);pointer-events:none}
+.video-card:hover .video-play-btn{background:var(--red);transform:translate(-50%,-50%) scale(1.12);box-shadow:0 4px 20px rgba(183,28,28,.5)}
+.video-play-btn i{color:#fff;font-size:18px;margin-left:3px}
+.video-poster-placeholder{width:100%;height:100%;background:linear-gradient(135deg,#1a1a1a,#2d2d2d);position:absolute;top:0;left:0;z-index:1;display:flex;align-items:center;justify-content:center}
+.video-poster-placeholder .vpp-label{color:rgba(255,255,255,.4);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.video-card-body{padding:8px 10px 10px}
+.video-card-title{font-family:'Noto Serif Bengali',serif;font-size:13px;font-weight:600;color:#1a1a1a;line-height:1.35;margin:0 0 4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.video-card-date{font-size:10px;color:#888;display:flex;align-items:center;gap:4px}
+.video-card-date i{color:var(--red);font-size:9px}
+.no-videos{text-align:center;padding:60px 20px;color:var(--muted)}
+.no-videos i{font-size:48px;color:var(--border);margin-bottom:12px}
+.no-videos h3{font-size:16px;color:var(--text);margin-bottom:6px}
+.no-videos p{font-size:13px}
+.app-footer{background:var(--red-dark);color:rgba(255,255,255,.85);padding:18px 14px 14px;text-align:center;font-size:11px;margin-top:30px}
+.app-footer .ft-brand{font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:4px}
+.fab-sidebar{position:fixed;bottom:20px;right:20px;width:48px;height:48px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:18px;cursor:pointer;box-shadow:0 4px 14px rgba(183,28,28,.4);z-index:95;display:flex;align-items:center;justify-content:center}
+.app-sidebar{position:fixed;top:0;left:-280px;bottom:0;width:280px;background:var(--card-bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;overflow-y:auto}
+.app-sidebar.open{left:0}
+body.sidebar-open::before{content:'';position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:150}
+body.sidebar-open{overflow:hidden}
+.app-sidebar .sb-header{background:var(--red);color:#fff;padding:16px 14px;display:flex;align-items:center;justify-content:space-between}
+.app-sidebar .sb-header h3{font-family:'Noto Serif Bengali',serif;font-size:16px;font-weight:700}
+.app-sidebar .sb-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px}
+.app-sidebar .sb-section{padding:12px 14px;border-bottom:1px solid var(--border)}
+.app-sidebar .sb-section h4{font-family:'Noto Serif Bengali',serif;font-size:13px;color:var(--red);margin-bottom:8px;font-weight:700}
+.app-sidebar .sb-cat-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:5px;font-size:13px;color:var(--text);transition:background .15s}
+.app-sidebar .sb-cat-item:hover,.app-sidebar .sb-cat-item.active{background:rgba(183,28,28,.06);color:var(--red)}
+.app-sidebar .sb-cat-item i{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);color:var(--red);border-radius:4px;font-size:11px;flex-shrink:0}
+.app-sidebar .sb-cat-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-sidebar .sb-cat-count{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:22px;text-align:center}
+@media(max-width:600px){.video-grid{grid-template-columns:repeat(2,1fr);gap:8px}.video-play-btn{width:40px;height:40px}.video-play-btn i{font-size:14px}.video-card-title{font-size:12px}.video-card-body{padding:6px 8px 8px}}
+@media(max-width:380px){.video-grid{grid-template-columns:1fr}}
+@media(min-width:769px){.video-grid{max-width:900px;margin:0 auto}}
+</style>
+</head>
+<body class="app-view">
+<header class="app-header">
+    <a href="?page=home" class="brand"><i class="fas fa-newspaper"></i><span>{$L['appName']}&nbsp;&nbsp;</span></a>
+    <div class="actions">
+        <div class="header-datetime" id="headerDateTime"><span class="hd-date" id="hdDate">--</span><span class="hd-time" id="hdTime">--:--</span></div>
+        <a href="{$langSwitchHref}" class="icon-btn lang-btn">{$langSwitchLabel}</a>
+        <button class="icon-btn" id="searchBtn"><i class="fas fa-search"></i></button>
+        <button class="icon-btn" id="menuBtn"><i class="fas fa-bars"></i></button>
+    </div>
+</header>
+<div class="content-wrap">
+    <div class="video-page-head">
+        <div class="vph-icon"><i class="fas fa-video"></i></div>
+        <div class="vph-title">{$_videoPageTitle}</div>
+    </div>
+HTML;
+
+    if (!empty($_pageVideos)) {
+        $_videoPageHTML .= '<div class="video-grid">';
+        foreach ($_pageVideos as $_pvid) {
+            $_pvidCode = $_pvid['code'] ?? '';
+            $_pvidTitle = $_pvid['title'] ?? '';
+            $_pvidDate = '';
+            if (!empty($_pvid['date_html'])) {
+                $_pvidDate = $_pvid['date_html'];  // Already HTML from extraction
+            } elseif (!empty($_pvid['created_at'])) {
+                $_pvidDate = '<i class="far fa-calendar-alt"></i> ' . date("d M Y", strtotime($_pvid['created_at']));
+            }
+
+            // Translate title for English mode
+            if ($isEnglish && function_exists('bn_to_en')) {
+                $_pvidTitle = bn_to_en($_pvidTitle);
+            }
+
+            // ★ v3.107: Extract embed URL + poster image for click-to-play
+            //    DON'T render iframe directly (causes autoplay on page load).
+            //    Instead: show poster + play button, load iframe on click.
+            $_pvidEmbedUrl = '';
+            $_pvidPoster = '';
+
+            // Step 1: Extract the video URL from the code field
+            if (!empty($_pvidCode)) {
+                // If code contains an <iframe>, extract its src
+                if (preg_match('/src=["\']?([^"\'>\s]+)["\']?/i', $_pvidCode, $_srcM)) {
+                    $_pvidEmbedUrl = $_srcM[1];
+                } else {
+                    // Code is a plain URL
+                    $_pvidEmbedUrl = trim($_pvidCode);
+                }
+            }
+
+            // Step 2: Convert to proper embed URL + get poster
+            if (!empty($_pvidEmbedUrl)) {
+                // YouTube: extract video ID → embed URL + thumbnail
+                if (preg_match('#(?:youtube\.com/(?:watch\?v=|embed/|v/|shorts/)|youtu\.be/|youtube-nocookie\.com/embed/)([A-Za-z0-9_-]{6,15})#', $_pvidEmbedUrl, $_ytM)) {
+                    $_pvidEmbedUrl = 'https://www.youtube.com/embed/' . $_ytM[1] . '?autoplay=1&rel=0';
+                    $_pvidPoster = 'https://img.youtube.com/vi/' . $_ytM[1] . '/hqdefault.jpg';
+                }
+                // Vimeo
+                elseif (preg_match('#vimeo\.com/(?:video/)?(\d+)#', $_pvidEmbedUrl, $_vmM)) {
+                    $_pvidEmbedUrl = 'https://player.vimeo.com/video/' . $_vmM[1] . '?autoplay=1';
+                    // Vimeo needs API for thumbnail — use placeholder
+                    $_pvidPoster = '';
+                }
+                // Facebook
+                elseif (preg_match('#facebook\.com#i', $_pvidEmbedUrl)) {
+                    $_pvidEmbedUrl = 'https://www.facebook.com/plugins/video.php?href=' . rawurlencode($_pvidEmbedUrl) . '&show_text=false&width=560&height=315&autoplay=1';
+                    $_pvidPoster = '';
+                }
+                // Direct video file (.mp4 etc.)
+                elseif (preg_match('#\.(mp4|webm|ogg|mov|m4v)#i', $_pvidEmbedUrl)) {
+                    // Keep the URL as-is; will use <video> tag on click
+                    // Poster = the video file itself (will show first frame via <video preload="metadata">)
+                    $_pvidPoster = 'video-file:' . $_pvidEmbedUrl;
+                }
+                // If it's already an embed URL (youtube.com/embed/, player.vimeo.com), keep it
+                // but ensure autoplay=1 is present for click-to-play
+                else {
+                    if (strpos($_pvidEmbedUrl, 'youtube.com/embed/') !== false || strpos($_pvidEmbedUrl, 'player.vimeo.com') !== false) {
+                        if (strpos($_pvidEmbedUrl, 'autoplay=1') === false) {
+                            $_pvidEmbedUrl .= (strpos($_pvidEmbedUrl, '?') !== false ? '&' : '?') . 'autoplay=1';
+                        }
+                    }
+                }
+            }
+
+            // Step 3: Render card with poster + play button (NO iframe loaded yet)
+            $_videoPageHTML .= '<div class="video-card" data-embed="' . htmlspecialchars($_pvidEmbedUrl) . '"' . (strpos($_pvidPoster, 'video-file:') === 0 ? ' data-video-file="' . htmlspecialchars(substr($_pvidPoster, 11)) . '"' : '') . '>';
+            $_videoPageHTML .= '<div class="video-embed-box">';
+
+            if (!empty($_pvidPoster) && strpos($_pvidPoster, 'video-file:') !== 0) {
+                // Image poster (YouTube thumbnail)
+                $_videoPageHTML .= '<img class="video-poster" src="' . htmlspecialchars($_pvidPoster) . '" alt="' . htmlspecialchars($_pvidTitle) . '" loading="lazy">';
+            } elseif (strpos($_pvidPoster, 'video-file:') === 0) {
+                // Direct video file — use <video preload="metadata"> to show first frame
+                $_videoFileUrl = substr($_pvidPoster, 11);
+                $_videoPageHTML .= '<video class="video-poster" src="' . htmlspecialchars($_videoFileUrl) . '" muted preload="metadata" style="object-fit:cover;"></video>';
+            } else {
+                // No poster available (Facebook/Vimeo without API) — dark placeholder
+                $_videoPageHTML .= '<div class="video-poster-placeholder"><span class="vpp-label"><i class="fas fa-video"></i> Video</span></div>';
+            }
+
+            // Play button overlay
+            $_videoPageHTML .= '<div class="video-play-btn"><i class="fas fa-play"></i></div>';
+            $_videoPageHTML .= '</div>'; // .video-embed-box
+
+            $_videoPageHTML .= '<div class="video-card-body">';
+            $_videoPageHTML .= '<h3 class="video-card-title">' . htmlspecialchars($_pvidTitle) . '</h3>';
+            if ($_pvidDate) {
+                $_videoPageHTML .= '<p class="video-card-date">' . $_pvidDate . '</p>';
+            }
+            $_videoPageHTML .= '</div></div>'; // .video-card-body + .video-card
+        }
+        $_videoPageHTML .= '</div>';
+    } else {
+        $_videoPageHTML .= '<div class="no-videos"><i class="fas fa-video"></i><h3>' . $_noVideosMsg . '</h3><p>' . $_noVideosDesc . '</p></div>';
+    }
+
+    $_videoPageHTML .= '</div>'; // .content-wrap
+
+    // Footer
+    $_videoPageHTML .= <<<HTML
+<footer class="app-footer">
+    <div class="ft-brand">{$L['appName']}</div>
+    <div>Truthy &amp; Trusted News Portal</div>
+    <div style="margin-top:8px;">&copy; 2026 {$L['appName']}</div>
+</footer>
+<button class="fab-sidebar" id="fabSidebar" aria-label="Menu"><i class="fas fa-bars"></i></button>
+HTML;
+
+    // Sidebar (same as home page)
+    $_videoPageHTML .= '<div class="app-sidebar" id="appSidebar">';
+    $_videoPageHTML .= '<div class="sb-header"><h3>' . $L['appName'] . '</h3><button class="sb-close" id="sbClose">&times;</button></div>';
+    $_videoPageHTML .= '<div class="sb-section"><h4>' . $L['allCats'] . '</h4>';
+    foreach ($catList as $_vpcat) {
+        $_vpcatName = $_vpcat['name'];
+        $_vpcatDisplay = $_vpcat['displayName'];
+        $_vpcatHref = $_vpcat['href'];
+        $_vpcatIcon = $_vpcat['icon'];
+        $_vpcatCount = $_vpcat['count'];
+        $_vpIsActive = ($page === 'videos' && $_vpcatName === 'videos_page') ? ' active' : '';
+        $_vpCountBadge = $_vpcatCount > 0 ? '<span class="sb-cat-count">' . (int)$_vpcatCount . '</span>' : '';
+        $_videoPageHTML .= '<a href="' . htmlspecialchars($_vpcatHref) . '" class="sb-cat-item' . $_vpIsActive . '"><i class="fas ' . htmlspecialchars($_vpcatIcon) . '"></i><span class="sb-cat-name">' . htmlspecialchars($_vpcatDisplay) . '</span>' . $_vpCountBadge . '</a>';
+    }
+    $_videoPageHTML .= '</div></div>';
+
+    // JavaScript (date/time, search, sidebar)
+    $_videoPageHTML .= <<<JS
+<script>
+(function(){
+    function updateDateTime(){try{var n=new Date(),i=n.getTime()+(5.5*60*60*1000),d=new Date(i),dt=d.getUTCDate(),mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],h=d.getUTCHours(),m=d.getUTCMinutes(),s=d.getUTCSeconds(),ampm=h>=12?'PM':'AM';h=h%12;if(h===0)h=12;var ds=dt+' '+mn[d.getUTCMonth()]+' '+d.getUTCFullYear();var ts=h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s+' '+ampm;var e1=document.getElementById('hdDate'),e2=document.getElementById('hdTime');if(e1)e1.textContent=ds;if(e2)e2.textContent=ts;}catch(e){}}
+    updateDateTime();setInterval(updateDateTime,1000);
+    var fab=document.getElementById('fabSidebar'),sb=document.getElementById('appSidebar'),sbc=document.getElementById('sbClose');
+    function openSb(){sb.classList.add('open');document.body.classList.add('sidebar-open');}
+    function closeSb(){sb.classList.remove('open');document.body.classList.remove('sidebar-open');}
+    if(fab)fab.addEventListener('click',openSb);
+    if(sbc)sbc.addEventListener('click',closeSb);
+    document.addEventListener('click',function(e){if(!document.body.classList.contains('sidebar-open'))return;if(sb&&sb.contains(e.target))return;if(e.target===fab)return;closeSb();});
+    if(sb){sb.querySelectorAll('a').forEach(function(l){l.addEventListener('click',closeSb);});}
+    var mb=document.getElementById('menuBtn');
+    if(mb)mb.addEventListener('click',openSb);
+
+    // ★ v3.107: Click-to-play for video cards
+    //    Videos DON'T load until user clicks. On click, the poster+play button
+    //    is replaced with an iframe (YouTube/Vimeo/Facebook) or <video> (direct files).
+    //    The embed URL has autoplay=1 so it starts playing immediately on click.
+    document.querySelectorAll('.video-card[data-embed]').forEach(function(card){
+        card.addEventListener('click', function(e){
+            e.preventDefault();
+            e.stopPropagation();
+            // Don't re-load if already playing
+            if(card.classList.contains('video-playing')) return;
+            card.classList.add('video-playing');
+
+            var embedUrl = card.getAttribute('data-embed');
+            var videoFile = card.getAttribute('data-video-file');
+            var embedBox = card.querySelector('.video-embed-box');
+            if(!embedBox) return;
+
+            if(videoFile){
+                // Direct video file → <video> tag with controls
+                embedBox.innerHTML = '<video controls autoplay preload="metadata" style="position:absolute;top:0;left:0;width:100%!important;height:100%!important;border:0;object-fit:contain;"><source src="' + videoFile + '"></video>';
+            } else if(embedUrl){
+                // YouTube/Vimeo/Facebook → <iframe>
+                var ifr=document.createElement('iframe');
+                ifr.src=embedUrl;
+                ifr.setAttribute('frameborder','0');
+                ifr.setAttribute('allowfullscreen','1');
+                ifr.setAttribute('allow','accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture');
+                ifr.style.cssText='position:absolute;top:0;left:0;width:100%!important;height:100%!important;border:0;z-index:10;';
+                embedBox.innerHTML='';
+                embedBox.appendChild(ifr);
+            }
+        });
+    });
+})();
+</script>
+JS;
+
+    $_videoPageHTML .= '</body></html>';
+    echo $_videoPageHTML;
     return;
 }
 
@@ -3856,9 +4952,10 @@ $newHTML .= '<div class="content-wrap">';
 // Featured news (home page only — NOT on category/search/article pages)
 // ★ v3.69: Added !$currentCat so featured card doesn't appear on "More" → category pages
 if ($page === 'home' && !$currentCat && !$searchQuery && !empty($featured['title'])) {
+    $_featured_thumb = _renderCardThumb($featured['img'], 'fc-img');
     $newHTML .= <<<HTML
 <a href="{$featured['href']}" class="featured-card">
-    <img src="{$featured['img']}" alt="" class="fc-img" loading="eager">
+    {$_featured_thumb}
     <div class="fc-body">
         <span class="fc-cat">{$featured['cat']}</span>
         <h2 class="fc-title">{$featured['title']}</h2>
@@ -3908,9 +5005,10 @@ HTML;
             $_si_catStr .= '<span class="nc-cat-sep">/</span><span class="nc-sub">' . htmlspecialchars($_si_sub) . '</span>';
         }
         $_si_catStr .= '</div>';
+        $_si_thumb = _renderCardThumb($si['img'], 'si-img');
         $newHTML .= <<<HTML
 <a href="{$si['href']}" class="side-item">
-    <img src="{$si['img']}" alt="" class="si-img" loading="lazy">
+    {$_si_thumb}
     <div class="si-body">
         {$_si_catStr}
         <div class="si-title">{$si['title']}</div>
@@ -4060,9 +5158,10 @@ HTML;
                 if (!empty($_v379_sub)) $_v379_catHtml .= '<span class="nc-sub">' . htmlspecialchars($_v379_sub) . '</span>';
             }
             // ★ v3.80: Use featured-card style (big, full-width) — same as home page
+            $_v379_thumb = _renderCardThumb($_v379_nc['img'], 'fc-img');
             $newHTML .= <<<HTML
 <a href="{$_v379_nc['href']}" class="featured-card">
-    <img src="{$_v379_nc['img']}" alt="" class="fc-img" loading="eager">
+    {$_v379_thumb}
     <div class="fc-body">
         <span class="fc-cat">{$_v379_catHtml}</span>
         <h2 class="fc-title">{$_v379_title}</h2>
@@ -4151,9 +5250,11 @@ if (!empty($newsCards)) {
             if (!empty($_nc_sub))   $catStr .= '<span class="nc-sub">' . htmlspecialchars($_nc_sub) . '</span>';
             $catStr .= '</div>';
         }
+        // ★ v3.103: Render thumbnail — <video> if image is .mp4, else <img>
+        $_nc_thumb = _renderCardThumb($nc['img'], 'nc-img');
         $newHTML .= <<<HTML
 <a href="{$nc['href']}" class="news-card">
-    <img src="{$nc['img']}" alt="" class="nc-img" loading="lazy">
+    {$_nc_thumb}
     <div class="nc-body">
         {$catStr}
         <div class="nc-title">{$_nc_title}</div>
@@ -4416,9 +5517,11 @@ HTML;
                 if ($isEnglish && function_exists('bn_to_en')) {
                     $_pc_title = bn_to_en($_pc_title);
                 }
+                // ★ v3.103: Render thumbnail — <video> if image is .mp4, else <img>
+                $_pc_thumb = _renderCardThumb($pc['img'], 'nc-img');
                 $newHTML .= <<<HTML
 <a href="{$pc['href']}" class="news-card">
-    <img src="{$pc['img']}" alt="" class="nc-img" loading="lazy">
+    {$_pc_thumb}
     <div class="nc-body">
         {$_pc_catStr}
         <div class="nc-title">{$_pc_title}</div>

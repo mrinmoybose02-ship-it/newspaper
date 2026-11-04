@@ -881,26 +881,41 @@ if (!function_exists('loadSettings')) {
     }
 }
 
-if (!function_exists('formatDate')) {
-    function formatDate($dateStr) {
+if (!function_exists('formatDateI18n')) {
+    function formatDateI18n($dateStr) {
         $bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
         $en = ['0','1','2','3','4','5','6','7','8','9'];
-        $months = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+        $bn_months = ['জানুয়ারি','ফেব্রুয়ারি','মার্চ','এপ্রিল','মে','জুন','জুলাই','আগস্ট','সেপ্টেম্বর','অক্টোবর','নভেম্বর','ডিসেম্বর'];
+        $en_months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         try {
             $d = new DateTime($dateStr);
-            $out = $d->format('d') . ' ' . $months[(int)$d->format('m') - 1] . ' ' . $d->format('Y');
+            // v7.18: English mode shows English month + English numerals
+            if (!empty($GLOBALS['SITE_LANG']) && $GLOBALS['SITE_LANG'] === 'en') {
+                return $en_months[(int)$d->format('m') - 1] . ' ' . $d->format('d') . ', ' . $d->format('Y');
+            }
+            $out = $d->format('d') . ' ' . $bn_months[(int)$d->format('m') - 1] . ' ' . $d->format('Y');
             return str_replace($en, $bn, $out);
         } catch (Exception $e) { return htmlspecialchars($dateStr); }
     }
 }
 
-if (!function_exists('timeAgo')) {
-    function timeAgo($dateStr) {
+if (!function_exists('timeAgoI18n')) {
+    function timeAgoI18n($dateStr) {
         $bn = ['০','১','২','৩','৪','৫','৬','৭','৮','৯'];
         $en = ['0','1','2','3','4','5','6','7','8','9'];
         $now = time();
         try { $d = new DateTime($dateStr); $ts = $d->getTimestamp(); } catch (Exception $e) { return ''; }
         $diff = $now - $ts;
+        // v7.18: English mode shows English text + English numerals
+        if (!empty($GLOBALS['SITE_LANG']) && $GLOBALS['SITE_LANG'] === 'en') {
+            if ($diff < 60) return 'just now';
+            if ($diff < 3600) { $m = (int)($diff / 60); return $m . ' minute' . ($m > 1 ? 's' : '') . ' ago'; }
+            if ($diff < 86400) { $h = (int)($diff / 3600); return $h . ' hour' . ($h > 1 ? 's' : '') . ' ago'; }
+            if ($diff < 2592000) { $d2 = (int)($diff / 86400); return $d2 . ' day' . ($d2 > 1 ? 's' : '') . ' ago'; }
+            if ($diff < 31536000) { $mo = (int)($diff / 2592000); return $mo . ' month' . ($mo > 1 ? 's' : '') . ' ago'; }
+            $y = (int)($diff / 31536000); return $y . ' year' . ($y > 1 ? 's' : '') . ' ago';
+        }
+        // Bengali mode (default)
         if ($diff < 60) return 'এইমাত্র';
         if ($diff < 3600) { $m = (int)($diff / 60); return str_replace($en, $bn, $m) . ' মিনিট আগে'; }
         if ($diff < 86400) { $h = (int)($diff / 3600); return str_replace($en, $bn, $h) . ' ঘণ্টা আগে'; }
@@ -908,6 +923,14 @@ if (!function_exists('timeAgo')) {
         if ($diff < 31536000) { $mo = (int)($diff / 2592000); return str_replace($en, $bn, $mo) . ' মাস আগে'; }
         $y = (int)($diff / 31536000); return str_replace($en, $bn, $y) . ' বছর আগে';
     }
+}
+
+// v7.18: Wrapper functions that always use our i18n versions (override config.php if needed)
+if (!function_exists('timeAgo')) {
+    function timeAgo($dateStr) { return timeAgoI18n($dateStr); }
+}
+if (!function_exists('formatDate')) {
+    function formatDate($dateStr) { return formatDateI18n($dateStr); }
 }
 
 if (!function_exists('newsImage')) {
@@ -1284,22 +1307,23 @@ if ($page === 'single') {
         $isCategoryPage = !empty($currentCat);
 
         if ($isCategoryPage) {
-            // ===== v7.13 CATEGORY PAGE =====
-            // EVERY page: 1 big banner (latest news) + 5 grid cards = 6 total
-            // The banner is always the same latest news; grid shows items 2-6, 7-11, 12-16, etc.
+            // ===== v7.16 CATEGORY PAGE =====
+            // EVERY page: 1 big banner (latest news) + 3 side panel (top stories) + 6 grid = 10 total
+            // Banner + side panel are always the same (top 4 latest); grid shows items 5-10, 11-16, 17-22, etc.
             $currentPage = max(1, intval($_GET['p'] ?? 1));
 
-            // ----- Step 1: Fetch latest news for banner (shown on EVERY page) -----
+            // ----- Step 1: Fetch top 4 latest news for banner (1) + side panel (3) -----
+            // These 4 items show on EVERY page (banner + "শীর্ষ সংবাদ" side panel)
             $displayFeatured = [];
             $hasRealFeatured = false;
             try {
-                $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC, n.id DESC LIMIT 1");
+                $stmt = $pdo->prepare($sql . " ORDER BY n.created_at DESC, n.id DESC LIMIT 4");
                 $stmt->execute($params);
                 $displayFeatured = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
                 if (!empty($displayFeatured)) $hasRealFeatured = true;
             } catch (PDOException $e) {}
 
-            // ----- Step 2: Exclude banner item from grid + fetch 6 cards per page -----
+            // ----- Step 2: Exclude banner + side panel items from grid + fetch 6 cards per page -----
             if ($hasRealFeatured && !empty($displayFeatured)) {
                 $topFeatIds = array_map(function($r){ return (int)$r['id']; }, $displayFeatured);
                 $topFeatIds = array_filter($topFeatIds, function($x){ return $x > 0; });
@@ -1310,13 +1334,13 @@ if ($page === 'single') {
                 }
             }
 
-            // Grid: 6 items per page (banner is additional)
+            // Grid: 6 items per page (banner + 3 side panel are additional, shown on every page)
             $gridLimit = 6;
 
-            // Fetch total grid count (excluding banner item)
+            // Fetch total grid count (excluding banner + side panel items)
             $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params);
             $remainingCount = (int)$stmt->fetchColumn();
-            $totalGrid = $remainingCount + 1; // total including banner
+            $totalGrid = $remainingCount + count($displayFeatured); // total including banner + side
             // Total pages = ceil(remainingCount / 6)
             $totalPages = max(1, ($gridLimit > 0) ? (int)ceil($remainingCount / $gridLimit) : 1);
             if ($currentPage > $totalPages) $currentPage = $totalPages;
@@ -2522,7 +2546,7 @@ $EPAPER_URL = 'epaper.php';
 <img src="<?= newsImage($pp['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
 <div class="pi-info">
 <div class="pi-t"><?= htmlspecialchars(bn_to_en($pp['title'])) ?></div>
-<div class="pi-m"><?= timeAgo($pp['created_at']) ?></div>
+<div class="pi-m"><?= timeAgoI18n($pp['created_at']) ?></div>
 </div>
 </a>
 <?php endforeach; ?>
@@ -2611,7 +2635,7 @@ $EPAPER_URL = 'epaper.php';
 <!-- NEWS SHARE BUTTONS END -->
 
 <div class="single-meta">
-<span><i class="far fa-clock"></i> <?= formatDate($singleNews['created_at']) ?></span>
+<span><i class="far fa-clock"></i> <?= formatDateI18n($singleNews['created_at']) ?></span>
 <span><i class="far fa-user"></i> <span translate="no" class="notranslate">সংবাদ সংকলন</span></span>
 <?php if (!empty($singleNews['tags'])): ?>
 <span><i class="fas fa-tags"></i> <?= htmlspecialchars(bn_to_en($singleNews['tags'])) ?></span>
@@ -2719,7 +2743,7 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
 <div class="nc-body">
 <div class="nc-cat"><?= htmlspecialchars(en_label($ri['category'])) ?><?php if (!empty($ri['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ri['subcategory']) ?></span><?php endif; ?></div>
 <h3><?= htmlspecialchars(bn_to_en($ri['title'])) ?></h3>
-<div class="nc-meta"><span><i class="far fa-clock"></i> <?= timeAgo($ri['created_at']) ?></span></div>
+<div class="nc-meta"><span><i class="far fa-clock"></i> <?= timeAgoI18n($ri['created_at']) ?></span></div>
 </div>
 </a>
 <?php endforeach; ?>
@@ -2758,7 +2782,7 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
     <div class="pi">
     <div class="fcs"><?= htmlspecialchars(en_label($fsi['category'])) ?><?php if (!empty($fsi['subcategory'])): ?> / <?= htmlspecialchars($fsi['subcategory']) ?><?php endif; ?></div>
     <h3><?= htmlspecialchars(bn_to_en($fsi['title'])) ?></h3>
-    <div class="fdt"><i class="far fa-clock"></i> <?= timeAgo($fsi['created_at']) ?></div>
+    <div class="fdt"><i class="far fa-clock"></i> <?= timeAgoI18n($fsi['created_at']) ?></div>
     </div>
     </a>
     <?php endforeach; ?>
@@ -2788,7 +2812,7 @@ if (empty($vidPoster)) $vidPoster = $placeholderImg;
 <div class="vid-info">
 <span class="cb"><?= htmlspecialchars($vidCat) ?></span>
 <h3><?= htmlspecialchars(bn_to_en($vidMain['title'] ?? '')) ?></h3>
-<div class="vdt"><i class="far fa-clock"></i> <?= timeAgo($vidMain['created_at'] ?? 'now') ?></div>
+<div class="vdt"><i class="far fa-clock"></i> <?= timeAgoI18n($vidMain['created_at'] ?? 'now') ?></div>
 </div>
 </div>
 <?php else: ?>
@@ -2817,7 +2841,7 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 <div class="vc-info">
 <?php if ($vCat !== 'ভিডিও'): ?><div class="vc-cat"><?= htmlspecialchars($vCat) ?></div><?php endif; ?>
 <h4><?= htmlspecialchars(bn_to_en($v['title'] ?? '')) ?></h4>
-<div class="vc-time"><i class="far fa-clock"></i> <?= timeAgo($v['created_at'] ?? 'now') ?></div>
+<div class="vc-time"><i class="far fa-clock"></i> <?= timeAgoI18n($v['created_at'] ?? 'now') ?></div>
 </div>
 </div>
 <?php endif; ?>
@@ -2857,7 +2881,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
                 <h3><?= htmlspecialchars(bn_to_en($ni['title'])) ?></h3>
                 <?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars(bn_to_en($ni['excerpt'])) ?></p><?php endif; ?>
                 <div class="nc-meta">
-                    <span><i class="far fa-clock"></i> <?= timeAgo($ni['created_at']) ?></span>
+                    <span><i class="far fa-clock"></i> <?= timeAgoI18n($ni['created_at']) ?></span>
                     <span><i class="far fa-eye"></i> <?= htmlspecialchars($ni['views'] ?? '0') ?></span>
                 </div>
             </div>
@@ -2891,7 +2915,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
                 <div class="cpc-img"><img src="<?= newsImage($hpi['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
                 <div class="cpc-body">
                     <h3><?= htmlspecialchars(bn_to_en($hpi['title'])) ?></h3>
-                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgo($hpi['created_at']) ?> <span style="margin-left:5px;color:var(--red)"><?= htmlspecialchars(en_label($hpi['category'])) ?><?php if (!empty($hpi['subcategory'])): ?> / <?= htmlspecialchars($hpi['subcategory']) ?><?php endif; ?></span></div>
+                    <div class="cpc-time"><i class="far fa-clock"></i> <?= timeAgoI18n($hpi['created_at']) ?> <span style="margin-left:5px;color:var(--red)"><?= htmlspecialchars(en_label($hpi['category'])) ?><?php if (!empty($hpi['subcategory'])): ?> / <?= htmlspecialchars($hpi['subcategory']) ?><?php endif; ?></span></div>
                 </div>
             </a>
             <?php endforeach; ?>

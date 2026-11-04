@@ -2582,15 +2582,61 @@ $EPAPER_URL = 'epaper.php';
         <div class="video-page-grid">
             <?php foreach ($videos as $vid):
                 $videoCode = $vid['code'] ?? '';
-                if (!empty($videoCode) && stripos($videoCode, '<iframe') === false && stripos($videoCode, '<video') === false && stripos($videoCode, '<embed') === false) {
-                    $embedUrl = extractVideoEmbedUrl($videoCode);
-                    if (!empty($embedUrl) && filter_var($embedUrl, FILTER_VALIDATE_URL)) {
-                        $videoCode = '<iframe src="' . htmlspecialchars($embedUrl) . '" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+                $_vpEmbedUrl = '';
+                $_vpPoster = '';
+                $_vpIsVideoFile = false;
+
+                // Extract embed URL from the code field
+                if (!empty($videoCode)) {
+                    if (preg_match('/src=["\']?([^"\'>\s]+)["\']?/i', $videoCode, $_srcM)) {
+                        $_vpEmbedUrl = $_srcM[1];
+                    } else {
+                        $_vpEmbedUrl = trim($videoCode);
+                    }
+                }
+
+                // Convert to embed URL + get poster
+                if (!empty($_vpEmbedUrl)) {
+                    // YouTube
+                    if (preg_match('#(?:youtube\.com/(?:watch\?v=|embed/|v/|shorts/)|youtu\.be/|youtube-nocookie\.com/embed/)([A-Za-z0-9_-]{6,15})#', $_vpEmbedUrl, $_ytM)) {
+                        $_vpEmbedUrl = 'https://www.youtube.com/embed/' . $_ytM[1] . '?autoplay=1&rel=0';
+                        $_vpPoster = 'https://img.youtube.com/vi/' . $_ytM[1] . '/hqdefault.jpg';
+                    }
+                    // Vimeo
+                    elseif (preg_match('#vimeo\.com/(?:video/)?(\d+)#', $_vpEmbedUrl, $_vmM)) {
+                        $_vpEmbedUrl = 'https://player.vimeo.com/video/' . $_vmM[1] . '?autoplay=1';
+                    }
+                    // Facebook
+                    elseif (preg_match('#facebook\.com#i', $_vpEmbedUrl)) {
+                        $_vpEmbedUrl = 'https://www.facebook.com/plugins/video.php?href=' . rawurlencode($_vpEmbedUrl) . '&show_text=false&width=560&height=315&autoplay=1';
+                    }
+                    // Direct video file
+                    elseif (preg_match('#\.(mp4|webm|ogg|mov|m4v)#i', $_vpEmbedUrl)) {
+                        $_vpIsVideoFile = true;
+                    }
+                    // Already an embed URL — ensure autoplay=1 for click-to-play
+                    elseif (strpos($_vpEmbedUrl, 'youtube.com/embed/') !== false || strpos($_vpEmbedUrl, 'player.vimeo.com') !== false) {
+                        if (strpos($_vpEmbedUrl, 'autoplay=1') === false) {
+                            $_vpEmbedUrl .= (strpos($_vpEmbedUrl, '?') !== false ? '&' : '?') . 'autoplay=1';
+                        }
                     }
                 }
             ?>
-            <div class="vp-card">
-                <div class="video-embed"><?= $videoCode ?></div>
+            <div class="vp-card" data-embed="<?= htmlspecialchars($_vpEmbedUrl) ?>"<?= $_vpIsVideoFile ? ' data-video-file="' . htmlspecialchars($_vpEmbedUrl) . '"' : '' ?> style="cursor:pointer">
+                <div class="video-embed vp-embed-box">
+                    <?php if (!empty($_vpPoster)): ?>
+                        <img class="vp-poster" src="<?= htmlspecialchars($_vpPoster) ?>" alt="<?= htmlspecialchars(bn_to_en($vid['title'])) ?>" loading="lazy" style="width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:2;">
+                    <?php elseif ($_vpIsVideoFile): ?>
+                        <video class="vp-poster" src="<?= htmlspecialchars($_vpEmbedUrl) ?>" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:2;"></video>
+                    <?php else: ?>
+                        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#1a1a1a,#2d2d2d);display:flex;align-items:center;justify-content:center;z-index:1;">
+                            <span style="color:rgba(255,255,255,.4);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;"><i class="fas fa-video"></i> Video</span>
+                        </div>
+                    <?php endif; ?>
+                    <div class="vp-play-btn" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:56px;height:56px;background:rgba(183,28,28,.85);border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:3;box-shadow:0 2px 12px rgba(0,0,0,.4);pointer-events:none;">
+                        <i class="fas fa-play" style="color:#fff;font-size:20px;margin-left:3px;"></i>
+                    </div>
+                </div>
                 <div class="vp-body">
                     <h3 class="vp-title"><?= htmlspecialchars(bn_to_en($vid['title'])) ?></h3>
                     <p class="vp-date"><i class="far fa-calendar-alt"></i> <?= date("d M Y", strtotime($vid['created_at'])) ?></p>
@@ -2606,6 +2652,13 @@ $EPAPER_URL = 'epaper.php';
         </div>
     <?php endif; ?>
 </div>
+<style>
+.vp-embed-box{position:relative;overflow:hidden}
+.vp-card:hover .vp-play-btn{background:var(--red);transform:translate(-50%,-50%) scale(1.12);box-shadow:0 4px 20px rgba(183,28,28,.5)}
+.vp-play-btn{transition:all .2s}
+.vp-card:hover .vp-poster{transform:scale(1.05)}
+.vp-poster{transition:transform .3s}
+</style>
 <?php elseif ($page === 'single' && $singleNews): 
     $shareUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['REQUEST_URI'] ?? '/');
     $shareTitle = htmlspecialchars(bn_to_en($singleNews['title']));
@@ -3509,18 +3562,41 @@ document.querySelectorAll('.kn-pl-link.has-psubs').forEach(function(row){row.add
 document.querySelectorAll('.kn-sub-tog').forEach(function(btn){btn.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var cat=this.getAttribute('data-ptog');var sl=document.querySelector('.kn-subs[data-psubs="'+cat+'"]');if(sl)sl.classList.toggle('open');this.classList.toggle('open');});});
 
 document.addEventListener('click',function(e){
-    var vm=e.target.closest('.vid-main,.vid-card');
+    // ★ v3.107: Click-to-play for .vid-main, .vid-card (home) AND .vp-card (video page)
+    //    Videos DON'T load until user clicks. On click, poster+play button is replaced
+    //    with an iframe (YouTube/Vimeo/Facebook) or <video> (direct files).
+    var vm=e.target.closest('.vid-main,.vid-card,.vp-card');
     if(!vm)return;
+    // Don't re-load if already playing
+    if(vm.classList.contains('video-playing'))return;
     var emb=vm.getAttribute('data-embed');
-    if(!emb)return;
-    var w=vm.offsetWidth||400;
-    var h=vm.offsetHeight||225;
-    var ifr=document.createElement('iframe');
-    ifr.src=emb;ifr.width=w;ifr.height=h;
-    ifr.setAttribute('frameborder','0');ifr.setAttribute('allowfullscreen','1');
-    ifr.setAttribute('allow','accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture');
-    ifr.style.cssText='width:100%;height:100%;position:absolute;top:0;left:0;border:0;z-index:10';
-    vm.innerHTML='';vm.appendChild(ifr);
+    var videoFile=vm.getAttribute('data-video-file');
+    if(!emb && !videoFile)return;
+    vm.classList.add('video-playing');
+
+    // For .vp-card: only replace the embed box (keep title/date below)
+    // For .vid-main/.vid-card: replace entire content (poster IS the card)
+    var target = vm.querySelector('.vp-embed-box') || vm;
+    target.innerHTML='';
+
+    if(videoFile){
+        // Direct video file → <video> tag with controls
+        var vid=document.createElement('video');
+        vid.controls=true;vid.autoplay=true;vid.preload='metadata';
+        vid.style.cssText='width:100%;height:100%;position:absolute;top:0;left:0;border:0;object-fit:contain;z-index:10;';
+        var src=document.createElement('source');
+        src.src=videoFile;
+        vid.appendChild(src);
+        target.appendChild(vid);
+    } else if(emb){
+        // YouTube/Vimeo/Facebook → <iframe>
+        var ifr=document.createElement('iframe');
+        ifr.src=emb;
+        ifr.setAttribute('frameborder','0');ifr.setAttribute('allowfullscreen','1');
+        ifr.setAttribute('allow','accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture');
+        ifr.style.cssText='width:100%;height:100%;position:absolute;top:0;left:0;border:0;z-index:10';
+        target.appendChild(ifr);
+    }
 });
 
 if(window.innerWidth<=1024){document.querySelectorAll('.kol-sidebar a').forEach(function(link){link.addEventListener('click',function(){kolSidebar.classList.remove('open');kolLayout.classList.remove('sb-hidden');});});}

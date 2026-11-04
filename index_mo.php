@@ -3532,9 +3532,9 @@ if ($page === 'videos' || $page === 'video') {
 <style>
 :root{--red:#B71C1C;--red-dark:#7F0000;--gold:#D4950A;--bg:#F4F1EB;--card-bg:#FFFFFF;--text:#1A1A1A;--muted:#666;--border:#E5E0D8;--tab-bg:#F5F5F5}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-tap-highlight-color:transparent}
+body{font-family:'Hind Siliguri',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;-webkit-tap-highlight-color:transparent;display:flex;flex-direction:column;min-height:100vh}
 a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
-.app-header{background:var(--red);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.app-header{background:var(--red);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.15);flex-shrink:0}
 .app-header .brand{display:flex;align-items:center;gap:8px;font-family:'Noto Serif Bengali',serif;font-size:17px;font-weight:700;white-space:nowrap;flex-shrink:0}
 .app-header .brand i{font-size:18px;color:var(--gold)}
 .app-header .actions{display:flex;align-items:center;gap:4px;margin-left:auto}
@@ -3543,7 +3543,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .header-datetime .hd-date{font-size:8px;color:rgba(255,255,255,.65)}
 .header-datetime .hd-time{font-family:monospace;color:#80DEEA;font-weight:700;font-size:9px}
 .icon-btn.lang-btn{background:rgba(255,255,255,.18);font-size:11px;font-weight:700;padding:0 10px;width:auto;min-width:38px;border-radius:19px}
-.content-wrap{padding:12px 0}
+.content-wrap{padding:12px 0;flex:1}
 .video-page-head{padding:12px 14px 8px;display:flex;align-items:center;gap:8px}
 .video-page-head .vph-icon{width:32px;height:32px;background:var(--red);color:#fff;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
 .video-page-head .vph-title{font-family:'Noto Serif Bengali',serif;font-size:18px;font-weight:700;color:var(--text)}
@@ -3568,8 +3568,11 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .no-videos i{font-size:48px;color:var(--border);margin-bottom:12px}
 .no-videos h3{font-size:16px;color:var(--text);margin-bottom:6px}
 .no-videos p{font-size:13px}
-.app-footer{background:var(--red-dark);color:rgba(255,255,255,.85);padding:18px 14px 14px;text-align:center;font-size:11px;margin-top:30px}
+.app-footer{background:var(--red-dark);color:rgba(255,255,255,.85);padding:18px 14px 14px;text-align:center;font-size:11px;margin-top:auto}
 .app-footer .ft-brand{font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:4px}
+.app-footer .ft-social{display:flex;justify-content:center;gap:8px;margin:10px 0}
+.app-footer .ft-social a{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;transition:background .2s}
+.app-footer .ft-social a:hover{background:rgba(255,255,255,.25)}
 .fab-sidebar{position:fixed;bottom:20px;right:20px;width:48px;height:48px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:18px;cursor:pointer;box-shadow:0 4px 14px rgba(183,28,28,.4);z-index:95;display:flex;align-items:center;justify-content:center}
 .app-sidebar{position:fixed;top:0;left:-280px;bottom:0;width:280px;background:var(--card-bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;overflow-y:auto}
 .app-sidebar.open{left:0}
@@ -3710,12 +3713,22 @@ HTML;
 
     $_videoPageHTML .= '</div>'; // .content-wrap
 
-    // Footer
+    // Footer (same as home page — includes visitor count + social icons)
     $_videoPageHTML .= <<<HTML
 <footer class="app-footer">
     <div class="ft-brand">{$L['appName']}</div>
     <div>Truthy &amp; Trusted News Portal</div>
-    <div style="margin-top:8px;">&copy; 2026 {$L['appName']}</div>
+    <div class="ft-social">
+        <a href="#" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+        <a href="#" aria-label="Twitter"><i class="fab fa-x-twitter"></i></a>
+        <a href="#" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
+        <a href="#" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
+    </div>
+    <div style="display:flex;align-items:center;">
+        <div style="flex:1;text-align:left;">{$ucFooterHTML}</div>
+        <div style="flex:1;text-align:center;">&copy; 2026 {$L['appName']}</div>
+        <div style="flex:1;text-align:right;">&nbsp;</div>
+    </div>
 </footer>
 <button class="fab-sidebar" id="fabSidebar" aria-label="Menu"><i class="fas fa-bars"></i></button>
 HTML;

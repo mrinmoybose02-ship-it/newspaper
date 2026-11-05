@@ -17,6 +17,90 @@ try {
 } catch (Exception $e) {}
 
 // ============================================================
+//   VISITOR TRACKING (database-based — Admin "Visitor Monitor" panel-er সাথে connected)
+//   index.php footer count এবং admin Visitor Monitor একই সংখ্যা দেখাবে
+//   কারণ দুটোই visitor_stats table থেকে read করছে।
+//   ★ visitor_stats + visit_log table admin dashboard এবং এখানে একই schema।
+// ============================================================
+
+// ১. visitor_stats table তৈরি (না থাকলে — admin panel-er সাথে হুবহু ম্যাচ)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS visitor_stats (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        visitor_hash VARCHAR(64) NOT NULL,
+        ip_partial VARCHAR(50) DEFAULT '',
+        os VARCHAR(50) DEFAULT '',
+        browser VARCHAR(50) DEFAULT '',
+        visit_count INT DEFAULT 1,
+        first_visit DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_visitor_hash (visitor_hash)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (Exception $e) {}
+
+// ২. visit_log table তৈরি (admin panel-er daily graph-এর জন্য)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS visit_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        visitor_hash VARCHAR(64) NOT NULL,
+        visit_date DATE NOT NULL,
+        visit_count INT DEFAULT 1,
+        UNIQUE KEY uk_hash_date (visitor_hash, visit_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (Exception $e) {}
+
+// ৩. Visitor detect: IP + User Agent থেকে unique hash
+$__visitorIp = $_SERVER['REMOTE_ADDR'] ?? ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '0.0.0.0');
+if (strpos($__visitorIp, ',') !== false) $__visitorIp = trim(explode(',', $__visitorIp)[0]);
+$__visitorUa = $_SERVER['HTTP_USER_AGENT'] ?? '';
+$__visitorHash = hash('sha256', $__visitorIp . '|' . $__visitorUa);
+$__visitorIpPartial = preg_replace('/^(\d+\.\d+)\..*$/', '$1.*', $__visitorIp);
+
+// ৪. OS detect (User-Agent থেকে)
+$__visitorOs = 'Other';
+if (preg_match('/windows|win32|win64/i', $__visitorUa)) $__visitorOs = 'Windows';
+elseif (preg_match('/android/i', $__visitorUa)) $__visitorOs = 'Android';
+elseif (preg_match('/iphone|ipad|ipod/i', $__visitorUa)) $__visitorOs = 'iOS';
+elseif (preg_match('/mac os x|macintosh/i', $__visitorUa)) $__visitorOs = 'macOS';
+elseif (preg_match('/linux/i', $__visitorUa)) $__visitorOs = 'Linux';
+
+// ৫. Browser detect (User-Agent থেকে)
+$__visitorBrowser = 'Other';
+if (preg_match('/edg\//i', $__visitorUa)) $__visitorBrowser = 'Edge';
+elseif (preg_match('/opr\/|opera/i', $__visitorUa)) $__visitorBrowser = 'Opera';
+elseif (preg_match('/chrome\//i', $__visitorUa) && !preg_match('/chromium/i', $__visitorUa)) $__visitorBrowser = 'Chrome';
+elseif (preg_match('/firefox\//i', $__visitorUa)) $__visitorBrowser = 'Firefox';
+elseif (preg_match('/safari\//i', $__visitorUa) && !preg_match('/chrome/i', $__visitorUa)) $__visitorBrowser = 'Safari';
+elseif (preg_match('/samsungbrowser\//i', $__visitorUa)) $__visitorBrowser = 'Samsung';
+
+// ৬. visitor_stats table-এ visitor insert/update (upsert)
+//    নতুন ভিজিটর = নতুন row (count বাড়বে)
+//    পুরোনো ভিজিটর = visit_count + 1, last_activity update
+try {
+    $stmt = $pdo->prepare("INSERT INTO visitor_stats (visitor_hash, ip_partial, os, browser, visit_count, first_visit, last_activity)
+                           VALUES (?, ?, ?, ?, 1, NOW(), NOW())
+                           ON DUPLICATE KEY UPDATE visit_count = visit_count + 1, last_activity = NOW(), os = VALUES(os), browser = VALUES(browser)");
+    $stmt->execute([$__visitorHash, $__visitorIpPartial, $__visitorOs, $__visitorBrowser]);
+} catch (Exception $e) {}
+
+// ৭. visit_log table-এ daily count update (admin panel graph-এর জন্য)
+try {
+    $stmt = $pdo->prepare("INSERT INTO visit_log (visitor_hash, visit_date, visit_count)
+                           VALUES (?, CURDATE(), 1)
+                           ON DUPLICATE KEY UPDATE visit_count = visit_count + 1");
+    $stmt->execute([$__visitorHash]);
+} catch (Exception $e) {}
+
+// ৮. Total visitor count — admin panel-er সাথে হুবহু একই query
+//    admin: SELECT COUNT(*) FROM visitor_stats
+try {
+    $visitorCount = (int)$pdo->query("SELECT COUNT(*) FROM visitor_stats")->fetchColumn();
+} catch (Exception $e) {
+    $visitorCount = 0;
+}
+$visitorCountFormatted = number_format($visitorCount);
+
+// ============================================================
 //   LANGUAGE DETECTION — single-file bilingual support
 //   ?lang=en  →  English UI (cookie persisted 1 year)
 //   ?lang=bn  →  Bengali UI (default)
@@ -1730,6 +1814,24 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kol-si.si-fb:hover{background:#1877F2}.kol-si.si-tw:hover{background:#000}.kol-si.si-yt:hover{background:#FF0000}.kol-si.si-ig:hover{background:linear-gradient(45deg,#f09433,#dc2743,#bc1888)}.kol-si.si-tg:hover{background:#0088cc}
 .kol-login{font-family:'Hind Siliguri',sans-serif;background:var(--red);color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;transition:all .2s}
 .kol-login:hover{background:var(--red-dark)}
+/* ====== HAMBURGER MENU (header topbar — admin option inside) ====== */
+.ham-menu{position:relative;margin-right:4px}
+.ham-btn{display:flex;align-items:center;justify-content:center;width:30px;height:26px;border-radius:5px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);cursor:pointer;font-size:14px;transition:all .2s;font-family:inherit}
+.ham-btn:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.4)}
+.ham-btn.open{background:var(--gold);color:#000;border-color:var(--gold)}
+.ham-btn .ham-bars{display:inline-flex;flex-direction:column;gap:3px}
+.ham-btn .ham-bars span{display:block;width:16px;height:2px;background:currentColor;border-radius:1px;transition:all .2s}
+.ham-btn.open .ham-bars span:nth-child(1){transform:translateY(5px) rotate(45deg)}
+.ham-btn.open .ham-bars span:nth-child(2){opacity:0}
+.ham-btn.open .ham-bars span:nth-child(3){transform:translateY(-5px) rotate(-45deg)}
+.ham-dropdown{display:none;position:absolute;top:100%;right:0;margin-top:6px;background:#fff;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;z-index:1000;min-width:170px;border:1px solid rgba(0,0,0,.08);animation:hamSlide .15s ease}
+@keyframes hamSlide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.ham-dropdown.open{display:block}
+.ham-item{display:flex;align-items:center;gap:10px;padding:11px 16px;font-size:13px;color:#333;text-decoration:none;transition:background .15s, color .15s;white-space:nowrap;font-weight:600;border-bottom:1px solid #f0f0f0}
+.ham-item:last-child{border-bottom:none}
+.ham-item:hover{background:#fdf2f2;color:var(--red)}
+.ham-item i{color:var(--red);font-size:13px;width:16px;text-align:center;flex-shrink:0}
+.ham-item .ham-sub{font-size:10px;color:#999;font-weight:400;margin-left:auto}
 
 .lang-switcher{position:relative;margin-right:8px}
 .lang-btn{display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.1);color:#fff;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;border:none;transition:all .2s;font-family:inherit}
@@ -2055,9 +2157,16 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .ft-links li{margin-bottom:6px}
 .ft-links li a{font-size:12px;color:#888;transition:color .15s;text-decoration:none}
 .ft-links li a:hover{color:var(--gold);padding-left:3px}
-.ft-bottom{border-top:1px solid rgba(255,255,255,.06);padding-top:14px;text-align:center;font-size:11px;color:#555}
+.ft-bottom{position:relative;border-top:1px solid rgba(255,255,255,.06);padding-top:14px;text-align:center;font-size:11px;color:#555}
 .ft-bottom a{color:var(--gold)}
 .ft-bottom a:hover{color:var(--red)}
+/* ====== VISITOR LIVE COUNTER (footer left, copyright stays centered) ====== */
+.ft-visitor{position:absolute;left:0;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:6px;font-size:11px}
+.ft-visitor .v-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#00c853;box-shadow:0 0 6px rgba(0,200,83,.7);flex-shrink:0;animation:vLivePulse 1.5s ease-in-out infinite}
+.ft-visitor .v-label{color:#888;font-weight:700;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;font-family:'Hind Siliguri',sans-serif}
+.ft-visitor .v-count{color:#00e676;font-weight:700;font-size:12px;font-family:monospace,consolas,monospace;letter-spacing:1px;text-shadow:0 0 6px rgba(0,230,118,.55);min-width:32px}
+@keyframes vLivePulse{0%,100%{opacity:1;transform:scale(1);box-shadow:0 0 6px rgba(0,200,83,.7)}50%{opacity:.55;transform:scale(1.35);box-shadow:0 0 10px rgba(0,200,83,.95)}}
+@media(max-width:640px){.ft-bottom{padding-top:30px}.ft-visitor{position:static;transform:none;margin:0 auto 8px;text-align:center}}
 .ft-contact h4{display:flex;align-items:center}
 .ft-contact-list{list-style:none;padding:0;margin:0}
 .ft-addr-item{display:flex;gap:10px;margin-bottom:10px;font-size:12px;color:#888;line-height:1.6;align-items:flex-start}
@@ -2380,7 +2489,19 @@ $EPAPER_URL = 'epaper.php';
     <a href="#" class="kol-si si-yt" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
     <a href="#" class="kol-si si-ig" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
     <a href="#" class="kol-si si-tg" aria-label="Telegram"><i class="fab fa-telegram-plane"></i></a>
-    <a href="<?= htmlspecialchars($loginLink) ?>" class="kol-login" target="_blank" rel="noopener noreferrer"><i class="fas fa-user-shield"></i> <?= htmlspecialchars($loginLabel) ?></a>
+    <!-- Hamburger Menu (admin option inside) -->
+    <div class="ham-menu" id="hamMenu">
+        <button class="ham-btn" id="hamBtn" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+            <span class="ham-bars"><span></span><span></span><span></span></span>
+        </button>
+        <div class="ham-dropdown" id="hamDropdown">
+            <a href="<?= htmlspecialchars($loginLink) ?>" class="ham-item" target="_blank" rel="noopener noreferrer">
+                <i class="fas fa-user-shield"></i>
+                <span><?= htmlspecialchars($loginLabel) ?></span>
+                <span class="ham-sub"><?= $isLoggedIn ? 'Dashboard' : 'Login' ?></span>
+            </a>
+        </div>
+    </div>
 </div>
 </div>
 </div>
@@ -3100,6 +3221,11 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 </div>
 </div>
 <div class="ft-bottom">
+<div class="ft-visitor" title="Live Visitor Counter">
+<span class="v-dot" aria-hidden="true"></span>
+<span class="v-label">Visitor</span>
+<span class="v-count"><?= $visitorCountFormatted ?></span>
+</div>
 &copy; <?= date('Y') ?> <a href="?" translate="no" class="notranslate">সংবাদ সংকলন</a>। সর্বস্বত্ব সংরক্ষিত।
 </div>
 </div>
@@ -3637,6 +3763,40 @@ if (langBtn && langDropdown) {
     });
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeLangDD();
+    });
+}
+
+// ====== Hamburger Menu dropdown (admin option) ======
+var hamBtn      = document.getElementById('hamBtn');
+var hamDropdown = document.getElementById('hamDropdown');
+function closeHamDD() {
+    if (!hamDropdown) return;
+    hamDropdown.classList.remove('open');
+    if (hamBtn) {
+        hamBtn.classList.remove('open');
+        hamBtn.setAttribute('aria-expanded', 'false');
+    }
+}
+function openHamDD() {
+    if (!hamDropdown) return;
+    hamDropdown.classList.add('open');
+    if (hamBtn) {
+        hamBtn.classList.add('open');
+        hamBtn.setAttribute('aria-expanded', 'true');
+    }
+}
+if (hamBtn && hamDropdown) {
+    hamBtn.addEventListener('click', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        if (hamDropdown.classList.contains('open')) closeHamDD(); else openHamDD();
+    });
+    document.addEventListener('click', function(e) {
+        if (!hamDropdown.contains(e.target) && e.target !== hamBtn && !hamBtn.contains(e.target)) {
+            closeHamDD();
+        }
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeHamDD();
     });
 }
 

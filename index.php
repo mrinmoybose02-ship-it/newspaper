@@ -3703,6 +3703,14 @@ var newsInterval;
 
 // ★ v6.5: sw.js ফাইল নেই — service worker registration বাদ (পেজ-লেভেল Notification যথেষ্ট, localhost-এ কাজ করে)
 
+// FIX: bell icon theke Yes/No click na howa porjonto kono notification dekhabe na.
+//   - "granted" = user Yes click koreche -> notification on
+//   - "denied"  = user No click koreche  -> notification off
+//   - null      = ekhono Yes/No click koreni -> kono notification na
+function getNewsAllowed() {
+    try { return localStorage.getItem('news_popup_allowed'); } catch(e) { return null; }
+}
+
 function showSystemNotification(title, body, url) {
     if (!("Notification" in window) || Notification.permission !== "granted") return false;
     var options = {
@@ -3752,6 +3760,8 @@ var NEWS_POPUP_ON_LOAD = <?= $NEWS_POPUP_ON_LOAD ? 'true' : 'false' ?>;
 var latestNewsTitleJS = <?= $latestNewsTitleJS ?>;
 function showLatestOnLoad() {
     if (!NEWS_POPUP_ON_LOAD || latestNewsId <= 0) return;
+    // FIX: bell icon e Yes click na hole kono notification/popup dekhabe na
+    if (getNewsAllowed() !== 'granted') return;
     var url = '?page=single&id=' + latestNewsId;
     // ★ FIX: সিস্টেম নোটিফিকেশন পাঠানোর চেষ্টা করা হবে; ব্যর্থ হলে (permission default/denied,
     // API অসমর্থিত, OS ব্লক) সবসময় পেজের ভিতরের HTML পপ-আপ দেখাবে — আগে পপ-আপ চুপচাপ মিস হতো।
@@ -3794,6 +3804,10 @@ function checkForNewNews() {
         try { data = JSON.parse(txt); } catch (e) { console.warn('New-news check: invalid JSON response'); return; }
         if (data && data.status === 'new' && data.last_id > latestNewsId) {
             latestNewsId = data.last_id;
+            // FIX: bell icon e Yes/No click na hole kono notification ba popup dekhabe na.
+            // latestNewsId update hoyeche jate ekhono khobor bar bar check na hoy;
+            // shudhu popup off thakbe. Yes dile er por theke notification asbe.
+            if (getNewsAllowed() !== 'granted') return;
             var latestItem = data.items[data.items.length - 1];
             var url = '?page=single&id=' + latestItem.id;
             var newsTitle = (latestItem.title && String(latestItem.title).trim()) ? latestItem.title : <?= json_encode($SITE_LANG === 'en' ? 'New news has arrived' : 'নতুন খবর এসেছে') ?>;
@@ -3850,18 +3864,29 @@ function shouldAskNewsPermission() {
     }
     return true;
 }
-if (shouldAskNewsPermission()) {
-    setTimeout(function() {
-        if (allowNewsPopup) allowNewsPopup.style.display = 'flex';
-    }, 2000);
-}
+// FIX: auto-open popup removed. Ekhon shudhu matro bell icon e click korle Yes/No popup khulbe.
+// User jotokhun na porjonto bell e click kore Yes/No na dey, totokhun kono notification asbe na.
 
 // ★ v6.8: ভাসমান নোটিফিকেশন বেল (বাম-নিচে) — সিস্টেম নোটিফিকেশন চালু না থাকলে সবসময়
 // দেখা যাবে; ক্লিক করলে পারমিশন পপ-আপ খুলবে। চালু হয়ে গেলে (granted) নিজে থেকেই লুকাবে।
 var notifyBellBtn = document.getElementById('notifyBellBtn');
 function refreshNotifyBell() {
     if (!notifyBellBtn) return;
-    var showBell = ("Notification" in window) && Notification.permission === 'default';
+    // FIX: bell icon Yes/No click na howa porjonto dekhabe.
+    //   Yes (granted) -> bell lukabe, notification on
+    //   No  (denied)  -> bell lukabe, 1 ghonta por abar dekhabe
+    //   null          -> bell dekhabe (ekhono Yes/No click koreni)
+    var allowed = getNewsAllowed();
+    var showBell;
+    if (allowed === 'granted') {
+        showBell = false;
+    } else if (allowed === 'denied') {
+        var deniedAt = 0;
+        try { deniedAt = parseInt(localStorage.getItem('news_popup_denied_at'), 10) || 0; } catch(e) {}
+        showBell = (Date.now() - deniedAt) > 3600000;
+    } else {
+        showBell = true;
+    }
     notifyBellBtn.style.display = showBell ? 'flex' : 'none';
 }
 refreshNotifyBell();
@@ -3876,7 +3901,9 @@ if (btnAllowYes) {
     btnAllowYes.addEventListener('click', function() {
         if (allowNewsPopup) allowNewsPopup.style.display = 'none';
         if (!("Notification" in window)) {
+            // FIX: Notification API na thakleo localStorage "granted" set korbe + bell lukabe
             try { localStorage.setItem('news_popup_allowed', 'granted'); } catch(e){}
+            if (typeof refreshNotifyBell === 'function') refreshNotifyBell();
             return;
         }
         Notification.requestPermission().then(function (permission) {
@@ -3896,6 +3923,8 @@ if (btnAllowNo) {
     btnAllowNo.addEventListener('click', function() {
         try { localStorage.setItem('news_popup_allowed', 'denied'); localStorage.setItem('news_popup_denied_at', String(Date.now())); } catch(e){}
         if (allowNewsPopup) allowNewsPopup.style.display='none';
+        // FIX: No click korle bell sathhe sathhe lukabe
+        if (typeof refreshNotifyBell === 'function') refreshNotifyBell();
     });
 }
 

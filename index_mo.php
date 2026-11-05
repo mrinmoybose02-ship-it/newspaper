@@ -163,6 +163,7 @@ $dbCurrentSub     = $currentSub        ?? 0;
 //    Creates visitor_stats table, tracks each visitor by SHA256(IP).
 //    ★ v3.52: Now also stores OS, browser, partial IP for admin analytics panel.
 $ucText = '';
+$ucFooterHTML = '';  // ★ v3.109: Fallback — ensures variable is always defined even if visitor tracking fails
 try {
     if (isset($pdo)) {
         // Create table if not exists (safe — runs once)
@@ -3573,6 +3574,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .app-footer .ft-social{display:flex;justify-content:center;gap:8px;margin:10px 0}
 .app-footer .ft-social a{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;transition:background .2s}
 .app-footer .ft-social a:hover{background:rgba(255,255,255,.25)}
+/* ★ v3.109: Visitor counter pulse animation (needed for the green live dot in footer) */
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
 .fab-sidebar{position:fixed;bottom:20px;right:20px;width:48px;height:48px;background:var(--red);color:#fff;border:none;border-radius:50%;font-size:18px;cursor:pointer;box-shadow:0 4px 14px rgba(183,28,28,.4);z-index:95;display:flex;align-items:center;justify-content:center}
 .app-sidebar{position:fixed;top:0;left:-280px;bottom:0;width:280px;background:var(--card-bg);z-index:200;box-shadow:4px 0 24px rgba(0,0,0,.2);transition:left .3s;overflow-y:auto}
 .app-sidebar.open{left:0}
@@ -3591,6 +3594,13 @@ body.sidebar-open{overflow:hidden}
 @media(max-width:600px){.video-grid{grid-template-columns:repeat(2,1fr);gap:8px}.video-play-btn{width:40px;height:40px}.video-play-btn i{font-size:14px}.video-card-title{font-size:12px}.video-card-body{padding:6px 8px 8px}}
 @media(max-width:380px){.video-grid{grid-template-columns:1fr}}
 @media(min-width:769px){.video-grid{max-width:900px;margin:0 auto}}
+.cat-tabs{background:var(--tab-bg);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;display:flex;align-items:center;padding:0 6px;position:sticky;top:58px;z-index:90;flex-shrink:0}
+.cat-tabs::-webkit-scrollbar{display:none}
+.cat-tab{padding:10px 14px;font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;border-bottom:2px solid transparent;flex-shrink:0;transition:all .2s}
+.cat-tab:hover{color:var(--red)}
+.cat-tab.active{color:var(--red);border-bottom-color:var(--red);font-weight:700}
+.cat-tab.home-tab{color:var(--red);font-weight:700}
+.cat-tab .ct-icon{margin-right:4px;font-size:11px;opacity:.6}
 </style>
 </head>
 <body class="app-view">
@@ -3603,6 +3613,19 @@ body.sidebar-open{overflow:hidden}
         <button class="icon-btn" id="menuBtn"><i class="fas fa-bars"></i></button>
     </div>
 </header>
+HTML;
+
+    // ★ v3.108: Category tabs bar (same as home page) — shows "ভিডিও" tab as active
+    $_vpVisibleCats = array_slice($catList, 0, 5);
+    $_videoPageHTML .= '<div class="cat-tabs">';
+    $_videoPageHTML .= '<a href="?page=home" class="cat-tab home-tab"><i class="fas fa-home ct-icon"></i>' . $L['home'] . '</a>';
+    foreach ($_vpVisibleCats as $_vpct) {
+        $_vpctActive = ($_vpct['name'] === 'videos_page') ? ' active' : '';
+        $_videoPageHTML .= '<a href="' . htmlspecialchars($_vpct['href']) . '" class="cat-tab' . $_vpctActive . '"><i class="fas ' . htmlspecialchars($_vpct['icon']) . ' ct-icon"></i>' . htmlspecialchars($_vpct['displayName']) . '</a>';
+    }
+    $_videoPageHTML .= '</div>';
+
+    $_videoPageHTML .= <<<HTML
 <div class="content-wrap">
     <div class="video-page-head">
         <div class="vph-icon"><i class="fas fa-video"></i></div>

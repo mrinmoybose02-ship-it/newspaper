@@ -531,6 +531,8 @@ $EN_TRANSLATIONS = [
     // Single news meta
     'শেয়ার করুন:'          => 'Share:',
     'ট্যাগ:'                => 'Tags:',
+    // Author byline label
+    'লেখক'                  => 'Author',
     // Archive dropdown
     'কোনো আর্কাইভ নেই'     => 'No archives available',
     // Misc UI
@@ -2011,15 +2013,19 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .cpc-body h3{font-size:13px;font-weight:600;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--fg)}
 .cpc-time{font-size:11px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:4px}
 .cpc-time i{font-size:10px}
-.feat-section{margin-bottom:20px}
+.feat-section{margin-bottom:32px}
 .feat-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;align-items:stretch}
-.feat-main{position:relative;border-radius:8px;overflow:hidden;cursor:pointer;min-height:380px}
-.feat-main img{width:100%;height:100%;object-fit:cover;transition:transform .5s}
-.feat-main:hover img{transform:scale(1.04)}
-.feat-main .ov{position:absolute;bottom:0;left:0;right:0;padding:24px 20px;background:linear-gradient(transparent,rgba(0,0,0,.9));color:#fff}
-.feat-main .ov .cb{display:inline-block;background:var(--red);padding:2px 10px;border-radius:2px;font-size:11px;font-weight:700;margin-bottom:8px}
-.feat-main .ov h2{font-size:20px;font-weight:700;line-height:1.35}
-.feat-main .ov p{font-size:13px;line-height:1.6;color:rgba(255,255,255,.78);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* ====== AUTHOR BYLINE on featured news cards (overlay on image) ====== */
+.feat-author{display:inline-flex;align-items:center;gap:6px;margin:2px 0 0 0;padding:5px 12px 5px 5px;background:rgba(183,28,28,.06);border:1px solid rgba(183,28,28,.25);border-radius:18px;color:var(--red);font-family:'Hind Siliguri',sans-serif;font-size:12px;font-weight:600;letter-spacing:.2px;max-width:fit-content;line-height:1.4}
+.feat-author .fa-icon{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;font-size:9px;flex-shrink:0;box-shadow:0 2px 6px rgba(183,28,28,.25)}
+.feat-author .fa-label{font-size:10px;color:rgba(255,255,255,.85);font-weight:500;text-transform:uppercase;letter-spacing:.4px}
+.feat-author .fa-divider{display:inline-block;width:1px;height:14px;background:rgba(255,255,255,.4);margin:0 2px}
+.feat-author .fa-name{font-family:'Noto Serif Bengali',serif;font-size:13px;font-weight:700;color:var(--red);letter-spacing:.3px}
+.feat-main{position:relative;display:flex;flex-direction:column;border-radius:8px;overflow:hidden;cursor:pointer;min-height:380px;background:var(--card);border:1px solid var(--border);transition:box-shadow .25s,transform .25s}.feat-main:hover{box-shadow:0 8px 24px rgba(0,0,0,.12);transform:translateY(-4px)}.feat-main .feat-img{width:100%;flex:1;flex-shrink:1;overflow:hidden;background:#1a1a1a;position:relative;min-height:280px}.feat-main .feat-img img{width:100%;height:100%;object-fit:cover;transition:transform .5s ease}.feat-main:hover .feat-img img{transform:scale(1.05)}
+.feat-main .ov{padding:14px 18px 16px 18px;background:#f4f1eb;color:var(--fg);flex-shrink:0;display:flex;flex-direction:column}
+.feat-main .ov .cb{display:inline-block;background:var(--red);color:#fff;padding:2px 10px;border-radius:2px;font-size:11px;font-weight:700;margin-bottom:8px;align-self:flex-start}
+.feat-main .ov h2{font-size:19px;font-weight:700;line-height:1.4;margin:0 0 6px 0;color:var(--fg);font-family:'Noto Serif Bengali',serif;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.feat-main .ov p{font-size:13px;line-height:1.6;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:0}
 .feat-side{display:flex;flex-direction:column;gap:0;overflow:hidden;border-radius:8px;background:var(--card);border:1px solid var(--border)}
 .feat-side-title{background:var(--nav-bg);color:#fff;padding:10px 15px;font-family:'Noto Serif Bengali',serif;font-size:16px;font-weight:700;border-bottom:2px solid var(--red);display:flex;align-items:center;gap:8px}
 .feat-side-title i{color:var(--gold)}
@@ -2059,19 +2065,35 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .vid-card h4{font-size:12.5px;font-weight:600;line-height:1.4;margin:2px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .vid-card .vc-time{font-size:10px;color:var(--muted);margin-top:4px}
 .vid-card .vc-time i{font-size:9px;margin-right:3px}
-.news-sec{padding:12px 0 24px}
+.news-sec{padding:18px 0 24px}
 .sec-title{font-family:'Noto Serif Bengali',serif;font-size:20px;font-weight:700;color:var(--fg);padding-bottom:8px;margin-bottom:14px;border-bottom:3px solid var(--red);display:inline-block}
+
 .news-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.nc{background:var(--card);border-radius:6px;overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .2s;border:1px solid var(--border)}
-.nc:hover{box-shadow:0 4px 16px rgba(0,0,0,.1);transform:translateY(-2px)}
-.nc .nc-img{height:160px;overflow:hidden}
-.nc .nc-img img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
-.nc:hover .nc-img img{transform:scale(1.06)}
-.nc .nc-body{padding:28px 16px 14px}
-.nc .nc-cat{font-size:10px;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
-.nc h3{font-size:14px;font-weight:700;margin-top:3px;line-height:1.4}
-.nc p{font-size:12px;color:var(--muted);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.nc .nc-meta{display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:7px}
+/* ====== THUMBNAIL-STYLE NEWS CARD (★ image fills card, title overlaid) ====== */
+.nc{position:relative;display:block;background:#1a1a1a;border-radius:8px;overflow:hidden;cursor:pointer;transition:box-shadow .25s,transform .25s;border:1px solid var(--border);min-height:240px;height:240px;text-decoration:none;color:inherit}
+.nc:hover{box-shadow:0 8px 24px rgba(0,0,0,.18);transform:translateY(-4px)}
+/* Image fills entire card — explicit width/height so it always renders */
+.nc .nc-img{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;background:#1a1a1a;z-index:1}
+.nc .nc-img img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .5s ease}
+.nc:hover .nc-img img{transform:scale(1.08)}
+/* Body overlay — sits on top of image, full height */
+.nc .nc-body{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:0;background:linear-gradient(180deg,rgba(0,0,0,.65) 0%,rgba(0,0,0,0) 28%,rgba(0,0,0,0) 45%,rgba(0,0,0,.92) 100%);z-index:2}
+/* Category badge — top-left, red */
+.nc .nc-cat{display:inline-block;background:var(--red);color:#fff;padding:5px 11px;border-radius:0 0 6px 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;align-self:flex-start;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.nc .nc-cat span{color:#FFD54F}
+/* Footer group (title + meta) at bottom of card */
+.nc .nc-foot{padding:0;margin-top:auto;width:100%}
+/* Title — bottom of card, white text */
+.nc h3{color:#fff;font-size:14px;font-weight:700;margin:0;padding:10px 14px 4px;line-height:1.4;text-shadow:0 1px 3px rgba(0,0,0,.7);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-family:'Noto Serif Bengali',serif}
+/* Excerpt hidden in thumbnail mode (kept for SEO) */
+.nc p{display:none}
+/* Meta — bottom of card, semi-transparent */
+.nc .nc-meta{display:flex;justify-content:space-between;padding:0 14px 11px;font-size:10px;color:rgba(255,255,255,.9);border-top:none;margin-top:0}
+.nc .nc-meta i{margin-right:3px;opacity:.85}
+/* ====== SOURCE NAME CHIP (★ matches user image — সংবাদ সংকলন) ====== */
+.nc .nc-source{display:inline-flex;align-items:center;gap:4px;color:#FFD54F;font-size:10px;font-weight:700;letter-spacing:.2px;text-shadow:0 1px 2px rgba(0,0,0,.5);white-space:nowrap}
+.nc .nc-source i{color:var(--red);background:#fff;width:14px;height:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:7px;margin-right:2px;opacity:1;text-shadow:none;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.nc .nc-source span{color:#fff;font-weight:700}
 .single-wrap{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:24px}
 .single-wrap .cb{display:inline-block;background:var(--red);color:#fff;padding:3px 12px;border-radius:3px;font-size:12px;font-weight:700;margin-bottom:10px;text-decoration:none}
 .single-wrap h1{font-family:'Noto Serif Bengali',serif;font-size:24px;font-weight:900;line-height:1.35}
@@ -2314,6 +2336,7 @@ body { top: 0 !important; }
     .cat-panel-row{grid-template-columns:repeat(3,1fr)}
     .feat-grid{grid-template-columns:1fr}
     .feat-main{min-height:280px}
+    .feat-main .feat-img{min-height:180px}
     .news-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:768px){
@@ -2917,8 +2940,10 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
 <div class="nc-img"><img src="<?= newsImage($ri['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
 <div class="nc-body">
 <div class="nc-cat"><?= htmlspecialchars(en_label($ri['category'])) ?><?php if (!empty($ri['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ri['subcategory']) ?></span><?php endif; ?></div>
+<div class="nc-foot">
 <h3><?= htmlspecialchars(bn_to_en($ri['title'])) ?></h3>
-<div class="nc-meta"><span><i class="far fa-clock"></i> <?= timeAgoI18n($ri['created_at']) ?></span></div>
+<div class="nc-meta"><span class="nc-source"><i class="fas fa-user"></i><span>সংবাদ সংকলন</span></span><span><i class="far fa-clock"></i> <?= timeAgoI18n($ri['created_at']) ?></span></div>
+</div>
 </div>
 </a>
 <?php endforeach; ?>
@@ -2941,10 +2966,11 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
 <?php $fm = $displayFeatured[0]; $fsItems = array_slice($displayFeatured, 1); ?>
 <div class="feat-grid">
 <a href="?page=single&id=<?= $fm['id'] ?>" class="feat-main">
-<img src="<?= newsImage($fm['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async">
+<div class="feat-img"><img src="<?= newsImage($fm['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
 <div class="ov">
 <span class="cb"><?= htmlspecialchars(en_label($fm['category'])) ?><?php if (!empty($fm['subcategory'])): ?> / <?= htmlspecialchars($fm['subcategory']) ?><?php endif; ?></span>
 <h2><?= htmlspecialchars(bn_to_en($fm['title'])) ?></h2>
+<div class="feat-author"><span class="fa-icon"><i class="fas fa-user-edit"></i></span><span class="fa-name" translate="no">সংবাদ সংকলন</span></div>
 <?php if (!empty($fm['excerpt'])): ?><p><?= htmlspecialchars(bn_to_en($fm['excerpt'])) ?></p><?php endif; ?>
 </div>
 </a>
@@ -3053,11 +3079,14 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showL
             <div class="nc-img"><img src="<?= newsImage($ni['image'], $placeholderImg) ?>" alt="" loading="lazy" decoding="async"></div>
             <div class="nc-body">
                 <div class="nc-cat"><?= htmlspecialchars(en_label($ni['category'])) ?><?php if (!empty($ni['subcategory'])): ?> <span style="color:#D4950A">/ <?= htmlspecialchars($ni['subcategory']) ?></span><?php endif; ?></div>
+                <div class="nc-foot">
                 <h3><?= htmlspecialchars(bn_to_en($ni['title'])) ?></h3>
                 <?php if (!empty($ni['excerpt'])): ?><p><?= htmlspecialchars(bn_to_en($ni['excerpt'])) ?></p><?php endif; ?>
                 <div class="nc-meta">
+                    <span class="nc-source"><i class="fas fa-user"></i><span>সংবাদ সংকলন</span></span>
                     <span><i class="far fa-clock"></i> <?= timeAgoI18n($ni['created_at']) ?></span>
                     <span><i class="far fa-eye"></i> <?= htmlspecialchars($ni['views'] ?? '0') ?></span>
+                </div>
                 </div>
             </div>
         </a>

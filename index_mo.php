@@ -422,12 +422,21 @@ if ($searchQuery) {
 
 // ── Step 3: Extract data from index.php's HTML ────────────────────────
 // Featured (first .feat-main)
+// ★ FIX v3.110: index.php now wraps the featured image in <div class="feat-img">
+//    (since .feat-main was restructured: image on top, text below - no overlay).
+//    The OLD regex expected <a class="feat-main"><img...> (image right after anchor).
+//    The NEW regex captures the WHOLE .feat-main block, then searches within it.
+//    This handles BOTH old (<img> directly inside <a>) AND new (<div class="feat-img"><img></div>) structures.
 $featured = ['href' => '', 'img' => '', 'title' => '', 'cat' => ''];
-if (preg_match('#<a href="([^"]+)"\s+class="feat-main"[^>]*>\s*<img src="([^"]+)"#u', $html, $m)) {
+if (preg_match('#<a href="([^"]+)"\s+class="feat-main"[^>]*>(.*?)</a>#us', $html, $m)) {
     $featured['href'] = $m[1];
-    $featured['img']  = $m[2];
-    if (preg_match('#<span class="cb"[^>]*>([^<]+)</span>#u', $html, $cm)) $featured['cat'] = trim($cm[1]);
-    if (preg_match('#<h2[^>]*>([^<]+)</h2>#u', $html, $tm)) $featured['title'] = html_entity_decode(trim($tm[1]), ENT_QUOTES, 'UTF-8');
+    $featBlock = $m[2];
+    // Image - works with both <img> directly inside <a> AND wrapped in <div class="feat-img">
+    if (preg_match('#<img[^>]+src="([^"]+)"#u', $featBlock, $im)) $featured['img'] = $im[1];
+    // Category badge (.cb)
+    if (preg_match('#<span class="cb"[^>]*>([^<]+)</span>#u', $featBlock, $cm)) $featured['cat'] = trim($cm[1]);
+    // Title (.ov h2) - scoped to within .feat-main (was global, picked up first h2 in HTML)
+    if (preg_match('#<h2[^>]*>([^<]+)</h2>#u', $featBlock, $tm)) $featured['title'] = html_entity_decode(trim($tm[1]), ENT_QUOTES, 'UTF-8');
 }
 
 // Side featured items (.feat-si)
@@ -4142,6 +4151,13 @@ img { max-width: 100%; display: block; }
     object-fit: cover;
     background: #eee;
 }
+/* v3.111: Inset wrapper - makes featured image narrower with side margins */
+.featured-card .fc-img-wrap {
+    width: calc(100% - 28px);
+    margin: 14px auto 0;
+    border-radius: 6px;
+    overflow: hidden;
+}
 .featured-card .fc-body { padding: 14px 14px 12px; }
 .featured-card .fc-cat {
     display: inline-block;
@@ -4991,7 +5007,7 @@ if ($page === 'home' && !$currentCat && !$searchQuery && !empty($featured['title
     $_featured_thumb = _renderCardThumb($featured['img'], 'fc-img');
     $newHTML .= <<<HTML
 <a href="{$featured['href']}" class="featured-card">
-    {$_featured_thumb}
+    <div class="fc-img-wrap">{$_featured_thumb}</div>
     <div class="fc-body">
         <span class="fc-cat">{$featured['cat']}</span>
         <h2 class="fc-title">{$featured['title']}</h2>
@@ -5197,7 +5213,7 @@ HTML;
             $_v379_thumb = _renderCardThumb($_v379_nc['img'], 'fc-img');
             $newHTML .= <<<HTML
 <a href="{$_v379_nc['href']}" class="featured-card">
-    {$_v379_thumb}
+    <div class="fc-img-wrap">{$_v379_thumb}</div>
     <div class="fc-body">
         <span class="fc-cat">{$_v379_catHtml}</span>
         <h2 class="fc-title">{$_v379_title}</h2>

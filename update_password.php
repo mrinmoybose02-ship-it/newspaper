@@ -1,11 +1,13 @@
 <?php
 /**
  * পাসওয়ার্ড রিসেট টুল (auto-fix existing password_reset_requests schema)
+ *
+ * ✅ আপডেট: Dropdown সরানো হয়েছে — অ্যাডমিন ম্যানুয়ালি ইউজারনেম টাইপ করবে
  */
 require_once 'config.php';
 
 // Force exceptions so failures are visible
- $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 /* ---- 1) Ensure users.password is wide enough (bcrypt = 60 chars) ---- */
 try {
@@ -32,7 +34,7 @@ try {
 }
 
 // Always try to add each needed column. Already-existing columns are skipped.
- $neededCols = [
+$neededCols = [
     'user_id'           => 'INT NOT NULL',
     'username'          => 'VARCHAR(100) NULL',
     'reset_by'          => 'VARCHAR(100) NULL',
@@ -62,44 +64,61 @@ foreach ($neededCols as $col => $def) {
     }
 }
 
-/* ---- 3) Fetch users ---- */
- $allUsers = [];
-try {
-    $allUsers = $pdo->query("SELECT id, username, full_name FROM users ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {}
+/* ---- 3) (Dropdown সরানো হয়েছে — ইউজার ম্যানুয়ালি টাইপ করবে) ---- */
 
- $msg = ''; $msgType = '';
+$msg = ''; $msgType = '';
 
 /* ---- 4) Handle POST ---- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'update_password') {
-        $targetUserId = (int)($_POST['target_user_id'] ?? 0);
-        $newPass      = trim($_POST['new_password'] ?? '');
-        $resetBy      = $_POST['reset_by'] ?? 'admin';
+        // ✅ ম্যানুয়ালি টাইপ করা ইউজারনেম নেওয়া হচ্ছে (dropdown নেই)
+        $targetUsername = trim($_POST['target_username'] ?? '');
+        $newPass        = trim($_POST['new_password'] ?? '');
+        $resetBy        = $_POST['reset_by'] ?? 'admin';
 
-        if (empty($targetUserId) || empty($newPass)) {
-            $msg = 'ইউজার এবং নতুন পাসওয়ার্ড দিন।';
+        if (empty($targetUsername) || empty($newPass)) {
+            $msg = 'ইউজারনেম এবং নতুন পাসওয়ার্ড দিন।';
             $msgType = 'error';
         } else {
-            // Look up the user
-            $check = $pdo->prepare("SELECT id, username FROM users WHERE id = ?");
-            $check->execute([$targetUserId]);
+            // Look up the user by username (ম্যানুয়ালি টাইপ করা)
+            $check = $pdo->prepare("SELECT id, username FROM users WHERE username = ?");
+            $check->execute([$targetUsername]);
             $uRow = $check->fetch(PDO::FETCH_ASSOC);
 
             if (!$uRow) {
-                $msg = 'ইউজার খুঁজে পাওয়া যায়নি (ID: ' . $targetUserId . ')';
+                $msg = "'" . htmlspecialchars($targetUsername) . "' ইউজারনেম পাওয়া যায়নি";
                 $msgType = 'error';
             } else {
+                $targetUserId = (int)$uRow['id'];
                 $hash = password_hash($newPass, PASSWORD_DEFAULT);
 
                 try {
                     $pdo->beginTransaction();
 
-                    // Update user's password
-                    $upd = $pdo->prepare("UPDATE users SET password = :pwd WHERE id = :id");
-                    $upd->execute([':pwd' => $hash, ':id' => $targetUserId]);
+                    /* ───────────────────────────────────────────────────────────────
+                     * 🔒 is_approved = 0 করা হচ্ছে
+                     * পাসওয়ার্ড রিসেটের পর ইউজারকে অবশ্যই অ্যাডমিন অ্যাপ্রুভাল
+                     * করতে হবে — admin_login.php এ is_approved=1 না হলে লগইন হবে না।
+                     * যদি টেবিলে is_approved কলাম না থাকে, তাহলে শুধু পাসওয়ার্ড আপডেট।
+                     * ─────────────────────────────────────────────────────────────── */
+                    try {
+                        $chkCol = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'is_approved'");
+                        if ($chkCol && $chkCol->fetch()) {
+                            // ✅ is_approved = 0 → অ্যাডমিন অ্যাপ্রুভাল বাধ্যতামূলক
+                            $pdo->prepare("UPDATE users SET password = :pwd, is_approved = 0 WHERE id = :id")
+                                ->execute([':pwd' => $hash, ':id' => $targetUserId]);
+                        } else {
+                            // is_approved কলাম নেই — শুধু পাসওয়ার্ড আপডেট
+                            $pdo->prepare("UPDATE users SET password = :pwd WHERE id = :id")
+                                ->execute([':pwd' => $hash, ':id' => $targetUserId]);
+                        }
+                    } catch (PDOException $colErr) {
+                        // Fallback: শুধু পাসওয়ার্ড আপডেট
+                        $pdo->prepare("UPDATE users SET password = :pwd WHERE id = :id")
+                            ->execute([':pwd' => $hash, ':id' => $targetUserId]);
+                    }
 
                     // Build INSERT using ONLY columns that actually exist in the table
                     $cols = [];
@@ -174,10 +193,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if ($row) {
-                        $msg = '✅ পাসওয়ার্ড আপডেট ও লগ সফল হয়েছে! (User: ' . htmlspecialchars($uRow['username']) . ', Log ID: ' . $row['id'] . ')';
+                        $msg = '✅ পাসওয়ার্ড আপডেট হয়েছে! (User: ' . htmlspecialchars($uRow['username']) . ', Log ID: ' . $row['id'] . ')। ⚠️ ইউজারকে লগইন করতে অ্যাডমিন অ্যাপ্রুভাল বাধ্যতামূলক — অ্যাডমিন ড্যাশবোর্ড থেকে অ্যাপ্রুভ করুন।';
                         $msgType = 'success';
                     } else {
-                        $msg = '✅ পাসওয়ার্ড আপডেট হয়েছে (তবে লগ টেবিলে কলাম নেই, তাই লগ রেকর্ড করা যায়নি)।';
+                        $msg = '✅ পাসওয়ার্ড আপডেট হয়েছে (তবে লগ টেবিলে কলাম নেই, তাই লগ রেকর্ড করা যায়নি)। ⚠️ ইউজারকে লগইন করতে অ্যাডমিন অ্যাপ্রুভাল বাধ্যতামূলক।';
                         $msgType = 'success';
                     }
                 } catch (PDOException $e) {
@@ -213,8 +232,10 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
 .card h3 i{color:var(--green)}
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px}
-.form-group input[type="text"],.form-group input[type="password"],.form-group select{width:100%;padding:10px 14px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;color:#1e293b;font-family:inherit;font-size:14px;outline:none;transition:border-color .3s, box-shadow .3s}
-.form-group input:focus,.form-group select:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+.form-group input[type="text"],.form-group input[type="password"]{width:100%;padding:10px 14px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;color:#1e293b;font-family:inherit;font-size:14px;outline:none;transition:border-color .3s, box-shadow .3s}
+.form-group input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+.info-box{background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 14px;font-size:13px;color:#92400E;margin-bottom:16px;display:flex;gap:8px;align-items:flex-start}
+.info-box i{color:#D97706;margin-top:2px}
 .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:all .3s}
 .btn:hover{transform:translateY(-1px)}
 .btn-green{background:var(--green);color:#fff}.btn-green:hover{background:#15803d}
@@ -241,34 +262,31 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
         <p>নিরাপদ পাসওয়ার্ড তৈরি ও ডাটাবেসে আপডেট করুন</p>
     </div>
 
-    <?php if (!empty($allUsers)): ?>
     <div class="card">
         <h3><i class="fas fa-user-pen"></i> ইউজারের পাসওয়ার্ড আপডেট</h3>
-        <form method="POST" action="">
+
+        <form method="POST" action="" id="pwdForm" autocomplete="off">
             <input type="hidden" name="action" value="update_password">
+
+            <!-- ✅ ইউজারনেম — ম্যানুয়াল টাইপিং (dropdown সরানো হয়েছে) -->
             <div class="form-group">
-                <label>ইউজার বেছে নিন</label>
-                <select name="target_user_id" required>
-                    <option value="">-- ইউজার বেছে নিন --</option>
-                    <?php foreach ($allUsers as $u): ?>
-                    <option value="<?= htmlspecialchars($u['id']) ?>">
-                        <?= htmlspecialchars($u['username']) ?> (<?= htmlspecialchars($u['full_name'] ?? 'N/A') ?>)
-                    </option>
-                    <?php endforeach; ?>
-                </select>
+                <label><i class="fas fa-user"></i> ইউজারনেম (Username)</label>
+                <input type="text" name="target_username" id="target_username" required
+                       placeholder="ইউজারনেম লিখুন"
+                       autocomplete="off" autocapitalize="off" spellcheck="false">
             </div>
+
             <div class="form-group">
-                <label>নতুন পাসওয়ার্ড</label>
-                <input type="text" name="new_password" required placeholder="নতুন পাসওয়ার্ড লিখুন" autocomplete="off">
+                <label><i class="fas fa-lock"></i> নতুন পাসওয়ার্ড</label>
+                <input type="text" name="new_password" id="new_password" required
+                       placeholder="নতুন পাসওয়ার্ড লিখুন" autocomplete="off">
             </div>
-            <button type="submit" class="btn btn-green btn-block"><i class="fas fa-save"></i> পাসওয়ার্ড আপডেট করুন</button>
+
+            <button type="submit" class="btn btn-green btn-block" id="submitBtn">
+                <i class="fas fa-save"></i> পাসওয়ার্ড আপডেট করুন
+            </button>
         </form>
     </div>
-    <?php else: ?>
-    <div class="card" style="text-align:center;">
-        <p style="margin-bottom:15px;">কোনো ইউজার পাওয়া যায়নি। অনুগ্রহ করে নতুন ইউজার তৈরি করুন।</p>
-    </div>
-    <?php endif; ?>
 
     <div class="back-link">
         <a href="create_user.php"><i class="fas fa-user-plus"></i> নতুন ইউজার তৈরি করুন</a>
@@ -277,7 +295,15 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
 </div>
 
 <script>
+// টোস্ট অটো-হাইড
 setTimeout(function(){document.querySelectorAll('.toast').forEach(function(t){if(t.parentNode)t.parentNode.removeChild(t)})},3200);
+
+// সাবমিট বাটনে লোডিং স্টেট
+document.getElementById('pwdForm').addEventListener('submit', function(){
+    var btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> আপডেট হচ্ছে...';
+});
 </script>
 </body>
 </html>

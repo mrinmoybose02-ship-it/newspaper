@@ -1,71 +1,95 @@
 <?php
 /**
  * ══════════════════════════════════════════════════════
- *   ইউজার ম্যানেজমেন্ট টুল
+ *   নতুন ইউজার তৈরি  (create_user.php)
+ *   -- আগের admin_login.php-এর কোড এখানে সরিয়ে দেওয়া হলো
  * ══════════════════════════════════════════════════════
  */
 require_once 'config.php';
 
-// Ensure necessary columns exist in the database
-try {
-    $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `is_approved` TINYINT(1) NOT NULL DEFAULT 1");
-    $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `permissions` TEXT NULL DEFAULT '{}'");
-    $pdo->exec("ALTER TABLE `users` ADD COLUMN IF NOT EXISTS `role` VARCHAR(50) NULL DEFAULT 'viewer'");
-} catch (PDOException $e) {
-    // Ignore if they already exist
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+function addColumnIfMissing(PDO $pdo, $table, $column, $definition) {
+    try {
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = ?
+               AND COLUMN_NAME = ?"
+        );
+        $stmt->execute([$table, $column]);
+        if ((int)$stmt->fetchColumn() === 0) {
+            $safeTable  = preg_replace('/[^A-Za-z0-9_]/', '', $table);
+            $safeColumn = preg_replace('/[^A-Za-z0-9_]/', '', $column);
+            $pdo->exec("ALTER TABLE `{$safeTable}` ADD COLUMN `{$safeColumn}` {$definition}");
+        }
+    } catch (PDOException $e) {
+        // Ignore
+    }
 }
 
- $msg = ''; $msgType = '';
+addColumnIfMissing($pdo, 'users', 'is_approved',  "TINYINT(1) NOT NULL DEFAULT 1");
+addColumnIfMissing($pdo, 'users', 'permissions', "TEXT NULL");
+addColumnIfMissing($pdo, 'users', 'role',        "VARCHAR(50) NULL DEFAULT 'viewer'");
 
-/* POST হ্যান্ডেল */
+$msg = ''; $msgType = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    // 2. Create New User with Roles & Permissions
     if ($action === 'create_user') {
         $username = trim($_POST['new_username'] ?? '');
         $rawPass  = trim($_POST['new_user_pass'] ?? '');
         $fullName = trim($_POST['new_full_name'] ?? '') ?: 'অ্যাডমিন';
-        
-        if (empty($username) || empty($rawPass)) { 
-            $msg = 'সব ফিল্ড পূরণ করুন'; $msgType = 'error'; 
+
+        if (empty($username) || empty($rawPass)) {
+            $msg = 'সব ফিল্ড পূরণ করুন'; $msgType = 'error';
         } else {
-            $chk = $pdo->prepare("SELECT id FROM users WHERE username = ?"); 
-            $chk->execute([$username]);
-            
-            if ($chk->fetch()) { 
-                $msg = "'{$username}' ইতোমধ্যে আছে"; $msgType = 'error'; 
-            } else {
-                // Define role permissions map
-                $rolePermsMap = [
-                    'editor'         => ['dashboard','add_news','manage_news','password'],
-                    'publisher'      => ['dashboard','add_news','manage_news','breaking','categories','home_panels','password'],
-                    'ad_manager'     => ['dashboard','ads','password'],
-                    'social_manager' => ['dashboard','social','contact','videos','password'],
-                    'market_viewer'  => ['dashboard','nse_market','password'],
-                    'viewer'         => ['dashboard','password'],
-                ];
+            try {
+                $chk = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+                $chk->execute([$username]);
 
-                // Get selected role from form
-                $selectedRole = $_POST['role'] ?? 'viewer';
+                if ($chk->fetch()) {
+                    $msg = "'{$username}' ইতোমধ্যে আছে"; $msgType = 'error';
+                } else {
+                    $rolePermsMap = [
+                        'editor'         => ['dashboard','add_news','manage_news','password'],
+                        'publisher'      => ['dashboard','add_news','manage_news','breaking','categories','home_panels','password'],
+                        'ad_manager'     => ['dashboard','ads','password'],
+                        'social_manager' => ['dashboard','social','contact','videos','password'],
+                        'market_viewer'  => ['dashboard','nse_market','password'],
+                        'viewer'         => ['dashboard','password'],
+                    ];
 
-                // Get permissions for the selected role
-                $perms = $rolePermsMap[$selectedRole] ?? ['dashboard','password'];
-                $permJson = json_encode($perms);
+                    $selectedRole = $_POST['role'] ?? 'viewer';
+                    if (!isset($rolePermsMap[$selectedRole])) {
+                        $selectedRole = 'viewer';
+                    }
 
-                // Security: Hash the plain password before saving
-                $password = password_hash($rawPass, PASSWORD_DEFAULT);
+                    $perms    = $rolePermsMap[$selectedRole];
+                    $permJson = json_encode($perms);
 
-                // Save BOTH permissions (as JSON) AND role name
-                $pdo->prepare("INSERT INTO users (username, password, full_name, is_approved, permissions, role) VALUES (?, ?, ?, 0, ?, ?)")->execute([
-                    $username, 
-                    $password, 
-                    $fullName, 
-                    $permJson,        
-                    $selectedRole     
-                ]);
+                    $password = password_hash($rawPass, PASSWORD_DEFAULT);
 
-                $msg = "নতুন ইউজার '{$username}' তৈরি হয়েছে! অনুমোদনের অপেক্ষায়।"; $msgType = 'success';
+                    $stmt = $pdo->prepare(
+                        "INSERT INTO users
+                            (username, password, full_name, is_approved, permissions, role)
+                         VALUES (?, ?, ?, 0, ?, ?)"
+                    );
+                    $stmt->execute([
+                        $username,
+                        $password,
+                        $fullName,
+                        $permJson,
+                        $selectedRole
+                    ]);
+
+                    $msg = "নতুন ইউজার '{$username}' তৈরি হয়েছে! অনুমোদনের অপেক্ষায়।";
+                    $msgType = 'success';
+                }
+            } catch (PDOException $e) {
+                $msg = 'ডাটাবেস ত্রুটি: ' . htmlspecialchars($e->getMessage());
+                $msgType = 'error';
             }
         }
     }
@@ -100,7 +124,6 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
 .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:all .3s}
 .btn:hover{transform:translateY(-1px)}
 .btn-red{background:var(--red);color:#fff}.btn-red:hover{background:#7F0000}
-.btn-green{background:var(--green);color:#fff}.btn-green:hover{background:#15803d}
 .btn-block{width:100%;justify-content:center}
 .toast{position:fixed;top:20px;right:20px;padding:14px 24px;border-radius:10px;color:#fff;font-weight:600;font-size:14px;z-index:9999;animation:ti .4s ease,to .4s ease 2.6s forwards;box-shadow:0 8px 25px rgba(0,0,0,.2);max-width:90vw}
 .toast-success{background:var(--green)}.toast-error{background:var(--red)}
@@ -124,7 +147,6 @@ body::after{content:'';position:fixed;width:400px;height:400px;background:radial
         <p>রোল ও পারমিশন সহ নতুন ইউজার যুক্ত করুন</p>
     </div>
 
-    <!-- ২. নতুন ইউজার তৈরি -->
     <div class="card">
         <h3><i class="fas fa-user-plus"></i> নতুন ইউজার তৈরি</h3>
         <form method="POST" action="">

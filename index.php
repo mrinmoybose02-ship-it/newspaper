@@ -17,6 +17,171 @@ try {
 } catch (Exception $e) {}
 
 // ============================================================
+//   ★ v7.23 INTEGRATED ARCHIVE DEBUG MODE
+//   URL: ?debug_archive=1              → current month
+//   URL: ?debug_archive=1&y=2026&m=8   → August 2026
+//   URL: ?debug_archive=1&y=2026&m=9   → September 2026
+//   সাধারণ ভিজিটর দেখবে না — শুধু এই প্যারামিটার দিলেই ডিবাগ প্যানেল দেখাবে।
+//   এটি index.php-এর ভেতরেই integrated, কোনো আলাদা ফাইল লাগবে না।
+// ============================================================
+if (isset($_GET['debug_archive'])) {
+    @ini_set('display_errors', '1');
+    @error_reporting(E_ALL);
+
+    $dbgMonth = (int)($_GET['m'] ?? date('n'));
+    $dbgYear  = (int)($_GET['y'] ?? date('Y'));
+
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Archive Debug</title>';
+    echo '<style>
+        body{font-family:monospace;background:#f5f5f5;padding:20px;line-height:1.6;font-size:13px;color:#222}
+        .box{background:#fff;border:1px solid #ddd;padding:15px;margin-bottom:15px;border-radius:5px}
+        h2{color:#B71C1C;margin-top:0;border-bottom:2px solid #B71C1C;padding-bottom:5px;font-family:Hind Siliguri,sans-serif}
+        .ok{color:#2e7d32;font-weight:700}.err{color:#c62828;font-weight:700}.warn{color:#f57f17;font-weight:700}
+        table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f0f0f0}
+        .query{background:#1a1a1a;color:#0f0;padding:10px;border-radius:5px;white-space:pre-wrap;word-break:break-all}
+        a.btn{display:inline-block;padding:5px 12px;margin:3px;border-radius:4px;text-decoration:none;background:#eee;color:#333;font-size:12px}
+        a.btn.active{background:#B71C1C;color:#fff;font-weight:700}
+    </style></head><body>';
+
+    echo '<div class="box"><h2>1. Time Settings</h2>';
+    echo 'PHP Timezone: <b>' . date_default_timezone_get() . '</b><br>';
+    echo 'PHP Current Time: <b>' . date('Y-m-d H:i:s') . '</b><br>';
+    echo 'PHP 30 Days Ago: <b>' . date('Y-m-d H:i:s', strtotime('-30 days')) . '</b><br>';
+    try {
+        $mysqlNow = $pdo->query("SELECT NOW() as n, @@time_zone as tz")->fetch();
+        echo 'MySQL NOW(): <b>' . $mysqlNow['n'] . '</b><br>';
+        echo 'MySQL Timezone: <b>' . $mysqlNow['tz'] . '</b><br>';
+        if (strpos($mysqlNow['n'], date('Y-m-d')) !== 0) {
+            echo '<span class="err">ERROR: PHP ও MySQL সময় মিলছে না — timezone mismatch! এটিই মূল সমস্যার কারণ।</span><br>';
+        } else {
+            echo '<span class="ok">OK: PHP ও MySQL একই দিনে আছে।</span><br>';
+        }
+    } catch (Exception $e) {
+        echo '<span class="err">MySQL error: ' . htmlspecialchars($e->getMessage()) . '</span><br>';
+    }
+    echo '</div>';
+
+    echo '<div class="box"><h2>2. নির্বাচিত মাস: ' . $dbgYear . '-' . str_pad($dbgMonth, 2, '0', STR_PAD_LEFT) . '</h2></div>';
+
+    // Total published news
+    echo '<div class="box"><h2>3. মোট Published News</h2>';
+    try {
+        $total = $pdo->query("SELECT COUNT(*) FROM news WHERE status='published'")->fetchColumn();
+        echo '<b>' . $total . '</b>টি published news আছে।<br>';
+    } catch (Exception $e) {
+        echo '<span class="err">Error: ' . htmlspecialchars($e->getMessage()) . '</span>';
+    }
+    echo '</div>';
+
+    // News in selected month
+    echo '<div class="box"><h2>4. নির্বাচিত মাসের News</h2>';
+    try {
+        $stmt = $pdo->prepare("SELECT id, title, category_id, created_at, status FROM news WHERE status='published' AND YEAR(created_at)=? AND MONTH(created_at)=? ORDER BY created_at DESC");
+        $stmt->execute([$dbgYear, $dbgMonth]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo '<p>এই মাসে <b>' . count($rows) . '</b>টি news পাওয়া গেছে।</p>';
+        if (count($rows) > 0) {
+            echo '<table><tr><th>ID</th><th>Title</th><th>category_id</th><th>created_at</th></tr>';
+            foreach ($rows as $r) {
+                echo '<tr><td>' . $r['id'] . '</td><td>' . htmlspecialchars($r['title']) . '</td><td>' . $r['category_id'] . '</td><td>' . $r['created_at'] . '</td></tr>';
+            }
+            echo '</table>';
+            echo '<p class="ok">✓ এই মাসের news database-এ আছে। যদি আর্কাইভ পেজে না দেখায়, তবে index.php-এর query-তে সমস্যা।</p>';
+        } else {
+            echo '<span class="err">এই মাসে database-এ কোনো published news নেই।</span><br>';
+            echo '<p>database-এ কোন মাসে news আছে দেখুন:</p>';
+            $months = $pdo->query("SELECT YEAR(created_at) as y, MONTH(created_at) as m, COUNT(*) as c FROM news WHERE status='published' GROUP BY y, m ORDER BY y DESC, m DESC")->fetchAll(PDO::FETCH_ASSOC);
+            echo '<table><tr><th>Year</th><th>Month</th><th>Count</th></tr>';
+            foreach ($months as $m) {
+                echo '<tr><td>' . $m['y'] . '</td><td>' . $m['m'] . '</td><td>' . $m['c'] . '</td></tr>';
+            }
+            echo '</table>';
+        }
+    } catch (Exception $e) {
+        echo '<span class="err">Error: ' . htmlspecialchars($e->getMessage()) . '</span>';
+    }
+    echo '</div>';
+
+    // Exact archive query
+    echo '<div class="box"><h2>5. আর্কাইভ পেজের Exact SQL Query</h2>';
+    $archYear = $dbgYear;
+    $archMonth = $dbgMonth;
+    $sql = "SELECT n.*, c.name as category_name FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published'";
+    $sql .= " AND YEAR(n.created_at) = " . (int)$archYear;
+    $sql .= " AND MONTH(n.created_at) = " . (int)$archMonth;
+    $sql .= " ORDER BY n.created_at DESC LIMIT 10";
+    echo '<p>SQL Query:</p>';
+    echo '<div class="query">' . htmlspecialchars($sql) . '</div>';
+    try {
+        $result = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        echo '<p>Query returned <b>' . count($result) . '</b> rows.</p>';
+        if (count($result) > 0) {
+            echo '<table><tr><th>ID</th><th>Title</th><th>Category</th><th>created_at</th></tr>';
+            foreach ($result as $r) {
+                echo '<tr><td>' . $r['id'] . '</td><td>' . htmlspecialchars($r['title']) . '</td><td>' . htmlspecialchars($r['category_name'] ?? 'NULL') . '</td><td>' . $r['created_at'] . '</td></tr>';
+            }
+            echo '</table>';
+        }
+    } catch (Exception $e) {
+        echo '<span class="err">Query Error: ' . htmlspecialchars($e->getMessage()) . '</span>';
+    }
+    echo '</div>';
+
+    // NULL category check
+    echo '<div class="box"><h2>6. NULL category_id সহ News</h2>';
+    try {
+        $nulls = $pdo->query("SELECT COUNT(*) FROM news WHERE category_id IS NULL OR category_id = 0")->fetchColumn();
+        echo '<p>News with NULL/0 category_id: <b>' . $nulls . '</b></p>';
+        if ($nulls > 0) {
+            $nullRows = $pdo->query("SELECT id, title, category_id, created_at FROM news WHERE category_id IS NULL OR category_id = 0 LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
+            echo '<table><tr><th>ID</th><th>Title</th><th>category_id</th><th>created_at</th></tr>';
+            foreach ($nullRows as $r) {
+                echo '<tr><td>' . $r['id'] . '</td><td>' . htmlspecialchars($r['title']) . '</td><td>' . ($r['category_id'] ?? 'NULL') . '</td><td>' . $r['created_at'] . '</td></tr>';
+            }
+            echo '</table>';
+            echo '<p class="warn">⚠ News with NULL category_id category filter-এ দেখাবে না।</p>';
+        }
+    } catch (Exception $e) {
+        echo '<span class="err">Error: ' . htmlspecialchars($e->getMessage()) . '</span>';
+    }
+    echo '</div>';
+
+    // Status breakdown
+    echo '<div class="box"><h2>7. News Status Breakdown</h2>';
+    try {
+        $statuses = $pdo->query("SELECT status, COUNT(*) as c FROM news GROUP BY status")->fetchAll(PDO::FETCH_ASSOC);
+        echo '<table><tr><th>Status</th><th>Count</th></tr>';
+        foreach ($statuses as $s) {
+            echo '<tr><td>' . htmlspecialchars($s['status']) . '</td><td>' . $s['c'] . '</td></tr>';
+        }
+        echo '</table>';
+    } catch (Exception $e) {
+        echo '<span class="err">Error: ' . htmlspecialchars($e->getMessage()) . '</span>';
+    }
+    echo '</div>';
+
+    // Month navigation
+    echo '<div class="box"><h2>8. অন্য মাস টেস্ট করুন</h2><p>';
+    for ($m = 1; $m <= 12; $m++) {
+        $active = ($m == $dbgMonth) ? ' active' : '';
+        echo '<a class="btn' . $active . '" href="?debug_archive=1&y=' . $dbgYear . '&m=' . $m . '">' . $m . '</a>';
+    }
+    echo '</p><p>অন্য বছর:</p><p>';
+    for ($y = 2024; $y <= 2027; $y++) {
+        $active = ($y == $dbgYear) ? ' active' : '';
+        echo '<a class="btn' . $active . '" href="?debug_archive=1&y=' . $y . '&m=' . $dbgMonth . '">' . $y . '</a>';
+    }
+    echo '</p></div>';
+
+    echo '<div class="box"><p style="text-align:center;font-size:11px;color:#999">★ v7.23 Integrated Archive Debug — index.php-এর ভেতরে সংযুক্ত। URL-থেকে debug_archive প্যারামিটার সরালে এই প্যানেল আর দেখাবে না।</p></div>';
+
+    echo '</body></html>';
+    exit;
+}
+// ============================================================
+
+// ============================================================
 //   VISITOR TRACKING (database-based — Admin "Visitor Monitor" panel-er সাথে connected)
 //   index.php footer count এবং admin Visitor Monitor একই সংখ্যা দেখাবে
 //   কারণ দুটোই visitor_stats table থেকে read করছে।
@@ -793,8 +958,9 @@ function ttsGoogleTranslate($text, $client = 'gtx') {
 if (isset($_GET['action']) && $_GET['action'] === 'api_latest_news') {
     header('Content-Type: application/json; charset=utf-8');
     try {
-        $stmt = $pdo->prepare("SELECT id, title, slug, image FROM news WHERE status='published' AND created_at <= NOW() ORDER BY created_at DESC LIMIT 1");
-        $stmt->execute();
+        $__ajaxNow = date('Y-m-d H:i:s');
+        $stmt = $pdo->prepare("SELECT id, title, slug, image FROM news WHERE status='published' AND created_at <= ? ORDER BY created_at DESC LIMIT 1");
+        $stmt->execute([$__ajaxNow]);
         $latest = $stmt->fetch(PDO::FETCH_ASSOC);
         // ★ English mode: translate the title for the TTS/anchor widget
         if ($latest && !empty($GLOBALS['SITE_LANG']) && $GLOBALS['SITE_LANG'] === 'en'
@@ -900,9 +1066,10 @@ if (isset($_GET['ajax_check_new_news'])) {
                                LEFT JOIN categories c ON n.category_id = c.id 
                                LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id 
                                LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id 
-                               WHERE n.status = 'published' AND n.id > ? AND n.created_at <= NOW() 
+                               WHERE n.status = 'published' AND n.id > ? AND n.created_at <= ?
                                ORDER BY n.id ASC");
-        $stmt->execute([$last_id]);
+        $__ajaxCheckNow = date('Y-m-d H:i:s');
+        $stmt->execute([$last_id, $__ajaxCheckNow]);
         $newNewsList = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         if (!empty($newNewsList)) {
@@ -1164,15 +1331,14 @@ try { $pdo->exec("ALTER TABLE news ADD COLUMN tags VARCHAR(500) DEFAULT '' AFTER
  $pdo->exec("CREATE TABLE IF NOT EXISTS news_subcategories (news_id INT NOT NULL,subcategory_id INT NOT NULL,PRIMARY KEY (news_id, subcategory_id),INDEX idx_sub (subcategory_id),INDEX idx_news (news_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 // ====== AUTO-MOVE OLD NEWS TO ARCHIVE CATEGORY ======
-try {
-    $stmtArchCat = $pdo->prepare("SELECT id FROM categories WHERE name = 'আর্কাইভ' LIMIT 1");
-    $stmtArchCat->execute();
-    $archiveCatId = $stmtArchCat->fetchColumn();
-    if ($archiveCatId) {
-        $stmtMove = $pdo->prepare("UPDATE news SET category_id = ? WHERE created_at < (NOW() - INTERVAL 30 DAY) AND created_at <= NOW() AND status = 'published' AND category_id != ?");
-        $stmtMove->execute([$archiveCatId, $archiveCatId]);
-    }
-} catch (Exception $e) {}
+// ★ FIX (v7.20): Auto-archive DISABLED on page load.
+//   আগে প্রতি page load-এ এই query চলতো যার ফলে ৫০ দিনের পুরোনা news
+//   তার আসল category থেকে সরে "আর্কাইভ" category-তে চলে যেত।
+//   ফলে admin-এ আপলোড করা news হঠাৎ frontend-এ দেখা যাচ্ছিল না।
+//   এখন archive-এ যাওয়া শুধু display filter হিসাবে কাজ করবে,
+//   category_id পরিবর্তন হবে না।
+$__phpNow = date('Y-m-d H:i:s');                    // current IST time
+$__php30DaysAgo = date('Y-m-d H:i:s', strtotime('-30 days'));  // 30 days ago IST
 // =====================================================
 
  $currentCat = $_GET['cat'] ?? '';
@@ -1195,21 +1361,25 @@ if ($currentSub) {
  $show_all_news = isset($_COOKIE['show_all_news']) && $_COOKIE['show_all_news'] === 'yes';
  $is_archive_cat = ($currentCat === 'আর্কাইভ');
  $is_archive_view = $is_archive_cat || ($archYear > 0); // ?y=&m= মাস-ভিউগুলোও আর্কাইভের অংশ
- $futureLimit = " AND n.created_at <= NOW()";
+// ★ $__phpNow and $__php30DaysAgo already defined above (before auto-archive block)
+// Using PHP-computed timestamps (IST) instead of MySQL NOW() to avoid timezone mismatch
+// on shared hosting where SET time_zone fails silently.
+ $futureLimit = ""; // FIX v7.20: future-date filter সরানো হয়েছে — timezone mismatch-এ news লুকাত
 if ($show_all_news) {
     $pastLimit = ""; // মালিকের escape-hatch cookie: সব খবর সব জায়গায়
 } elseif ($is_archive_view) {
-    $pastLimit = " AND n.created_at < (NOW() - INTERVAL 30 DAY)"; // আর্কাইভে শুধু ৩০ দিনের বেশি পুরোনো খবর
+    // FIX v7.21: Archive page-এ সব published news দেখাবে — ৩০ দিনের পুরোনো হওয়ার বাধ্যবাধকতা সরানো হয়েছে
+    // আগে ছিল: AND n.created_at < '{$__php30DaysAgo}' — যার ফলে নতুন news-যুক্ত মাস archive-এ দেখাত না
+    $pastLimit = "";
 } else {
-    $pastLimit = " AND n.created_at >= (NOW() - INTERVAL 30 DAY)"; // সাধারণ ভিউ: শেষ ৩০ দিনের খবর
+    $pastLimit = " AND n.created_at >= '{$__php30DaysAgo}'"; // সাধারণ ভিউ: শেষ ৩০ দিনের খবর (homepage/category)
 }
  $dateLimitSQL = $futureLimit . $pastLimit;
 
-// Archive Dropdown ★ v6.7: শুধু সেই মাসগুলো দেখাবে যেখানে ৩০ দিনের বেশি পুরোনো খবর আছে —
-// বর্তমান মাস (এখনো ৩০ দিন হয়নি এমন খবর) কখনো তালিকায় আসবে না
+// Archive Dropdown ★ v7.21 FIX: সব মাস দেখাবে যেখানে published news আছে (৩০ দিনের পুরোনো হওয়ার বাধ্যবাধকতা সরানো হয়েছে)
  $archiveDates = [];
 try {
-    $archStmt = $pdo->query("SELECT YEAR(n.created_at) as y, MONTH(n.created_at) as m FROM news n WHERE n.status = 'published' AND n.created_at < (NOW() - INTERVAL 30 DAY) AND n.created_at <= NOW() GROUP BY y, m ORDER BY y DESC, m DESC");
+    $archStmt = $pdo->query("SELECT YEAR(n.created_at) as y, MONTH(n.created_at) as m FROM news n WHERE n.status = 'published' GROUP BY y, m ORDER BY y DESC, m DESC");
     $archiveDates = $archStmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
  $bnMonths = [1=>'জানুয়ারি', 2=>'ফেব্রুয়ারি', 3=>'মার্চ', 4=>'এপ্রিল', 5=>'মে', 6=>'জুন', 7=>'জুলাই', 8=>'আগস্ট', 9=>'সেপ্টেম্বর', 10=>'অক্টোবর', 11=>'নভেম্বর', 12=>'ডিসেম্বর'];
@@ -1219,7 +1389,7 @@ try {
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
 // Breaking News: Valid for 30 days only, no future dates
- $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= (NOW() - INTERVAL 30 DAY) AND created_at <= NOW() ORDER BY created_at DESC")->fetchAll());
+ $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= '{$__php30DaysAgo}' ORDER BY created_at DESC")->fetchAll());
 
 // ====== PERFORMANCE FIX: Fetch Latest News ID directly instead of loading all news ======
 // ★ v6.6: id + title দুটোই নেওয়া হচ্ছে — পেজ লোডেই সর্বশেষ খবরের পপ-আপ দেখানোর জন্য।
@@ -1227,7 +1397,7 @@ foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $ca
 // (নাহলে সেটা প্রকাশের সময় নোটিফিকেশন মিস হয়ে যেত)।
 $latestNewsId = 0; $latestNewsTitle = '';
 try {
-    $lnRow = $pdo->query("SELECT id, title FROM news WHERE status='published' AND created_at <= NOW() ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $lnRow = $pdo->query("SELECT id, title FROM news WHERE status='published' ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
     if ($lnRow) { $latestNewsId = (int)$lnRow['id']; $latestNewsTitle = (string)bn_to_en($lnRow['title']); }
 } catch (Exception $e) {}
 // ★ v6.6: true = পেজ খুললেই (৪ সেকেন্ড পর) সর্বশেষ খবরের পপ-আপ দেখাবে; false = শুধু নতুন খবর এলে দেখাবে
@@ -1238,7 +1408,7 @@ $latestNewsTitleJS = json_encode(($latestNewsTitle !== '' ? $latestNewsTitle : $
 // ====== PERFORMANCE FIX: Fetch Popular Posts directly with LIMIT ======
  $popularPosts = [];
 try {
-    $ppStmt = $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published' AND n.created_at >= (NOW() - INTERVAL 30 DAY) AND n.created_at <= NOW() ORDER BY n.is_featured DESC, n.created_at DESC LIMIT 6");
+    $ppStmt = $pdo->query("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.status = 'published' AND n.created_at >= '{$__php30DaysAgo}' ORDER BY n.is_featured DESC, n.created_at DESC LIMIT 6");
     $popularPosts = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $ppStmt->fetchAll()));
 } catch (Exception $e) {}
 
@@ -1344,7 +1514,7 @@ try {
  $homeVideos = array_slice($videos, 0, 6);
 
 if ($page === 'single') {
-    $stmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id = ? AND n.status = 'published' AND n.created_at <= NOW()");
+    $stmt = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id = ? AND n.status = 'published' AND n.created_at <= '{$__phpNow}'");
     $stmt->execute([(int)($_GET['id'] ?? 0)]);
     if ($row = $stmt->fetch()) {
         $row = safeMapNewsKeys($row);
@@ -1354,13 +1524,14 @@ if ($page === 'single') {
         $related = [];
         if (!empty($singleRelatedTags)) {
             // PERFORMANCE FIX: Limit tag search to first 2 tags to prevent slow LIKE queries
+            // ★ FIX v7.29: "সম্পর্কিত সংবাদ" section-এ শুধু ৩টি news দেখাবে (আগে ছিল ৬টি)
             $searchTags = array_slice($singleRelatedTags, 0, 2);
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($searchTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND n.status = 'published'{$dateLimitSQL} AND (" . implode(' OR ', array_fill(0, count($searchTags), 'n.tags LIKE ?')) . ") ORDER BY n.created_at DESC LIMIT 3");
             $stmt2->execute(array_merge([$singleNews['id']], array_map(function($t){ return "%$t%"; }, $searchTags)));
             $related = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt2->fetchAll()));
         }
         if (empty($related)) {
-            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 6");
+            $stmt2 = $pdo->prepare("SELECT n.*, c.name as category_name, sc.name as subcategory_name, sc.id as subcategory_id FROM news n LEFT JOIN categories c ON n.category_id = c.id LEFT JOIN (SELECT news_id, subcategory_id FROM news_subcategories GROUP BY news_id) nsc ON n.id = nsc.news_id LEFT JOIN subcategories sc ON nsc.subcategory_id = sc.id WHERE n.id != ? AND c.name = ? AND n.status = 'published'{$dateLimitSQL} ORDER BY n.created_at DESC LIMIT 3");
             $stmt2->execute([$singleNews['id'], $singleNews['category']]);
             $related = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt2->fetchAll()));
         }
@@ -1389,7 +1560,24 @@ if ($page === 'single') {
 
     $gridSql = $sql . " ORDER BY n.created_at DESC";
     $gridCountSql = $countSql;
-    if (!$searchQuery && !$currentSub && !$archYear && !$archMonth) {
+
+    // ★ FIX v7.22: Archive month/year view (?y=&m=) এর জন্য news grid load করার logic
+    // আগে condition ছিল: if (!$searchQuery && !$currentSub && !$archYear && !$archMonth)
+    // যার ফলে archive month view-তে গেলে কোনো news grid-এ load হত না (empty page দেখাত)
+    if ($archYear || $archMonth) {
+        // ===== ARCHIVE MONTH VIEW: directly load grid (no banner, no side panel) =====
+        $currentPage = max(1, intval($_GET['p'] ?? 1));
+        $perPage = 12; // আর্কাইভে প্রতি পেজে ১২টা খবর দেখাবে
+        $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params);
+        $totalGrid = (int)$stmt->fetchColumn();
+        $totalPages = max(1, ceil($totalGrid / $perPage));
+        if ($currentPage > $totalPages) $currentPage = $totalPages;
+        $offset = ($currentPage - 1) * $perPage;
+        $stmt = $pdo->prepare($gridSql . " LIMIT " . $perPage . " OFFSET " . $offset);
+        $stmt->execute($params);
+        $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
+        $displayFeatured = []; // আর্কাইভে banner দেখাবে না
+    } elseif (!$searchQuery && !$currentSub) {
         $isCategoryPage = !empty($currentCat);
 
         if ($isCategoryPage) {
@@ -1914,7 +2102,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kn-more-btn:hover i{opacity:1}
 .kn-more-btn:hover i.fa-chevron-down{transform:rotate(180deg)}
 .kn-more-btn.is-active{color:var(--gold);border-bottom-color:var(--gold)}
-.kn-panel{display:none;position:absolute;top:100%;right:0;min-width:320px;max-width:380px;max-height:70vh;overflow-y:auto;background:var(--nav-bg);border:1px solid rgba(255,255,255,.1);border-top:2px solid var(--gold);border-radius:0 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:999;padding:6px 0;scrollbar-width:4px}
+.kn-panel{display:none;position:absolute;top:calc(100% + 2px);right:120px;min-width:320px;max-width:380px;max-height:70vh;overflow-y:auto;background:var(--nav-bg);border:1px solid rgba(255,255,255,.1);border-top:2px solid var(--gold);border-radius:0 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:999;padding:6px 0;scrollbar-width:4px}
 .kn-panel::-webkit-scrollbar{width:4px}.kn-panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
 .kn-panel.open{display:block;animation:kdSlide .15s ease}
 .kn-pl-link{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:12.5px;font-weight:500;color:#ccc;transition:all .15s;position:relative;cursor:pointer}
@@ -1957,6 +2145,8 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .sb-close:hover{background:var(--red);color:#fff}
 .sb-close i{font-size:10px}
 .kol-main{min-width:0;overflow:hidden}
+/* ====== DESKTOP ONLY: both panels shift outward toward viewport edges ====== */
+@media(min-width:1025px){.kol-sidebar{margin-left:-20px}.kol-main{margin-right:-20px}}
 .ad-bottom-sec{margin:24px 0;display:flex;flex-wrap:wrap;gap:16px;justify-content:center}
 .ad-bottom-sec .ad-block{flex:1;min-width:300px;max-width:728px;background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;text-align:center;margin-bottom:0}
 .ad-block .ad-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;padding:5px 0;background:var(--bg);border-bottom:1px solid var(--border)}
@@ -1968,19 +2158,21 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .sb-block{background:var(--card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px;overflow:hidden}
 .sb-block h3{font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;color:var(--red);padding:10px 12px 8px;border-bottom:2px solid var(--red);display:flex;align-items:center;gap:6px}
 .sb-block h3 i{font-size:12px}
-.sb-cat-list{list-style:none;padding:4px 0}
+/* ★ FIX v7.26: Categories panel বাম দিকে সরানো হয়েছে — list-এর padding কমানো হয়েছে
+   যাতে panel-টি সাইডবারের পুরো প্রস্থ ব্যবহার করে এবং কন্টেন্ট বামে চলে আসে। */
+.sb-cat-list{list-style:none;padding:0;margin:0}
 .sb-ci{position:relative}
-.sb-ci a{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;font-size:12.5px;font-weight:500;color:var(--fg);transition:all .15s;text-decoration:none}
+.sb-ci a{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 12px;border-radius:0;font-size:12.5px;font-weight:500;color:var(--fg);transition:all .15s;text-decoration:none;border-left:3px solid transparent}
 .sb-ci.has-subs a{padding-right:32px}
-.sb-ci a:hover,.sb-ci a.active{background:rgba(183,28,28,.06);color:var(--red)}
+.sb-ci a:hover,.sb-ci a.active{background:rgba(183,28,28,.06);color:var(--red);border-left-color:var(--red)}
 .sb-ci a i{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);border-radius:4px;font-size:10px;color:var(--red);flex-shrink:0}
 .sb-ci a span{flex:1}
 .sb-cc{font-size:9px;color:#fff;background:var(--red);padding:0 5px;height:15px;border-radius:9999px;min-width:15px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1}
-.sb-st{position:absolute;right:2px;top:4px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);border:1px solid rgba(183,28,28,.15);color:var(--red);font-size:8px;cursor:pointer;border-radius:4px;transition:all .2s;z-index:20}
-.sb-st:hover{background:rgba(183,28,28,.18);transform:scale(1.1)}
+.sb-st{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);border:1px solid rgba(183,28,28,.15);color:var(--red);font-size:8px;cursor:pointer;border-radius:4px;transition:all .2s;z-index:20}
+.sb-st:hover{background:rgba(183,28,28,.18);transform:translateY(-50%) scale(1.05)}
 .sb-st.open{background:var(--red);color:#fff;border-color:var(--red)}
 .sb-st i{transition:transform .3s}.sb-st.open i{transform:rotate(180deg)}
-.sb-sl{display:none;list-style:none;padding:2px 0 2px 10px;margin:0 0 4px 12px;border-left:2px solid var(--border)}
+.sb-sl{display:none;list-style:none;padding:2px 0 2px 10px;margin:0 0 4px 18px;border-left:2px solid var(--border)}
 .sb-sl.open{display:block}
 .sb-si a{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:4px;font-size:11.5px;color:var(--muted);transition:all .15s;text-decoration:none}
 .sb-si a:hover,.sb-si a.active{background:rgba(183,28,28,.06);color:var(--red)}
@@ -2974,9 +3166,11 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
 <?php if (!empty($fm['excerpt'])): ?><p><?= htmlspecialchars(bn_to_en($fm['excerpt'])) ?></p><?php endif; ?>
 </div>
 </a>
-<?php if (!empty($fsItems)): ?>
+<?php /* ★ FIX v7.25: feat-side panel সবসময় দেখাবে — এতে কিছু news না থাকলেও
+   panel (title সহ) দেখাবে এবং ভেতরে "শীর্ষ সংবাদ নেই" বার্তা দেখাবে। */ ?>
 <div class="feat-side">
     <div class="feat-side-title"><i class="fas fa-star"></i> শীর্ষ সংবাদ</div>
+    <?php if (!empty($fsItems)): ?>
     <?php foreach ($fsItems as $fsi): ?>
     <a href="?page=single&id=<?= $fsi['id'] ?>" class="feat-si">
     <img src="<?= newsImage($fsi['image'], $placeholderImgSm) ?>" alt="" loading="lazy" decoding="async">
@@ -2987,8 +3181,13 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
     </div>
     </a>
     <?php endforeach; ?>
+    <?php else: ?>
+    <div style="padding:30px 15px;text-align:center;color:var(--muted);font-size:13px">
+        <i class="fas fa-newspaper" style="font-size:28px;opacity:.3;display:block;margin-bottom:8px"></i>
+        শীর্ষ সংবাদ নেই
+    </div>
+    <?php endif; ?>
 </div>
-<?php endif; ?>
 </div>
 </div>
 <?php endif; ?>
@@ -3055,7 +3254,11 @@ if (empty($vThumb)) $vThumb = $placeholderImgSm;
 
 <?php
  $showStandardNewsGrid = !empty($pagedGrid);
-if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$showLatestNews && !$archYear && !$archMonth) {
+// ★ FIX v7.24: Homepage-এ "সর্বশেষ সংবাদ" news grid বন্ধ করা হলো (user request)।
+//   feat-section-এর ভেতরে feat-side "শীর্ষ সংবাদ" panel আগের মতোই দেখাবে।
+//   Homepage-এর জন্য শুধু cat-panel-sec (জাতীয়/আন্তর্জাতিক/খেলাধুলা ইত্যাদি) + feat-section দেখাবে।
+//   Category page / search / archive page-এ news grid আগের মতোই কাজ করবে।
+if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$archYear && !$archMonth) {
     $showStandardNewsGrid = false;
 }
 ?>

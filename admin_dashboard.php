@@ -211,8 +211,21 @@ try {
     )");
 } catch (Exception $e) {}
 
+// ★ Create Password Change Requests Table (admin approval workflow)
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS password_change_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        new_password VARCHAR(255) NOT NULL,
+        requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'pending',
+        INDEX idx_pcr_status (status),
+        INDEX idx_pcr_user (user_id)
+    )");
+} catch (Exception $e) {}
+
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "breaking_speed", "users", "date_requests", "visitor_stats"];
+ $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "breaking_speed", "users", "date_requests", "visitor_stats", "password_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -234,6 +247,29 @@ if ($section === "date_requests" && $currentUserPerms === null) {
         if (hash_equals($_SESSION['csrf_token'] ?? "", $_GET['token'])) {
             $pdo->prepare("UPDATE date_change_requests SET status='rejected' WHERE id=?")->execute([(int)$_GET['reject']]);
             $umsg = "Date change request rejected.";
+        }
+    }
+}
+
+// ★ Handle Password Change Request Approve/Reject (Super Admin only)
+if ($section === "password_requests" && $currentUserPerms === null) {
+    if (isset($_GET['approve']) && isset($_GET['token'])) {
+        if (hash_equals($_SESSION['csrf_token'] ?? "", $_GET['token'])) {
+            $rid = (int)$_GET['approve'];
+            $prStmt = $pdo->prepare("SELECT * FROM password_change_requests WHERE id=? AND status='pending'");
+            $prStmt->execute([$rid]);
+            $prData = $prStmt->fetch(PDO::FETCH_ASSOC);
+            if ($prData) {
+                $pdo->prepare("UPDATE users SET password=? WHERE id=?")->execute([$prData['new_password'], $prData['user_id']]);
+                $pdo->prepare("UPDATE password_change_requests SET status='approved' WHERE id=?")->execute([$rid]);
+                $umsg = "Password change request approved and applied successfully.";
+            }
+        }
+    }
+    if (isset($_GET['reject']) && isset($_GET['token'])) {
+        if (hash_equals($_SESSION['csrf_token'] ?? "", $_GET['token'])) {
+            $pdo->prepare("UPDATE password_change_requests SET status='rejected' WHERE id=?")->execute([(int)$_GET['reject']]);
+            $umsg = "Password change request rejected.";
         }
     }
 }
@@ -788,7 +824,37 @@ if ($section === "ads") {
  $passSuccess = ""; $passError = "";
 if ($section === "password" && $_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['user_action'])) {
     if (!verifyCSRF()) { $passError = "Token mismatch."; }
-    else { $cp = $_POST["current_password"] ?? ""; $np = $_POST["new_password"] ?? ""; $cfp = $_POST["confirm_password"] ?? ""; if (empty($cp) || empty($np) || empty($cfp)) { $passError = "Please fill all fields."; } elseif ($np !== $cfp) { $passError = "Passwords do not match."; } elseif (strlen($np) < 4) { $passError = "At least 4 characters."; } else { $u = $pdo->prepare("SELECT password FROM users WHERE id=?"); $u->execute([$_SESSION["user_id"]]); $ur = $u->fetch(); if ($ur && $cp === $ur["password"]) { $pdo->prepare("UPDATE users SET password=? WHERE id=?")->execute([$np, $_SESSION["user_id"]]); $passSuccess = "Password changed successfully."; } else { $passError = "Current password is wrong."; } } }
+    else {
+        $cp = $_POST["current_password"] ?? ""; 
+        $np = $_POST["new_password"] ?? ""; 
+        $cfp = $_POST["confirm_password"] ?? "";
+        if (empty($cp) || empty($np) || empty($cfp)) { $passError = "Please fill all fields."; }
+        elseif ($np !== $cfp) { $passError = "Passwords do not match."; }
+        elseif (strlen($np) < 4) { $passError = "At least 4 characters."; }
+        else {
+            $u = $pdo->prepare("SELECT password FROM users WHERE id=?");
+            $u->execute([$_SESSION["user_id"]]);
+            $ur = $u->fetch();
+            if ($ur && $cp === $ur["password"]) {
+                if ($currentUserPerms === null) {
+                    // ★ Super Admin — change directly (no approval needed)
+                    $pdo->prepare("UPDATE users SET password=? WHERE id=?")->execute([$np, $_SESSION["user_id"]]);
+                    $passSuccess = "Password changed successfully.";
+                } else {
+                    // ★ Other users — submit as pending request to Super Admin
+                    try {
+                        // Remove any old pending request from this user (only keep latest)
+                        $pdo->prepare("DELETE FROM password_change_requests WHERE user_id=? AND status='pending'")->execute([$_SESSION["user_id"]]);
+                        // Insert new pending request
+                        $pdo->prepare("INSERT INTO password_change_requests (user_id, new_password, requested_at, status) VALUES (?, ?, NOW(), 'pending')")->execute([$_SESSION["user_id"], $np]);
+                        $passSuccess = "✓ Password change request submitted! An administrator will review and approve it shortly. Your current password will continue to work until approval.";
+                    } catch (Exception $e) {
+                        $passError = "Failed to submit request. Please try again.";
+                    }
+                }
+            } else { $passError = "Current password is wrong."; }
+        }
+    }
 }
 
  $vidSuccess = ""; $vidError = ""; $videos = [];
@@ -859,6 +925,10 @@ try { $pendingUsersCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE is
 
  $pendingDateRequestsCount = 0;
 try { $pendingDateRequestsCount = (int)$pdo->query("SELECT COUNT(*) FROM date_change_requests WHERE status='pending'")->fetchColumn(); } catch (Exception $e) {}
+
+// ★ Count pending password change requests (for popup notification on dashboard)
+$pendingPasswordRequestsCount = 0;
+try { $pendingPasswordRequestsCount = (int)$pdo->query("SELECT COUNT(*) FROM password_change_requests WHERE status='pending'")->fetchColumn(); } catch (Exception $e) {}
 
  $currentRoleKey = !empty($currentUserData['role']) ? $currentUserData['role'] : getUserRole($currentUserData['permissions'] ?? null);
  $currentUserRoleLabel = $allRoles[$currentRoleKey]['label'] ?? 'Custom';
@@ -1147,6 +1217,7 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php endif; ?>
 <?php if ($currentUserPerms === null): // Super Admin Only Link ?>
 <?= secLink("date_requests","fa-calendar-check","Date Requests", $pendingDateRequestsCount > 0 ? '<span class="badge pending">'.$pendingDateRequestsCount.' Pending</span>' : '') ?>
+<?= secLink("password_requests","fa-key","Password Requests", $pendingPasswordRequestsCount > 0 ? '<span class="badge pending">'.$pendingPasswordRequestsCount.' Pending</span>' : '') ?>
 <?php endif; ?>
 <?php if (hasPerm('password')): ?>
 <?= secLink("password","fa-key","Change Password") ?>
@@ -1181,6 +1252,30 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php endif; ?>
 <?php if ($pendingDateRequestsCount > 0 && $currentUserPerms === null): ?>
 <div class="alert alert-warning"><i class="fas fa-calendar-day"></i> You have <strong><?= $pendingDateRequestsCount ?></strong> date change request(s) pending. <a href="?page=admin_dashboard&section=date_requests" style="text-decoration:underline;font-weight:700">Review now →</a></div>
+<?php endif; ?>
+<?php if ($pendingPasswordRequestsCount > 0 && $currentUserPerms === null): ?>
+<div class="alert alert-warning" style="border-left:4px solid var(--purple);background:rgba(107,33,168,.08);border-color:rgba(107,33,168,.2);color:var(--purple);">
+    <i class="fas fa-key"></i> You have <strong><?= $pendingPasswordRequestsCount ?></strong> password change request(s) pending approval. 
+    <a href="?page=admin_dashboard&section=password_requests" style="text-decoration:underline;font-weight:700">Review now →</a>
+</div>
+<?php endif; ?>
+
+<!-- ★ Popup alert: shows once per session when password change requests are pending -->
+<?php if ($section === "dashboard" && $pendingPasswordRequestsCount > 0 && $currentUserPerms === null && empty($_SESSION['pw_popup_dismissed'])): ?>
+<?php $_SESSION['pw_popup_dismissed'] = true; // only auto-popup once per session ?>
+<script>
+(function(){
+    var count = <?= (int)$pendingPasswordRequestsCount ?>;
+    var go = confirm(
+        '🔑 Password Change Approval Required!\n\n' +
+        'You have ' + count + ' password change request' + (count > 1 ? 's' : '') + ' waiting for your approval.\n\n' +
+        'Click OK to review them now,\nor Cancel to stay on the dashboard.'
+    );
+    if (go) {
+        window.location.href = '?page=admin_dashboard&section=password_requests';
+    }
+})();
+</script>
 <?php endif; ?>
 
 <!-- Festival Notification Card Included Here -->
@@ -1280,6 +1375,78 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
                 </tr>
             <?php endforeach; ?>
             <?php if (empty($reqList)): ?><tr><td colspan="6"><div class="empty-state"><p>No pending date change requests.</p></div></td></tr><?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<?php elseif ($section === "password_requests" && $currentUserPerms === null): // ★ Super Admin Password Change Requests View ?>
+<div class="admin-topbar"><h1><i class="fas fa-key" style="color:var(--purple)"></i> Password Change Requests</h1></div>
+<?php if (!empty($umsg)): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($umsg) ?></div><?php endif; ?>
+
+<!-- Info banner -->
+<div class="panel" style="border-left:5px solid var(--purple);">
+    <div class="panel-body" style="display:flex;align-items:flex-start;gap:12px;padding:14px 18px;">
+        <i class="fas fa-circle-info" style="color:var(--purple);font-size:18px;flex-shrink:0;margin-top:2px;"></i>
+        <div style="font-size:12.5px;color:var(--fg);line-height:1.7;">
+            <strong style="color:var(--purple);">How this works:</strong><br>
+            When non-super-admin users change their password from "Change Password" section, the request is saved here instead of applying directly. Approve to apply the new password, or reject to discard. The user's current password continues to work until approval.
+        </div>
+    </div>
+</div>
+
+<div class="panel">
+    <div class="panel-header"><div class="panel-title"><i class="fas fa-list"></i> Pending Password Requests</div></div>
+    <div class="panel-body" style="padding:0">
+        <table class="data-table">
+            <thead><tr><th>#</th><th>Username</th><th>Full Name</th><th>Requested At</th><th>Action</th></tr></thead>
+            <tbody>
+            <?php
+            try {
+                $passReqList = $pdo->query("SELECT r.*, u.username, u.full_name FROM password_change_requests r JOIN users u ON r.user_id=u.id WHERE r.status='pending' ORDER BY r.requested_at DESC")->fetchAll();
+            } catch (Exception $e) { $passReqList = []; }
+            foreach ($passReqList as $i => $preq):
+            ?>
+                <tr>
+                    <td style="color:var(--muted);font-size:11px"><?= $i + 1 ?></td>
+                    <td style="font-weight:600"><?= htmlspecialchars($preq["username"]) ?></td>
+                    <td><?= htmlspecialchars($preq["full_name"] ?? 'N/A') ?></td>
+                    <td style="font-size:11px;color:var(--muted);white-space:nowrap"><?= date("d M Y, h:i A", strtotime($preq["requested_at"])) ?></td>
+                    <td>
+                        <div class="tbl-actions">
+                            <a href="?page=admin_dashboard&section=password_requests&approve=<?= $preq['id'] ?>&token=<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>" class="tbl-btn tbl-btn-approve" title="Approve — apply new password" style="color:var(--green)" onclick="return confirm('Approve this password change request? The user\\'s new password will be applied immediately.')"><i class="fas fa-check"></i></a>
+                            <a href="?page=admin_dashboard&section=password_requests&reject=<?= $preq['id'] ?>&token=<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>" class="tbl-btn tbl-btn-delete" title="Reject — discard request" style="color:#dc2626" onclick="return confirm('Reject this password change request? The user will keep their current password.')"><i class="fas fa-times"></i></a>
+                        </div>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (empty($passReqList)): ?><tr><td colspan="5"><div class="empty-state"><i class="fas fa-check-circle"></i><p>No pending password change requests.</p></div></td></tr><?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- History panel (recent decisions) -->
+<div class="panel">
+    <div class="panel-header"><div class="panel-title"><i class="fas fa-clock-rotate-left"></i> Recent History (Last 10)</div></div>
+    <div class="panel-body" style="padding:0">
+        <table class="data-table">
+            <thead><tr><th>Username</th><th>Status</th><th>Requested At</th></tr></thead>
+            <tbody>
+            <?php
+            try {
+                $passHistory = $pdo->query("SELECT r.*, u.username FROM password_change_requests r JOIN users u ON r.user_id=u.id ORDER BY r.requested_at DESC LIMIT 10")->fetchAll();
+            } catch (Exception $e) { $passHistory = []; }
+            foreach ($passHistory as $ph):
+                $stCls = $ph['status'] === 'approved' ? 'status-active' : ($ph['status'] === 'rejected' ? 'status-inactive' : 'status-pending');
+            ?>
+                <tr>
+                    <td style="font-weight:600"><?= htmlspecialchars($ph['username']) ?></td>
+                    <td><span class="status-badge <?= $stCls ?>"><i class="fas fa-circle"></i> <?= ucfirst($ph['status']) ?></span></td>
+                    <td style="font-size:11px;color:var(--muted)"><?= date("d M Y, h:i A", strtotime($ph['requested_at'])) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if (empty($passHistory)): ?><tr><td colspan="3"><div class="empty-state"><p>No history yet.</p></div></td></tr><?php endif; ?>
             </tbody>
         </table>
     </div>
@@ -2460,14 +2627,21 @@ if (fli) fli.onchange = function() {
 <?php
  $usersJsData = []; $firstUserId = 0;
 foreach ($allUsers as $usr) {
-    if ($usr['id'] == $_SESSION['user_id']) continue;
     $uRole = !empty($usr['role']) ? $usr['role'] : getUserRole($usr['permissions'] ?? null);
-    if ($uRole === 'super_admin') continue;
-    if (!$firstUserId) $firstUserId = $usr['id'];
     $uPermsRaw = $usr['permissions'] ?? null;
-    $uIsSuper = ($uPermsRaw === null);
+    $uIsSuper = ($uPermsRaw === null) || ($uRole === 'super_admin');
     $uPerms = $uIsSuper ? array_keys($allPermissions) : (json_decode($uPermsRaw, true) ?: []);
-    $usersJsData[$usr['id']] = ['role' => $uRole, 'permissions' => $uPerms];
+    $isSelf = ($usr['id'] == $_SESSION['user_id']);
+    // ★ Include ALL users (admin + super admins too), but mark them as 'locked'
+    //   so the JS can disable the form when they are selected (display-only).
+    $usersJsData[$usr['id']] = [
+        'role'        => $uRole,
+        'permissions' => $uPerms,
+        'locked'      => ($isSelf || $uIsSuper),
+        'is_self'     => $isSelf,
+        'is_super'    => $uIsSuper,
+    ];
+    if (!$firstUserId && !$isSelf && !$uIsSuper) $firstUserId = $usr['id'];
 }
 ?>
 <?php if ($currentUserPerms === null && !empty($usersJsData)): ?>
@@ -2479,13 +2653,19 @@ foreach ($allUsers as $usr) {
             <select id="permUserSelect" class="form-select" style="max-width:350px" onchange="loadUserPerms(this.value)">
                 <option value="">— Select User —</option>
                 <?php foreach ($allUsers as $usr):
-                    if ($usr['id'] == $_SESSION['user_id']) continue;
                     $uRole = !empty($usr['role']) ? $usr['role'] : getUserRole($usr['permissions'] ?? null);
-                    if ($uRole === 'super_admin') continue;
+                    $isSelf = ($usr['id'] == $_SESSION['user_id']);
+                    $isSuper = ($uRole === 'super_admin') || (($usr['permissions'] ?? 'null') === null);
+                    $suffix = $isSelf ? ' — You (Super Admin)' : ($isSuper ? ' — Super Admin' : '');
                 ?>
-                <option value="<?= $usr['id'] ?>"><?= htmlspecialchars($usr['username']) ?> (<?= htmlspecialchars($usr['full_name'] ?? 'N/A') ?>)</option>
+                <option value="<?= $usr['id'] ?>" <?= ($isSelf || $isSuper) ? 'data-locked="1"' : '' ?>>
+                    <?= htmlspecialchars($usr['username']) ?> (<?= htmlspecialchars($usr['full_name'] ?? 'N/A') ?>)<?= $suffix ?>
+                </option>
                 <?php endforeach; ?>
             </select>
+            <div id="permLockedNotice" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(212,160,23,.1);border:1px solid var(--gold);border-radius:6px;font-size:11.5px;color:#b8860b;font-weight:600;">
+                <i class="fas fa-lock"></i> <span id="permLockedText">This user is a Super Admin and cannot be modified.</span>
+            </div>
         </div>
         <form method="POST" id="roleForm" style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--border)">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>">
@@ -2551,16 +2731,43 @@ foreach ($allUsers as $usr) {
 var usersData = <?= json_encode($usersJsData) ?>;
 function loadUserPerms(userId) {
     var uid = parseInt(userId);
+    var roleSelect = document.getElementById('roleSelect');
+    var permCbs = document.querySelectorAll('input[name="permissions[]"]');
+    var notice = document.getElementById('permLockedNotice');
+    var noticeText = document.getElementById('permLockedText');
+    var saveBtn = document.querySelector('#permForm button[type="submit"]');
+
     if (!uid || !usersData[uid]) {
-        document.getElementById('roleSelect').value = '';
-        document.querySelectorAll('input[name="permissions[]"]').forEach(function(cb) { cb.checked = false; });
+        if (roleSelect) { roleSelect.value = ''; roleSelect.disabled = false; }
+        permCbs.forEach(function(cb) { cb.checked = false; cb.disabled = false; });
+        if (notice) notice.style.display = 'none';
+        if (saveBtn) saveBtn.disabled = false;
         return;
     }
     var data = usersData[uid];
-    document.getElementById('roleSelect').value = data.role;
-    document.querySelectorAll('input[name="permissions[]"]').forEach(function(cb) { cb.checked = data.permissions.includes(cb.value); });
+    var locked = !!data.locked;
+
+    // Populate values
+    if (roleSelect) roleSelect.value = data.role;
+    permCbs.forEach(function(cb) { cb.checked = data.permissions.indexOf(cb.value) !== -1; });
     document.getElementById('roleTargetUser').value = uid;
     document.getElementById('permTargetUser').value = uid;
+
+    // ★ Lock down the form for self / super admins (display only)
+    if (roleSelect) roleSelect.disabled = locked;
+    permCbs.forEach(function(cb) { cb.disabled = locked; });
+    if (saveBtn) saveBtn.disabled = locked;
+
+    if (locked) {
+        if (notice && noticeText) {
+            noticeText.innerHTML = data.is_self
+                ? 'This is your own account (Super Admin). Self-modification is disabled to prevent lockout.'
+                : 'This user is a Super Admin with full access. Super Admin permissions cannot be changed.';
+            notice.style.display = 'block';
+        }
+    } else {
+        if (notice) notice.style.display = 'none';
+    }
 }
 <?php if ($firstUserId): ?>
 document.addEventListener('DOMContentLoaded', function() {
@@ -2602,12 +2809,33 @@ loadNSE();
 <div class="admin-topbar"><h1><i class="fas fa-key" style="color:var(--purple)"></i> Change Password</h1></div>
 <?php if ($passError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($passError) ?></div><?php endif; ?>
 <?php if ($passSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($passSuccess) ?></div><?php endif; ?>
+
+<?php if ($currentUserPerms !== null): // ★ Info banner for non-super-admin users ?>
+<div class="panel" style="border-left:5px solid var(--gold);">
+    <div class="panel-body" style="display:flex;align-items:flex-start;gap:12px;padding:14px 18px;">
+        <i class="fas fa-circle-info" style="color:var(--gold);font-size:18px;flex-shrink:0;margin-top:2px;"></i>
+        <div style="font-size:12.5px;color:var(--fg);line-height:1.7;">
+            <strong style="color:var(--gold);">Approval required:</strong> Your password change request will be sent to a Super Admin for approval. Your <em>current</em> password will continue to work until the request is approved.
+        </div>
+    </div>
+</div>
+<?php else: ?>
+<div class="panel" style="border-left:5px solid var(--green);">
+    <div class="panel-body" style="display:flex;align-items:flex-start;gap:12px;padding:14px 18px;">
+        <i class="fas fa-circle-info" style="color:var(--green);font-size:18px;flex-shrink:0;margin-top:2px;"></i>
+        <div style="font-size:12.5px;color:var(--fg);line-height:1.7;">
+            <strong style="color:var(--green);">Super Admin:</strong> Your password will be changed immediately — no approval required.
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="panel"><div class="panel-body"><form method="POST" class="password-form">
 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>">
 <div class="form-group"><label class="form-label">Current Password *</label><input type="text" name="current_password" class="form-input" required></div>
 <div class="form-group"><label class="form-label">New Password *</label><input type="text" name="new_password" class="form-input" id="newPass" required oninput="cps(this.value)"><div class="pass-strength"><div class="pass-strength-bar" id="psB" style="width:0;background:var(--border)"></div></div><div class="form-hint" id="psT">At least 4 characters</div></div>
 <div class="form-group"><label class="form-label">Confirm *</label><input type="text" name="confirm_password" class="form-input" required></div>
-<button type="submit" class="btn btn-primary" style="margin-top:8px"><i class="fas fa-save"></i> Change</button>
+<button type="submit" class="btn btn-primary" style="margin-top:8px"><i class="fas fa-save"></i> <?= $currentUserPerms === null ? 'Change Password' : 'Submit Request' ?></button>
 </form></div></div>
 <script>
 function cps(v){var b=document.getElementById('psB'),t=document.getElementById('psT'),s=0;if(v.length>=4)s++;if(v.length>=8)s++;if(/[A-Z]/.test(v))s++;if(/[0-9]/.test(v))s++;if(/[^A-Za-z0-9]/.test(v))s++;var l=[{w:'0%',c:'var(--border)',x:'At least 4 characters'},{w:'20%',c:'#dc2626',x:'Very Weak'},{w:'40%',c:'#f97316',x:'Weak'},{w:'60%',c:'#eab308',x:'Medium'},{w:'80%',c:'#22c55e',x:'Good'},{w:'100%',c:'#16a34a',x:'Strong'}];var r=l[s];b.style.width=r.w;b.style.background=r.c;t.textContent=r.x;t.style.color=r.c;}

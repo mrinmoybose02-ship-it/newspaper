@@ -389,6 +389,229 @@ if (isset($_GET['mop']) && (int)$_GET['mop'] > 1) {
 }
 $langSwitchHref = $langSwitchUrl;
 
+// ── ★ v3.112: CLIENT-SIDE TRANSLATION FALLBACK (English mode only) ─────────
+// WHY: server-side bn_to_en() (index.php) and the v3.67 forceTranslate() here
+// both call Google Translate from the HOST's own IP. Shared hosts like
+// InfinityFree block/challenge those outbound calls, so news titles, article
+// content and DB strings silently stayed Bengali after switching to English.
+// This script (ported from index.php v7.24/v7.25) translates any remaining
+// Bengali text directly from the VISITOR's browser via the CORS-enabled
+// translate_a/single endpoint — sessionStorage cache, 4-way request queue,
+// MutationObserver for JS-rendered content (popups / AJAX bell / timeAgo).
+// The paper name সংবাদ সংকলন stays Bengali everywhere (brand-protect pass +
+// .notranslate + SKIP_SEL), and document.title keeps the Bengali brand too.
+// Injected before </body></html> in all three HTML branches (single, video, main).
+$__moTrScript = '';
+if ($isEnglish) {
+$__moTrScript = <<<'MOJS'
+<script>
+(function () {
+    'use strict';
+    if (document.documentElement.lang !== 'en') return;
+
+    var BN_RE   = /[\u0980-\u09FF]/;
+    var DANDA_RE = /[\u0964\u0965\s]+/g;
+    var SKIP_TAGS = { SCRIPT:1, STYLE:1, NOSCRIPT:1, CODE:1, PRE:1, TEXTAREA:1,
+                      INPUT:1, SELECT:1, OPTION:1, IFRAME:1, SVG:1, CANVAS:1, TITLE:1 };
+    // ★ v3.112: skip the language-switch button ('বাং'), footer brand, author
+    // chips (brand) and anything marked .notranslate / [translate="no"] /
+    // data-no-tr. The header brand span, sidebar/share h3 and footer brand are
+    // given .notranslate by the protectBrand() pass below before we walk.
+    var SKIP_SEL  = '[data-no-tr], [contenteditable="true"], .notranslate, [translate="no"], .lang-btn, .ft-brand, .author';
+
+    function skipEl(el) {
+        if (!el || el.nodeType !== 1) return true;
+        if (SKIP_TAGS[el.tagName]) return true;
+        if (el.closest && el.closest(SKIP_SEL)) return true;
+        return false;
+    }
+
+    // ---------- brand protection: paper name stays Bengali everywhere ----------
+    var BRAND = 'সংবাদ সংকলন';
+    function protectBrand(root) {
+        var scope = (root && root.querySelectorAll) ? root : document;
+        try {
+            var els = scope.querySelectorAll('.ft-brand, .brand span, .sb-header h3, .author, .lang-btn');
+            for (var i = 0; i < els.length; i++) {
+                if (!els[i].classList.contains('notranslate')) {
+                    els[i].classList.add('notranslate');
+                    els[i].setAttribute('translate', 'no');
+                }
+            }
+        } catch (e) {}
+    }
+
+    // ---------- translation cache (per browser session) ----------
+    var mem = {};
+    try { mem = JSON.parse(sessionStorage.getItem('trCacheV1') || '{}') || {}; } catch (e) { mem = {}; }
+    var saveTimer = null;
+    function saveCache() { try { sessionStorage.setItem('trCacheV1', JSON.stringify(mem)); } catch (e) {} }
+
+    // ---------- request queue with light concurrency ----------
+    var queue = [], queued = {}, active = 0, MAX_ACTIVE = 4;
+    function request(text, cb) {
+        if (!text || !BN_RE.test(text)) { cb(text || ''); return; }
+        if (mem[text] != null) { cb(mem[text]); return; }
+        if (queued[text]) { queued[text].push(cb); return; }
+        queued[text] = [cb];
+        queue.push(text);
+        pump();
+    }
+    function pump() {
+        while (active < MAX_ACTIVE && queue.length) {
+            var t = queue.shift();
+            active++;
+            (function (text) {
+                translateOne(text, function (res) {
+                    mem[text] = res; active--;
+                    var cbs = queued[text] || []; delete queued[text];
+                    clearTimeout(saveTimer); saveTimer = setTimeout(saveCache, 800);
+                    for (var i = 0; i < cbs.length; i++) { try { cbs[i](res); } catch (e) {} }
+                    pump();
+                });
+            })(t);
+        }
+    }
+    function splitText(text) {
+        var maxLen = 1200;
+        if (text.length <= maxLen) return [text];
+        var sentences = text.match(/[^।॥.!?]+[।॥.!?]*\s*/g) || [text];
+        var chunks = [], cur = '';
+        for (var i = 0; i < sentences.length; i++) {
+            var s = sentences[i];
+            if (s.length > maxLen) { if (cur) { chunks.push(cur); cur = ''; } chunks.push(s); continue; }
+            if ((cur ? (cur + ' ' + s) : s).length > maxLen) { if (cur) chunks.push(cur); cur = s; }
+            else { cur = cur ? (cur + ' ' + s) : s; }
+        }
+        if (cur) chunks.push(cur);
+        return chunks.length ? chunks : [text];
+    }
+    // Try both Google hosts; keep the original text if every host fails.
+    var TR_HOSTS = [
+        'https://translate.googleapis.com/translate_a/single',
+        'https://translate.google.com/translate_a/single'
+    ];
+    function gapi(q, cb) { gapiHost(q, 0, cb); }
+    function gapiHost(q, hi, cb) {
+        if (hi >= TR_HOSTS.length) { cb(q); return; }
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', TR_HOSTS[hi] + '?client=gtx&sl=bn&tl=en&dt=t&q=' + encodeURIComponent(q), true);
+        xhr.timeout = 8000;
+        xhr.onload = function () {
+            var out = null;
+            try {
+                var d = JSON.parse(xhr.responseText);
+                if (d && d[0]) {
+                    var s = '';
+                    for (var i = 0; i < d[0].length; i++) {
+                        var p = d[0][i];
+                        if (p && typeof p[0] === 'string') s += p[0];
+                    }
+                    if (s.trim()) out = s.trim();
+                }
+            } catch (e) {}
+            if (out === null) { gapiHost(q, hi + 1, cb); return; }
+            cb(out);
+        };
+        xhr.onerror   = function () { gapiHost(q, hi + 1, cb); };
+        xhr.ontimeout = function () { gapiHost(q, hi + 1, cb); };
+        try { xhr.send(); } catch (e) { gapiHost(q, hi + 1, cb); }
+    }
+    function translateOne(text, cb) {
+        var parts = splitText(text), out = new Array(parts.length), done = 0;
+        if (parts.length === 1) { gapi(parts[0], cb); return; }
+        for (var i = 0; i < parts.length; i++) {
+            (function (idx) {
+                gapi(parts[idx], function (res) {
+                    out[idx] = res;
+                    if (++done === parts.length) {
+                        cb(out.join(' ').replace(/\s+/g, ' ').trim() || text);
+                    }
+                });
+            })(i);
+        }
+    }
+
+    // ---------- DOM processing ----------
+    var seen = new WeakSet();
+    function handleText(node) {
+        if (!node || node.nodeType !== 3 || seen.has(node)) return;
+        var v = node.nodeValue;
+        if (!v || !BN_RE.test(v)) return;
+        if (!v.replace(DANDA_RE, '')) return;          // bare danda / whitespace only
+        var parent = node.parentNode;
+        if (skipEl(parent)) return;
+        seen.add(node);                                 // never retry a failed node
+        var orig = v;
+        request(v, function (t) {
+            if (t && t !== orig && document.contains(node)) node.nodeValue = t;
+        });
+    }
+    function walk(root) {
+        if (!root) return;
+        if (root.nodeType === 3) { handleText(root); return; }
+        if (root.nodeType !== 1 || skipEl(root)) return;
+        try {
+            var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+            while (w.nextNode()) handleText(w.currentNode);
+        } catch (e) {}
+    }
+
+    // ---------- browser-tab title: brand stays Bengali ----------
+    if (BN_RE.test(document.title)) {
+        var t0 = document.title;
+        if (t0.indexOf(BRAND) !== -1) {
+            var parts0 = t0.split(BRAND), outs0 = new Array(parts0.length), done0 = 0;
+            for (var pi = 0; pi < parts0.length; pi++) {
+                (function (idx) {
+                    request(parts0[idx], function (res) {
+                        outs0[idx] = res;
+                        if (++done0 === parts0.length) {
+                            var nt = outs0.join(BRAND);
+                            if (nt && nt !== t0) document.title = nt;
+                        }
+                    });
+                })(pi);
+            }
+        } else {
+            request(t0, function (t) { if (t && t !== t0) document.title = t; });
+        }
+    }
+
+    // ---------- initial pass ----------
+    protectBrand(document);
+    walk(document.body);
+
+    // ---------- catch JS-rendered Bengali (popups, AJAX bell, re-renders) ----------
+    var pending = [], moTimer = null;
+    function flush() {
+        moTimer = null;
+        var batch = pending; pending = [];
+        for (var i = 0; i < batch.length; i++) {
+            var m = batch[i];
+            try {
+                if (m.type === 'characterData' && m.target) handleText(m.target);
+                var added = m.addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var n = added[j];
+                    if (n.nodeType === 3) handleText(n);
+                    else if (n.nodeType === 1) { protectBrand(n); walk(n); }
+                }
+            } catch (e) {}
+        }
+    }
+    try {
+        var mo = new MutationObserver(function (muts) {
+            for (var i = 0; i < muts.length; i++) pending.push(muts[i]);
+            if (!moTimer) moTimer = setTimeout(flush, 600);
+        });
+        mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    } catch (e) {}
+})();
+</script>
+MOJS;
+}
+
 // ★ Section title (for home/category/search pages)
 // ★ v3.86: If a subcategory is selected (?sub=ID), look up its name from
 //    $dbCatSubcats (saved from index.php) and use it as the section title.
@@ -2984,7 +3207,7 @@ HTML;
     </div>
 </div>
 HTML;
-        $newSingleHTML .= '</body></html>';
+        $newSingleHTML .= $__moTrScript . '</body></html>';
         echo $newSingleHTML;
         return;
     }
@@ -3168,7 +3391,7 @@ HTML;
     </div>
     <div style="display:flex;align-items:center;">
         <div style="flex:1;text-align:left;">{$ucFooterHTML}</div>
-        <div style="flex:1;text-align:center;">&copy; 2026 {$L['appName']}</div>
+        <div style="flex:1;text-align:center;">&copy; 2026 <span class="notranslate" translate="no">{$L['appName']}</span></div>
         <div style="flex:1;text-align:right;">&nbsp;</div>
     </div>
 </footer>
@@ -3178,7 +3401,7 @@ HTML;
     $allCatsLabel = $isEnglish ? 'All Categories' : 'সব ক্যাটাগরি';
     $newSingleHTML .= '<div class="app-sidebar" id="appSidebar">';
     $newSingleHTML .= '<div style="background:var(--red);color:#fff;padding:16px 14px;display:flex;align-items:center;justify-content:space-between;">';
-    $newSingleHTML .= '<h3 style="font-family:\'Noto Serif Bengali\',serif;font-size:16px;font-weight:700;">' . $L['appName'] . '</h3>';
+    $newSingleHTML .= '<h3 class="notranslate" translate="no" style="font-family:\'Noto Serif Bengali\',serif;font-size:16px;font-weight:700;">' . $L['appName'] . '</h3>';
     $newSingleHTML .= '<button style="background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px;" id="sbClose">&times;</button>';
     $newSingleHTML .= '</div>';
     $newSingleHTML .= '<div style="padding:12px 14px;border-bottom:1px solid var(--border);">';
@@ -3487,7 +3710,7 @@ HTML;
 </script>
 JS;
 
-    $newSingleHTML .= '</body></html>';
+    $newSingleHTML .= $__moTrScript . '</body></html>';
 
     echo $newSingleHTML;
     return;
@@ -3758,7 +3981,7 @@ HTML;
     </div>
     <div style="display:flex;align-items:center;">
         <div style="flex:1;text-align:left;">{$ucFooterHTML}</div>
-        <div style="flex:1;text-align:center;">&copy; 2026 {$L['appName']}</div>
+        <div style="flex:1;text-align:center;">&copy; 2026 <span class="notranslate" translate="no">{$L['appName']}</span></div>
         <div style="flex:1;text-align:right;">&nbsp;</div>
     </div>
 </footer>
@@ -3834,7 +4057,7 @@ HTML;
 </script>
 JS;
 
-    $_videoPageHTML .= '</body></html>';
+    $_videoPageHTML .= $__moTrScript . '</body></html>';
     echo $_videoPageHTML;
     return;
 }
@@ -5607,7 +5830,7 @@ $newHTML .= <<<HTML
     </div>
     <div style="display:flex;align-items:center;">
         <div style="flex:1;text-align:left;">{$ucFooterHTML}</div>
-        <div style="flex:1;text-align:center;">&copy; 2026 {$L['appName']}</div>
+        <div style="flex:1;text-align:center;">&copy; 2026 <span class="notranslate" translate="no">{$L['appName']}</span></div>
         <div style="flex:1;text-align:right;">&nbsp;</div>
     </div>
 </footer>
@@ -5945,7 +6168,7 @@ $newHTML .= <<<JS
 </script>
 JS;
 
-$newHTML .= '</body></html>';
+$newHTML .= $__moTrScript . '</body></html>';
 
 // ★ v3.94: Removed visible debug banner (subcategory feature confirmed working!).
 //    VLM verification confirmed "আলোচনা / ফিচার" showing correctly.

@@ -783,7 +783,7 @@ if ($section === "ads") {
     if (isset($_GET["ad_delete"]) && isset($_GET["ad_dtoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_dtoken"])) { $di = (int)$_GET["ad_delete"]; $dr = $pdo->prepare("SELECT image FROM advertisements WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__ . '/' . $dw["image"])) @unlink(__DIR__ . '/' . $dw["image"]); $pdo->prepare("DELETE FROM advertisements WHERE id=?")->execute([$di]); $adSuccess = "Deleted successfully."; } }
     if (isset($_GET["ad_toggle"]) && isset($_GET["ad_ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_ttoken"])) { $pdo->prepare("UPDATE advertisements SET is_active=IF(is_active=1,0,1) WHERE id=?")->execute([(int)$_GET["ad_toggle"]]); $adSuccess = "Status changed successfully."; } }
     if (isset($_GET["ad_edit"])) { $er = $pdo->prepare("SELECT * FROM advertisements WHERE id=?"); $er->execute([(int)$_GET["ad_edit"]]); $er = $er->fetch(); if ($er) { $adEditData = $er; } }
-    if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['user_action']) && !isset($_POST['save_festival_logo'])) {
+    if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['update_flash_ads']) && !isset($_POST['user_action']) && !isset($_POST['save_festival_logo'])) {
         if (!verifyCSRF()) { $adError = "Token mismatch."; }
         else {
             $at = trim($_POST["ad_title"] ?? ""); $ap = $_POST["ad_position"] ?? "content_middle"; $aty = $_POST["ad_type"] ?? "image"; $al = trim($_POST["ad_link_url"] ?? ""); $acd = $_POST["ad_code"] ?? ""; $aso = (int)($_POST["ad_sort_order"] ?? 0); $asd = !empty($_POST["ad_start_date"]) ? $_POST["ad_start_date"] : null; $aed = !empty($_POST["ad_end_date"]) ? $_POST["ad_end_date"] : null; $ami = !empty($_POST["ad_max_impressions"]) ? (int)$_POST["ad_max_impressions"] : null;
@@ -820,6 +820,36 @@ if ($section === "ads") {
     try { $adList = $pdo->query($asql)->fetchAll(); } catch (Exception $e) { $adList = []; }
     $adTotal = count($adList);
 }
+
+// ========================================== ★ Flash Ads (Backend - Embed Codes) ==========================================
+// 3 separate Flash Ad embed code slots + 3 link URLs.
+// Stored in the existing `site_settings` table (same pattern as ad_bottom_1_embed).
+// NO separate `flash_ads` table — keeps the system simple and the existing Advertisement section untouched.
+ $flashAdSuccess = ""; $flashAdError = "";
+ $flashAdKeys = [
+    'flash_ad_embed_1', 'flash_ad_link_1',
+    'flash_ad_embed_2', 'flash_ad_link_2',
+    'flash_ad_embed_3', 'flash_ad_link_3',
+ ];
+ $flashAdValues = loadSettings($pdo, $flashAdKeys);
+ if ($section === "ads" && $_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['update_flash_ads'])) {
+    if (!verifyCSRF()) {
+        $flashAdError = "Token mismatch.";
+    } else {
+        try {
+            $sd = [];
+            foreach ($flashAdKeys as $k) {
+                $sd[$k] = $_POST[$k] ?? "";
+                $flashAdValues[$k] = $sd[$k];
+            }
+            saveSettings($pdo, $sd);
+            $flashAdSuccess = "Flash Ad embed codes & links saved successfully!";
+        } catch (PDOException $e) {
+            $flashAdError = "Failed: " . $e->getMessage();
+        }
+    }
+ }
+// ========================================== Flash Ads Backend Ends ==========================================
 
  $passSuccess = ""; $passError = "";
 if ($section === "password" && $_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['user_action'])) {
@@ -2384,6 +2414,75 @@ if (tagPillsContainer) {
 <?php if ($adSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($adSuccess) ?></div><?php endif; ?>
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-code"></i> Advertisement Embed Codes</div></div><form method="POST"><input type="hidden" name="update_ads" value="1"><div class="panel-body"><div class="form-group"><label class="form-label">Bottom Ad Embed 1 (HTML/Scripts allowed)</label><textarea name="ad_bottom_1_embed" class="form-input" rows="5" placeholder='<iframe src="..."></iframe>'><?= htmlspecialchars($currentAds['ad_bottom_1_embed'] ?? '') ?></textarea></div><div class="form-group"><label class="form-label">Bottom Ad Embed 2 (HTML/Scripts allowed)</label><textarea name="ad_bottom_2_embed" class="form-input" rows="5" placeholder='<iframe src="..."></iframe>'><?= htmlspecialchars($currentAds['ad_bottom_2_embed'] ?? '') ?></textarea></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Embed Codes</button></div></form></div>
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-<?= $adEditData ? 'pen' : 'plus-circle' ?>"></i> <?= $adEditData ? 'Edit' : 'New Advertisement' ?></div></div><form method="POST" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><?php if ($adEditData): ?><input type="hidden" name="ad_id" value="<?= $adEditData["id"] ?>"><?php endif; ?><div class="panel-body"><div class="form-row"><div class="form-group"><label class="form-label">Name *</label><input type="text" name="ad_title" class="form-input" value="<?= htmlspecialchars($adEditData["title"] ?? "") ?>" required></div><div class="form-group"><label class="form-label">Position</label><select name="ad_position" class="form-select"><?php foreach ($adPositions as $pk => $pc): ?><option value="<?= $pk ?>" <?= ($adEditData["position"] ?? "") === $pk ? 'selected' : '' ?>><?= $pc["label"] ?></option><?php endforeach; ?></select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Type</label><div class="radio-group"><div class="radio-item <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="image" <?= ($adEditData["ad_type"] ?? "image") === "image" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='block';document.getElementById('adCodeSec').style.display='none';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Image</label></div><div class="radio-item <?= ($adEditData["ad_type"] ?? "") === "code" ? 'selected' : '' ?>"><input type="radio" name="ad_type" value="code" <?= ($adEditData["ad_type"] ?? "") === "code" ? 'checked' : '' ?> onchange="document.getElementById('adImgSec').style.display='none';document.getElementById('adCodeSec').style.display='block';this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Code</label></div></div></div><div class="form-group"><label class="form-label">Sort</label><input type="number" name="ad_sort_order" class="form-input" value="<?= $adEditData["sort_order"] ?? 0 ?>" min="0"></div></div><div id="adImgSec" style="display:<?= ($adEditData["ad_type"] ?? "image") === "image" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">Link URL</label><input type="url" name="ad_link_url" class="form-input" value="<?= htmlspecialchars($adEditData["link_url"] ?? "") ?>"></div><div class="form-group"><label class="form-label">Image</label><div class="img-upload-area <?= !empty($adEditData["image"]) ? 'has-image' : '' ?>" id="adImgArea"><input type="file" name="ad_image" id="ad_image" accept="image/jpeg,image/png/image/gif/image/webp"><?php if (!empty($adEditData["image"])): ?><img src="<?= htmlspecialchars($adEditData["image"]) ?>" class="img-preview" id="adImgPreview" alt=""><div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Image exists</div><?php else: ?><div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div><div class="img-upload-text">Select image</div><div class="img-upload-hint">JPG, PNG, GIF, WebP — 5MB</div><img src="" class="img-preview" id="adImgPreview" style="display:none" alt=""><?php endif; ?></div></div></div><div id="adCodeSec" style="display:<?= ($adEditData["ad_type"] ?? "") === "code" ? 'block' : 'none' ?>"><div class="form-group"><label class="form-label">HTML Code</label><textarea name="ad_code" class="form-input" rows="8"><?= htmlspecialchars($adEditData["ad_code"] ?? "") ?></textarea></div></div><div class="form-row"><div class="form-group"><label class="form-label">Start Date</label><input type="date" name="ad_start_date" class="form-input" value="<?= $adEditData["start_date"] ?? "" ?>"></div><div class="form-group"><label class="form-label">End Date</label><input type="date" name="ad_end_date" class="form-input" value="<?= $adEditData["end_date"] ?? "" ?>"></div></div><div class="form-group" style="max-width:200px"><label class="form-label">Max Impressions</label><input type="number" name="ad_max_impressions" class="form-input" value="<?= $adEditData["max_impressions"] ?? "" ?>" min="0" placeholder="Unlimited"></div></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-gold"><i class="fas fa-save"></i> <?= $adEditData ? 'Update' : 'Add' ?></button></div></form></div>
+<!-- ========================================== ★ Flash Ads Embed Codes Panel ========================================== -->
+<!-- 3 embed code slots + 3 link URLs, rendered on index.php homepage as a dismissible popup. -->
+<!-- Stored in `site_settings` table — completely separate from existing Advertisement section. -->
+<div class="panel" style="border:2px solid var(--accent);">
+    <div class="panel-header" style="background:linear-gradient(90deg, var(--accent), var(--accent-dark));">
+        <div class="panel-title" style="color:#fff;"><i class="fas fa-bolt"></i> Flash Ads Embed Codes</div>
+    </div>
+    <form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="update_flash_ads" value="1">
+        <div class="panel-body">
+            <?php if ($flashAdError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($flashAdError) ?></div><?php endif; ?>
+            <?php if ($flashAdSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($flashAdSuccess) ?></div><?php endif; ?>
+            <div style="background:var(--accent-light); border-left:4px solid var(--accent); padding:12px 15px; border-radius:6px; margin-bottom:18px; font-size:12.5px; color:var(--fg);"><i class="fas fa-circle-info" style="color:var(--accent);"></i> <strong>Flash Ads</strong> হলো homepage-এ popup-style ad — ভিজিটর close বাটনে চাপলে সেটা আর দেখাবে না (24 hours) । নিচে 3টি embed code + 3টি link URL দিন (HTML/scripts allowed) । Existing Advertisement section-এ কোনো পরিবর্তন হয়নি।</div>
+
+            <div class="form-group"><label class="form-label"><i class="fas fa-bolt" style="color:var(--gold);"></i> Flash Ad Embed Code 1 <span style="font-size:10px;color:var(--muted);font-weight:400">(HTML/Scripts allowed)</span></label><textarea name="flash_ad_embed_1" id="flash_ad_embed_1" class="form-input" rows="5" placeholder='<iframe src="https://example.com/ad1" width="600" height="400"></iframe>  অথবা  <a href="..."><img src="..."></a>'><?= htmlspecialchars($flashAdValues['flash_ad_embed_1'] ?? '') ?></textarea></div>
+            <div class="form-group" style="max-width:600px;"><label class="form-label"><i class="fas fa-link" style="color:var(--blue);"></i> Link URL 1 <span style="font-size:10px;color:var(--muted);font-weight:400">(visitor clicks → goes here; leave empty if embed has its own link)</span></label><input type="url" name="flash_ad_link_1" class="form-input" value="<?= htmlspecialchars($flashAdValues['flash_ad_link_1'] ?? '') ?>" placeholder="https://example.com/offer-1"></div>
+
+            <hr style="border:none; border-top:1px dashed var(--border); margin:20px 0;">
+
+            <div class="form-group"><label class="form-label"><i class="fas fa-bolt" style="color:var(--gold);"></i> Flash Ad Embed Code 2 <span style="font-size:10px;color:var(--muted);font-weight:400">(HTML/Scripts allowed)</span></label><textarea name="flash_ad_embed_2" id="flash_ad_embed_2" class="form-input" rows="5" placeholder='<iframe src="https://example.com/ad2" width="600" height="400"></iframe>'><?= htmlspecialchars($flashAdValues['flash_ad_embed_2'] ?? '') ?></textarea></div>
+            <div class="form-group" style="max-width:600px;"><label class="form-label"><i class="fas fa-link" style="color:var(--blue);"></i> Link URL 2</label><input type="url" name="flash_ad_link_2" class="form-input" value="<?= htmlspecialchars($flashAdValues['flash_ad_link_2'] ?? '') ?>" placeholder="https://example.com/offer-2"></div>
+
+            <hr style="border:none; border-top:1px dashed var(--border); margin:20px 0;">
+
+            <div class="form-group"><label class="form-label"><i class="fas fa-bolt" style="color:var(--gold);"></i> Flash Ad Embed Code 3 <span style="font-size:10px;color:var(--muted);font-weight:400">(HTML/Scripts allowed)</span></label><textarea name="flash_ad_embed_3" id="flash_ad_embed_3" class="form-input" rows="5" placeholder='<iframe src="https://example.com/ad3" width="600" height="400"></iframe>'><?= htmlspecialchars($flashAdValues['flash_ad_embed_3'] ?? '') ?></textarea></div>
+            <div class="form-group" style="max-width:600px;"><label class="form-label"><i class="fas fa-link" style="color:var(--blue);"></i> Link URL 3</label><input type="url" name="flash_ad_link_3" class="form-input" value="<?= htmlspecialchars($flashAdValues['flash_ad_link_3'] ?? '') ?>" placeholder="https://example.com/offer-3"></div>
+
+            <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Flash Ads</button>
+        </div>
+    </form>
+    <div class="panel-body" style="border-top:2px dashed var(--border); padding-top:20px;">
+        <?php
+        // Compute totals for the 3 fixed slots
+        $__flashAdRows = [];
+        $__flashAdActiveCount = 0;
+        for ($__i = 1; $__i <= 3; $__i++) {
+            $__e = trim((string)($flashAdValues['flash_ad_embed_' . $__i] ?? ''));
+            $__l = trim((string)($flashAdValues['flash_ad_link_' . $__i] ?? ''));
+            if ($__e !== '') {
+                $__flashAdRows[] = ['slot' => $__i, 'embed' => $__e, 'link' => $__l];
+                $__flashAdActiveCount++;
+            }
+        }
+        $__flashAdTotal = count($__flashAdRows);
+        ?>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <div class="panel-title" style="font-size:14px;"><i class="fas fa-list" style="color:var(--accent);"></i> Existing Flash Ads <span style="font-size:11px; color:var(--muted); margin-left:6px; font-weight:400;">(<?= $__flashAdTotal ?> total — <?= $__flashAdActiveCount ?> active)</span></div>
+        </div>
+        <table class="data-table"><thead><tr><th>Preview</th><th>Title</th><th>Type</th><th>Schedule</th><th>Re-show</th><th>Status</th><th>Clicks</th><th>Impr.</th><th>Action</th></tr></thead><tbody>
+        <?php foreach ($__flashAdRows as $__fa): ?>
+            <tr>
+                <td style="max-width:80px;"><div style="background:#fff; border:1px solid var(--border); border-radius:4px; padding:3px; width:70px; height:50px; overflow:hidden; display:flex; align-items:center; justify-content:center;"><?= $__fa['embed'] /* raw HTML — admin-trusted */ ?></div></td>
+                <td style="font-weight:600">Flash Ad <?= $__fa['slot'] ?><?php if (!empty($__fa['link'])): ?><br><a href="<?= htmlspecialchars($__fa['link']) ?>" target="_blank" rel="noopener" style="font-size:10px; color:var(--blue); font-weight:400; text-decoration:underline;"><?= htmlspecialchars(mb_strimwidth($__fa['link'], 0, 40, '...')) ?></a><?php endif; ?></td>
+                <td style="font-size:12px;"><i class="fas fa-code" style="color:var(--purple)"></i> Code</td>
+                <td style="font-size:10px; color:var(--muted);">Always</td>
+                <td style="font-size:11px; color:var(--gold); font-weight:600;">24h</td>
+                <td><span class="status-badge status-active"><i class="fas fa-circle"></i> Active</span></td>
+                <td style="font-weight:600; color:var(--muted);">—</td>
+                <td style="font-weight:600; color:var(--muted);">—</td>
+                <td><div class="tbl-actions"><a href="#flash_ad_embed_<?= $__fa['slot'] ?>" class="tbl-btn tbl-btn-edit" title="Edit this Flash Ad" onclick="setTimeout(function(){var el=document.getElementById('flash_ad_embed_<?= $__fa['slot'] ?>');if(el){el.focus();el.scrollIntoView({behavior:'smooth',block:'center'});}},100);"><i class="fas fa-pen"></i></a></div></td>
+            </tr>
+        <?php endforeach; ?>
+        <?php if (empty($__flashAdRows)): ?>
+            <tr><td colspan="9"><div class="empty-state"><i class="fas fa-bolt" style="font-size:40px; color:var(--accent); opacity:.5;"></i><p>No Flash Ads yet. Add one above to show on homepage.</p></div></td></tr>
+        <?php endif; ?>
+        </tbody></table>
+    </div>
+</div>
+<!-- ========================================== Flash Ads Panel Ends ========================================== -->
+
 <div class="panel"><div class="panel-header"><div class="filter-tabs"><?php foreach (["all"=>"All (".$adTotal.")","active"=>"Active","inactive"=>"Inactive","image"=>"Image","code"=>"Code"] as $f => $l): ?><a href="?page=admin_dashboard&section=ads&ad_filter=<?= $f ?>" class="filter-tab <?= $adFilter === $f ? 'active' : '' ?>"><?= $l ?></a><?php endforeach; ?></div></div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Name</th><th>Position</th><th>Type</th><th>Status</th><th>Clicks</th><th>Impressions</th><th>Action</th></tr></thead><tbody>
 <?php foreach ($adList as $ad): $pc = $adPositions[$ad["position"]] ?? ["label"=>$ad["position"],"color"=>"#666","icon"=>"fas fa-circle"]; ?>
 <tr><td style="font-weight:600"><?= htmlspecialchars($ad["title"]) ?></td><td><span class="ad-pos-chip" style="border-color:<?= $pc["color"] ?>;color:<?= $pc["color"] ?>"><i class="<?= $pc["icon"] ?>"></i> <?= $pc["label"] ?></span></td><td style="font-size:12px"><?= $ad["ad_type"] === 'image' ? '<i class="fas fa-image" style="color:var(--blue)"></i> Image' : '<i class="fas fa-code" style="color:var(--purple)"></i> Code' ?></td><td><span class="status-badge status-<?= $ad["is_active"] ? 'active' : 'inactive' ?>"><i class="fas fa-circle"></i> <?= $ad["is_active"] ? 'Active' : 'Inactive' ?></span></td><td style="font-weight:600"><?= number_format($ad["clicks"] ?? 0) ?></td><td style="font-weight:600"><?= number_format($ad["impressions"] ?? 0) ?></td><td><div class="tbl-actions"><a href="?page=admin_dashboard&section=ads&ad_edit=<?= $ad["id"] ?>" class="tbl-btn tbl-btn-edit"><i class="fas fa-pen"></i></a><a href="?page=admin_dashboard&section=ads&ad_toggle=<?= $ad["id"] ?>&ad_ttoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&ad_filter=<?= $adFilter ?>" class="tbl-btn tbl-btn-toggle"><i class="fas fa-<?= $ad["is_active"] ? 'eye-slash' : 'eye' ?>"></i></a><a href="?page=admin_dashboard&section=ads&ad_delete=<?= $ad["id"] ?>&ad_dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>&ad_filter=<?= $adFilter ?>" class="tbl-btn tbl-btn-delete" onclick="return confirm('Delete?')"><i class="fas fa-trash"></i></a></div></td></tr>

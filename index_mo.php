@@ -11,6 +11,24 @@
 @ini_set('display_errors', '0');
 error_reporting(E_ERROR | E_PARSE);
 
+// ★ v3.110: OUTPUT-BUFFER SAFETY NET — guarantee block-letter (uppercase)
+//    first letter for EVERY category/subcategory badge & section heading,
+//    regardless of which code path produced the text. Runs once on the final
+//    HTML right before it is sent to the browser. Matches the CSS classes that
+//    carry category/subcategory names and capitalizes the first letter inside
+//    each. Idempotent: ucfirst of an already-capital letter is a no-op, so this
+//    stacks safely on top of the upstream _mo_ucfirst_cat() calls.
+//    (Skipped for AJAX/JSON responses — those have no badges.)
+if (function_exists('ob_start') && function_exists('mb_strtoupper') && empty($_GET['ajax_today_news'])) {
+    ob_start(function($html) {
+        return preg_replace_callback(
+            '/(<(?:div|span|a|h2)\b[^>]*class="[^"]*(?:sh-title|nc-cat|nc-sub|fc-cat|art-cat|si-cat|sb-cat-name|sb-sub-name)[^"]*"[^>]*>)(\s*)(\p{L})/u',
+            function($m) { return $m[1] . $m[2] . mb_strtoupper($m[3], 'UTF-8'); },
+            $html
+        );
+    });
+}
+
 // ★ v3.46: AJAX endpoint — today's posted news for bell icon popup.
 //    Must be BEFORE include index.php to avoid full page render overhead.
 //    Returns JSON with today's published news (with thumbnails + time-ago).
@@ -537,14 +555,54 @@ $__moTrScript = <<<'MOJS'
     function handleText(node) {
         if (!node || node.nodeType !== 3 || seen.has(node)) return;
         var v = node.nodeValue;
-        if (!v || !BN_RE.test(v)) return;
+        if (!v) return;
+        // ★ "Calcutta" → "Kolkata" — proper-name fix. Google Translate (both
+        //   server-side bn_to_en and this client-side translator) returns the
+        //   colonial spelling "Calcutta" for কলকাতা; normalise to "Kolkata".
+        //   Runs on every text node (incl. already-English server-side output)
+        //   before the Bengali check, so server-side "Calcutta" is caught too.
+        if (v.indexOf('Calcutta') !== -1) {
+            var nv = v.replace(/\bCalcutta\b/g, 'Kolkata');
+            if (nv !== v) { node.nodeValue = nv; v = nv; }
+        }
+        if (!BN_RE.test(v)) return;
         if (!v.replace(DANDA_RE, '')) return;          // bare danda / whitespace only
         var parent = node.parentNode;
         if (skipEl(parent)) return;
         seen.add(node);                                 // never retry a failed node
         var orig = v;
         request(v, function (t) {
-            if (t && t !== orig && document.contains(node)) node.nodeValue = t;
+            if (t && t !== orig && document.contains(node)) {
+                // ★ Relabel "country" → "National" everywhere it appears as a
+                //   label (badges, card labels, subcategory spans, panel titles).
+                //   Google Translate returns the Bengali subcategory name as
+                //   "the country"; show "National" instead. Scoped to label
+                //   elements only, so article titles/excerpts/body that happen
+                //   to contain the word "country" are never changed.
+                // ★ v3.111: USER REQUEST — every category/subcategory label must
+                //   start with an UPPERCASE (block) letter. Google Translate
+                //   returns lowercase English (e.g. "cricket", "crime",
+                //   "celebrity") for Bengali subcategory names. The server-side
+                //   _mo_ucfirst_cat() and the v3.110 output-buffer regex only
+                //   see the original HTML — they never see this client-side
+                //   translation. So capitalize the first ASCII letter here,
+                //   inside the same label-element scope as the "country" fix.
+                //   Added .fc-cat, .sh-title, .sb-cat-name, .sb-sub-name to the
+                //   closest() list so featured-card titles, section headings and
+                //   sidebar sub-category links are covered too.
+                if (parent && parent.closest && parent.closest('.cb, .fcs, .sec-title, .nc-cat, .nc-sub, .fc-cat, .si-cat, .art-cat, .sb-cat-name, .sb-sub-name, .cpc-time, .ksn, .sb-si, .kn-sub-link, .cat-panel-title, .cat-panel-head, .sh-title')) {
+                    t = t.replace(/\bthe country\b/gi, 'National').replace(/\bcountry\b/gi, 'National');
+                    // Capitalize the first ASCII letter (skip leading whitespace
+                    // and any leading non-letter such as "/" or digits). Bengali
+                    // / other case-less scripts are left untouched because the
+                    // match is anchored on [a-z] only.
+                    t = t.replace(/^(\s*)([a-z])([\s\S]*)$/, function (m, ws, ch, rest) {
+                        return ws + ch.toUpperCase() + rest;
+                    });
+                }
+                t = t.replace(/\bCalcutta\b/g, 'Kolkata');   // ★ proper-name fix (translated text)
+                node.nodeValue = t;
+            }
         });
     }
     function walk(root) {
@@ -568,15 +626,17 @@ $__moTrScript = <<<'MOJS'
                         outs0[idx] = res;
                         if (++done0 === parts0.length) {
                             var nt = outs0.join(BRAND);
-                            if (nt && nt !== t0) document.title = nt;
+                            if (nt && nt !== t0) document.title = nt.replace(/\bCalcutta\b/g, 'Kolkata');
                         }
                     });
                 })(pi);
             }
         } else {
-            request(t0, function (t) { if (t && t !== t0) document.title = t; });
+            request(t0, function (t) { if (t && t !== t0) document.title = t.replace(/\bCalcutta\b/g, 'Kolkata'); });
         }
     }
+    // ★ "Calcutta" → "Kolkata" in the tab title for already-English (server-side) titles
+    document.title = document.title.replace(/\bCalcutta\b/g, 'Kolkata');
 
     // ---------- initial pass ----------
     protectBrand(document);
@@ -634,9 +694,25 @@ if ($searchQuery) {
     $sectionTitle = $isEnglish ? 'Search: ' . $searchQuery : 'সার্চ: ' . $searchQuery;
 } elseif ($currentCat && $_subName) {
     // Subcategory page — show subcategory name (e.g., "কলকাতা")
-    $sectionTitle = $_subName;
+    // ★ v3.107: capitalize first letter (no-op for Bengali, helps English labels)
+    // ★ v3.108: Also run en_label() in English mode — same path as the card
+    //    badges, so the section heading matches the badges below (e.g. the
+    //    "international" category shows "International" not "international").
+    $_stRaw = $_subName;
+    if ($isEnglish && function_exists('en_label')) {
+        $_stRaw = en_label($_stRaw);
+    }
+    $sectionTitle = _mo_ucfirst_cat($_stRaw);
 } elseif ($currentCat) {
-    $sectionTitle = $currentCat;
+    // ★ v3.107: capitalize first letter (no-op for Bengali, helps English labels)
+    // ★ v3.108: Also run en_label() in English mode — same path as the card
+    //    badges, so the section heading matches the badges below (e.g. the
+    //    "international" category shows "International" not "international").
+    $_stRaw = $currentCat;
+    if ($isEnglish && function_exists('en_label')) {
+        $_stRaw = en_label($_stRaw);
+    }
+    $sectionTitle = _mo_ucfirst_cat($_stRaw);
 } elseif ($page === 'home') {
     $sectionTitle = $isEnglish ? 'Latest News' : 'সর্বশেষ সংবাদ';
 } else {
@@ -657,7 +733,8 @@ if (preg_match('#<a href="([^"]+)"\s+class="feat-main"[^>]*>(.*?)</a>#us', $html
     // Image - works with both <img> directly inside <a> AND wrapped in <div class="feat-img">
     if (preg_match('#<img[^>]+src="([^"]+)"#u', $featBlock, $im)) $featured['img'] = $im[1];
     // Category badge (.cb)
-    if (preg_match('#<span class="cb"[^>]*>([^<]+)</span>#u', $featBlock, $cm)) $featured['cat'] = trim($cm[1]);
+    // ★ v3.107: capitalize first letter of category name (block letter, no-op for Bengali)
+    if (preg_match('#<span class="cb"[^>]*>([^<]+)</span>#u', $featBlock, $cm)) $featured['cat'] = _mo_ucfirst_cat(trim($cm[1]));
     // Title (.ov h2) - scoped to within .feat-main (was global, picked up first h2 in HTML)
     if (preg_match('#<h2[^>]*>([^<]+)</h2>#u', $featBlock, $tm)) $featured['title'] = html_entity_decode(trim($tm[1]), ENT_QUOTES, 'UTF-8');
 }
@@ -838,6 +915,29 @@ function _renderCardThumb($imgUrl, $cssClass) {
     return '<img src="' . htmlspecialchars($imgUrl) . '" alt="" class="' . $cssClass . '" loading="lazy">';
 }
 
+/**
+ * ★ v3.107: USER REQUEST — "jekhane joto Categories/SubCategories ache
+ *           sob first letter Block letter hobe" (capitalize the first letter
+ *           of every Category / SubCategory name wherever it is displayed).
+ *
+ * UTF-8 safe ucfirst():
+ *   - Trims leading/trailing whitespace.
+ *   - Uppercases ONLY the first character; leaves the rest untouched
+ *     (so "Kolkata" stays "Kolkata", "IPL" stays "IPL").
+ *   - For Bengali / other case-less scripts, mb_strtoupper() is a no-op,
+ *     so Bengali names like "কলকাতা" are returned unchanged — only English
+ *     labels actually get their first letter capitalized.
+ *   - Returns the original value untouched if it is empty / not a string.
+ */
+function _mo_ucfirst_cat($s) {
+    if ($s === null || $s === '') return $s;
+    $s = trim((string)$s);
+    if ($s === '') return $s;
+    $first = mb_substr($s, 0, 1, 'UTF-8');
+    $rest  = mb_substr($s, 1, null, 'UTF-8');
+    return mb_strtoupper($first, 'UTF-8') . $rest;
+}
+
 // ★ v3.78: SUPER SIMPLE DB QUERY for category/search pages
 //    Replaces complex v3.75-v3.77 logic with a straightforward approach.
 //    On category/search pages, query DB directly for latest news (same as home panel).
@@ -873,6 +973,94 @@ if ($_v378_cat !== '' && isset($pdo)) {
                 $_v378_cat = $_v378_resolvedName;
             }
         } catch (Exception $_v378_re) {}
+    }
+}
+
+// ★ v3.114 FIX: Resolve ENGLISH category labels to the actual DB (Bengali) name.
+//    The cat-tabs (and the fallback category list) emit English hrefs like
+//    ?cat=Sports, ?cat=National, ?cat=Entertainment ... when English mode is on,
+//    because English is the *display* label and en_label() only translates for
+//    the UI, NOT for the DB. The DB stores the canonical BENGALI names
+//    (খেলাধুলা, জাতীয়, বিনোদন ...), so the news query `c.name = 'Sports'`
+//    returns zero rows → the Sports tab (and any English-label tab) showed
+//    "no news" even though plenty of Sports news existed. The v3.78 LIKE
+//    fallback also failed because it searches `c.name LIKE '%Sports%'` and
+//    the DB name is Bengali.
+//
+//    Fix: if ?cat is an English label that has NO exact row in `categories`,
+//    look up the Bengali DB name through the shared bn↔en label map and
+//    rewrite $_v378_cat to it BEFORE the news query is built. This is the
+//    same technique used for Video above, generalised to every category.
+//    Works whether or not en_label() is available (falls back to a built-in
+//    bn→en map covering the standard categories used in this site).
+if ($_v378_cat !== '' && isset($pdo)) {
+    // First check if an exact row already exists — if so, nothing to do.
+    try {
+        @$pdo->exec("SET NAMES utf8mb4");
+        $_v314_chk = $pdo->prepare("SELECT name FROM categories WHERE name = ? LIMIT 1");
+        $_v314_chk->execute([$_v378_cat]);
+        $_v314_exactRow = $_v314_chk->fetchColumn();
+    } catch (Exception $_v314_ce) {
+        $_v314_exactRow = false;
+    }
+
+    if ($_v314_exactRow === false || $_v314_exactRow === '' || $_v314_exactRow === 0) {
+        // No exact match — try to translate the (probably English) input
+        // to its canonical Bengali DB name.
+        $_v314_enToBn = [
+            'Headlines'      => 'প্রধান খবর',
+            'National'       => 'জাতীয়',
+            'Politics'       => 'রাজনীতি',
+            'International'   => 'আন্তর্জাতিক',
+            'Economy'        => 'অর্থনীতি',
+            'Sports'         => 'খেলাধুলা',
+            'Entertainment'  => 'বিনোদন',
+            'Education'      => 'শিক্ষা',
+            'Technology'     => 'প্রযুক্তি',
+            'Health'         => 'স্বাস্থ্য',
+            'Special News'   => 'বিশেষ সংবাদ',
+            'Lifestyle'      => 'লাইফস্টাইল',
+            'Religion'       => 'ধর্ম',
+            'Culture'        => 'সংস্কৃতি',
+            'Opinion'        => 'মতামত',
+            'Crime'          => 'ক্রাইম',
+            'Agriculture'    => 'কৃষি',
+            'Travel'         => 'ভ্রমণ',
+            'Jobs'           => 'চাকরি',
+            'Archive'        => 'আর্কাইভ',
+        ];
+
+        $_v314_resolved = '';
+        // 1) Direct English-label → Bengali map
+        if (isset($_v314_enToBn[$_v378_cat])) {
+            $_v314_resolved = $_v314_enToBn[$_v378_cat];
+        }
+        // 2) Case-insensitive English-label match
+        if ($_v314_resolved === '') {
+            foreach ($_v314_enToBn as $_v314_en => $_v314_bn) {
+                if (strcasecmp($_v314_en, $_v378_cat) === 0) {
+                    $_v314_resolved = $_v314_bn;
+                    break;
+                }
+            }
+        }
+        // 3) If en_label() is available, try reverse-mapping: feed every
+        //    Bengali DB name through en_label() and compare to the input.
+        if ($_v314_resolved === '' && function_exists('en_label')) {
+            try {
+                $_v314_allCats = $pdo->query("SELECT name FROM categories")->fetchAll(PDO::FETCH_COLUMN, 0);
+                foreach ($_v314_allCats as $_v314_dbName) {
+                    if (en_label($_v314_dbName) === $_v378_cat) {
+                        $_v314_resolved = $_v314_dbName;
+                        break;
+                    }
+                }
+            } catch (Exception $_v314_re2) {}
+        }
+
+        if ($_v314_resolved !== '' && $_v314_resolved !== $_v378_cat) {
+            $_v378_cat = $_v314_resolved;
+        }
     }
 }
 
@@ -1625,9 +1813,13 @@ if (preg_match_all('#<a href="([^"]+)"\s+class="tag-pill"[^>]*>\s*<i class="fas 
 $catList = [];
 foreach ($dbCategories as $cat) {
     $catName = $cat['name'];  // Bengali name from DB
+    // ★ v3.107: capitalize first letter of the display label (block letter).
+    //    en_label() returns the English label (e.g. "video" → we want "Video");
+    //    _mo_ucfirst_cat is a no-op for Bengali, so bilingual labels stay correct.
+    $_catDisplayName = function_exists('en_label') ? en_label($catName) : $catName;
     $catList[] = [
         'name'        => $catName,
-        'displayName' => function_exists('en_label') ? en_label($catName) : $catName,
+        'displayName' => _mo_ucfirst_cat($_catDisplayName),
         'href'        => '?cat=' . urlencode($catName),
         'icon'        => $dbNavCatIcons[$catName] ?? 'fa-folder',
         'count'       => (int)($dbCatPostCounts[$catName] ?? 0),
@@ -2655,6 +2847,10 @@ img { max-width: 100%; display: block; }
 /* ★ v3.7: Summary box REMOVED (user requested) */
 
 /* ★ v3.9: "তথ্য:" Summary Box — placed AFTER title, BEFORE image */
+/* ★ fix: label and text side-by-side (label left, text right) instead of stacked.
+   flex-basis:0 on the text makes it grow into the remaining space and wrap
+   internally; flex-wrap is intentionally OFF so the text never drops below the
+   label even when it is long. Verified side-by-side at 320/360/420/768px. */
 .art-summary {
     margin: 0 0 14px;
     padding: 12px 14px;
@@ -2663,16 +2859,22 @@ img { max-width: 100%; display: block; }
     border-left: 4px solid var(--red);
     border-radius: 6px;
     box-shadow: 0 2px 8px rgba(183,28,28,.08);
+    display: flex;            /* lay out label + text on one row */
+    align-items: flex-start;
+    gap: 10px;
 }
 .art-summary .summary-label {
     font-family: 'Noto Serif Bengali', serif;
     font-size: 14px;
     font-weight: 700;
     color: var(--red);
-    margin-bottom: 6px;
+    margin: 0;                 /* no longer pushes the text down */
+    flex: 0 0 auto;            /* keep natural width, don't grow/shrink */
+    white-space: nowrap;       /* keep "তথ্য:" / "Info:" on one line */
     display: flex;
     align-items: center;
     gap: 6px;
+    padding-top: 2px;          /* optically align with first text line */
 }
 .art-summary .summary-label::before {
     content: '\f05a';
@@ -2682,6 +2884,8 @@ img { max-width: 100%; display: block; }
     color: var(--red);
 }
 .art-summary .summary-text {
+    flex: 1 1 0;               /* basis 0: grow into remaining space, never claim max-content width */
+    min-width: 0;              /* allow wrapping inside, never overflow */
     font-size: 14px;
     line-height: 1.7;
     color: #5d4037;
@@ -3231,11 +3435,15 @@ HTML;
         if ($isEnglish && function_exists('en_label')) {
             $_catName = en_label($_catName);
         }
+        // ★ v3.107: capitalize first letter of category name (block letter)
+        $_catName = _mo_ucfirst_cat($_catName);
         if (!empty($article['subCat'])) {
             $_subName = $article['subCat'];
             if ($isEnglish && function_exists('en_label')) {
                 $_subName = en_label($_subName);
             }
+            // ★ v3.107: capitalize first letter of subcategory name (block letter)
+            $_subName = _mo_ucfirst_cat($_subName);
             // Category — red text
             $catBadges .= '<a href="' . htmlspecialchars($article['catHref']) . '" class="art-cat">' . htmlspecialchars($_catName) . '</a>';
             // Separator — grey "/"
@@ -3417,6 +3625,10 @@ HTML;
         $hasSubs    = !empty($catSubs);
         $isActive   = ($currentCat === $catName && !$dbCurrentSub) ? ' active' : '';
         $countBadge = $catCount > 0 ? '<span class="sb-cat-count">' . (int)$catCount . '</span>' : '';
+        // ★ v3.107: capitalize first letter of category display name (block letter).
+        //    Applied to $catDisplay so BOTH the visible text AND the data-cat
+        //    attribute used by the JS toggle stay consistent.
+        $catDisplay = _mo_ucfirst_cat($catDisplay);
         $newSingleHTML .= '<div class="sb-cat-wrap' . ($hasSubs ? ' has-subs' : '') . '">';
         $newSingleHTML .= '<a href="' . htmlspecialchars($catHref) . '" class="sb-cat-item' . $isActive . '"><i class="fas ' . htmlspecialchars($catIcon) . '"></i><span class="sb-cat-name">' . htmlspecialchars($catDisplay) . '</span>' . $countBadge . '</a>';
         if ($hasSubs) {
@@ -3427,7 +3639,8 @@ HTML;
                 $subBadge  = $subCount > 0 ? '<span class="sb-sub-count">' . (int)$subCount . '</span>' : '';
                 $subHref   = '?cat=' . urlencode($catName) . '&sub=' . (int)$sub['id'];
                 $subActive = ($dbCurrentSub === (int)$sub['id']) ? ' active' : '';
-                $newSingleHTML .= '<a href="' . htmlspecialchars($subHref) . '" class="sb-sub-item' . $subActive . '"><i class="fas fa-circle"></i><span class="sb-sub-name">' . htmlspecialchars($sub['name']) . '</span>' . $subBadge . '</a>';
+                // ★ v3.107: capitalize first letter of subcategory name (block letter)
+                $newSingleHTML .= '<a href="' . htmlspecialchars($subHref) . '" class="sb-sub-item' . $subActive . '"><i class="fas fa-circle"></i><span class="sb-sub-name">' . htmlspecialchars(_mo_ucfirst_cat($sub['name'])) . '</span>' . $subBadge . '</a>';
             }
             $newSingleHTML .= '</div>';
         }
@@ -3853,7 +4066,7 @@ HTML;
     $_videoPageHTML .= '<a href="?page=home" class="cat-tab home-tab"><i class="fas fa-home ct-icon"></i>' . $L['home'] . '</a>';
     foreach ($_vpVisibleCats as $_vpct) {
         $_vpctActive = ($_vpct['name'] === 'videos_page') ? ' active' : '';
-        $_videoPageHTML .= '<a href="' . htmlspecialchars($_vpct['href']) . '" class="cat-tab' . $_vpctActive . '"><i class="fas ' . htmlspecialchars($_vpct['icon']) . ' ct-icon"></i>' . htmlspecialchars($_vpct['displayName']) . '</a>';
+        $_videoPageHTML .= '<a href="' . htmlspecialchars($_vpct['href']) . '" class="cat-tab' . $_vpctActive . '"><i class="fas ' . htmlspecialchars($_vpct['icon']) . ' ct-icon"></i>' . htmlspecialchars(_mo_ucfirst_cat($_vpct['displayName'])) . '</a>';
     }
     $_videoPageHTML .= '</div>';
 
@@ -3995,6 +4208,8 @@ HTML;
     foreach ($catList as $_vpcat) {
         $_vpcatName = $_vpcat['name'];
         $_vpcatDisplay = $_vpcat['displayName'];
+        // ★ v3.107: capitalize first letter of category display name (block letter)
+        $_vpcatDisplay = _mo_ucfirst_cat($_vpcatDisplay);
         $_vpcatHref = $_vpcat['href'];
         $_vpcatIcon = $_vpcat['icon'];
         $_vpcatCount = $_vpcat['count'];
@@ -5213,11 +5428,71 @@ HTML;
 // ★ v2.6: $hiddenCats variable removed (3-dot panel was removed in v2.4)
 $visibleCats = array_slice($categories, 0, 4);
 
+// ★ v3.113: USER REQUEST — remove the "Economy" category from the cat-tabs.
+//    Economy stays reachable via the hamburger ☰ sidebar (the full
+//    $categories list is untouched); only the visible tab slice is filtered.
+//    Done BEFORE the v3.112 Sports logic below so that $_v312_econIdx comes
+//    back -1, which routes Sports into the "append at end" branch. Net
+//    effect: Economy drops out of the tab bar and Sports takes a slot at
+//    the tail — so the tab count stays healthy and Sports remains reachable.
+//    Language-aware: matches "Economy" (en) / "অর্থনীতি" (bn).
+$_v313_econKey = $isEnglish ? 'economy' : 'অর্থনীতি';
+$visibleCats = array_values(array_filter($visibleCats, function ($_v313_c) use ($_v313_econKey) {
+    if (!is_array($_v313_c)) return true;
+    $_v313_cn = trim((string)($_v313_c['name'] ?? ''));
+    return mb_strtolower($_v313_cn, 'UTF-8') !== $_v313_econKey;
+}));
+
+// ★ v3.112: USER REQUEST — ALWAYS show a "Sports" category tab in the
+//    cat-tabs, even when the 4-tab slice (array_slice above) would cut it
+//    off. Sports normally sits one slot after Economy in the full
+//    $categories list, so whenever Economy is the last visible tab (or
+//    Economy isn't in the first 4 at all), Sports gets dropped and the
+//    user can't reach Sports news from the tab bar even though Sports
+//    news exists in the DB. Injecting Sports here guarantees it is always
+//    reachable. Placement: anchored right after Economy when Economy is
+//    visible (preserves the natural Economy → Sports ordering), otherwise
+//    appended at the end of the visible tabs. (After v3.113 Economy is
+//    always filtered out, so in practice Sports is always appended at the
+//    end — the Economy-anchor branch is kept as a safety net in case the
+//    v3.113 removal is ever reverted.) Language-aware: matches the
+//    canonical bn/en mapping used at line ~5747 and in the fallback list
+//    (Sports / খেলাধুলা, fa-futbol). Skipped only if Sports is already
+//    among the visible tabs (no duplicate tab).
+$_v312_econKey = $isEnglish ? 'economy' : 'অর্থনীতি';
+$_v312_sportsName = $isEnglish ? 'Sports' : 'খেলাধুলা';
+$_v312_sportsAlreadyVisible = false;
+$_v312_econIdx = -1;
+foreach ($visibleCats as $_v312_i => $_v312_c) {
+    $_v312_cn = is_array($_v312_c) ? trim((string)($_v312_c['name'] ?? '')) : '';
+    if (mb_strtolower($_v312_cn, 'UTF-8') === $_v312_econKey) {
+        $_v312_econIdx = $_v312_i;
+    }
+    if (mb_strtolower($_v312_cn, 'UTF-8') === mb_strtolower($_v312_sportsName, 'UTF-8')) {
+        $_v312_sportsAlreadyVisible = true;
+    }
+}
+if (!$_v312_sportsAlreadyVisible) {
+    $_v312_sportsCat = [
+        'name' => $_v312_sportsName,
+        'icon' => 'fa-futbol',
+        'href' => '?cat=' . ($isEnglish ? 'Sports' : urlencode('খেলাধুলা')),
+    ];
+    if ($_v312_econIdx >= 0) {
+        // Economy is visible — anchor Sports right after it (natural order).
+        array_splice($visibleCats, $_v312_econIdx + 1, 0, [$_v312_sportsCat]);
+    } else {
+        // Economy not in the first 4 — still show Sports (append at end).
+        $visibleCats[] = $_v312_sportsCat;
+    }
+}
+
 $newHTML .= '<div class="cat-tabs">';
 $newHTML .= '<a href="?page=home" class="cat-tab home-tab' . ($page === 'home' && !$currentCat && !$searchQuery ? ' active' : '') . '"><i class="fas fa-home ct-icon"></i>' . $L['home'] . '</a>';
 foreach ($visibleCats as $cat) {
     $isActive = ($currentCat === $cat['name']) ? ' active' : '';
-    $newHTML .= '<a href="' . htmlspecialchars($cat['href']) . '" class="cat-tab' . $isActive . '"><i class="fas ' . htmlspecialchars($cat['icon']) . ' ct-icon"></i>' . htmlspecialchars($cat['name']) . '</a>';
+    // ★ v3.107: capitalize first letter of category name (block letter, no-op for Bengali)
+    $newHTML .= '<a href="' . htmlspecialchars($cat['href']) . '" class="cat-tab' . $isActive . '"><i class="fas ' . htmlspecialchars($cat['icon']) . ' ct-icon"></i>' . htmlspecialchars(_mo_ucfirst_cat($cat['name'])) . '</a>';
 }
 $newHTML .= '</div>';
 
@@ -5228,11 +5503,20 @@ $newHTML .= '<div class="content-wrap">';
 // ★ v3.69: Added !$currentCat so featured card doesn't appear on "More" → category pages
 if ($page === 'home' && !$currentCat && !$searchQuery && !empty($featured['title'])) {
     $_featured_thumb = _renderCardThumb($featured['img'], 'fc-img');
+    // ★ v3.109: capitalize first letter of the home featured-card category badge
+    //    (was previously output raw as {$featured['cat']} with no ucfirst).
+    $_featured_cat = $featured['cat'];
+    if ($isEnglish && function_exists('en_label')) {
+        $_featured_cat = en_label($_featured_cat);
+    } elseif (function_exists('en_label')) {
+        $_featured_cat = en_label($_featured_cat);
+    }
+    $_featured_cat = _mo_ucfirst_cat($_featured_cat);
     $newHTML .= <<<HTML
 <a href="{$featured['href']}" class="featured-card">
     <div class="fc-img-wrap">{$_featured_thumb}</div>
     <div class="fc-body">
-        <span class="fc-cat">{$featured['cat']}</span>
+        <span class="fc-cat">{$_featured_cat}</span>
         <h2 class="fc-title">{$featured['title']}</h2>
         <div class="fc-meta">
             <span class="author"><i class="fas fa-user"></i>{$L['appName']}</span>
@@ -5274,6 +5558,9 @@ HTML;
         if (function_exists('en_label') && $_si_cat !== '') {
             $_si_cat = en_label($_si_cat);
         }
+        // ★ v3.107: capitalize first letter of cat/sub (block letter)
+        $_si_cat = _mo_ucfirst_cat($_si_cat);
+        $_si_sub = _mo_ucfirst_cat($_si_sub);
         // ★ v3.88: "Category / Subcategory" format
         $_si_catStr = '<div class="si-cat">' . htmlspecialchars($_si_cat);
         if (!empty($_si_sub)) {
@@ -5313,7 +5600,15 @@ if ($currentCat && !$searchQuery && isset($pdo)) {
         @$pdo->exec("SET time_zone = '+05:30'");
 
         // Build query — filter by SAME category (and subcategory if set)
-        $_v379_cat = isset($_GET['cat']) ? $_GET['cat'] : '';
+        // ★ v3.114 FIX: reuse $_v378_cat (already English-label → DB Bengali
+        //    name resolved at the top of the v3.78 block) instead of raw
+        //    $_GET['cat']. Without this, English mode → ?cat=Sports queried
+        //    c.name = 'Sports' → 0 rows → the big "Latest News" featured card
+        //    at the top of the category page silently disappeared for Sports
+        //    (and every other English-label category) even though the main
+        //    news grid below rendered fine. $_v378_cat is defined above when
+        //    $_v378_need is true; fall back to the raw GET value otherwise.
+        $_v379_cat = isset($_v378_cat) && $_v378_cat !== '' ? $_v378_cat : (isset($_GET['cat']) ? $_GET['cat'] : '');
         $_v379_sub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
 
         // ★ v3.89 FIX: Removed correlated subquery — same fix as v3.78.
@@ -5395,6 +5690,13 @@ if ($currentCat && !$searchQuery && isset($pdo)) {
         } else {
             $_v379_latestLabel = $isEnglish ? 'Latest News' : 'সর্বশেষ সংবাদ';
         }
+        // ★ v3.107: capitalize first letter (block letter) — no-op for Bengali
+        // ★ v3.108: Also run en_label() in English mode so this heading matches
+        //    the card badges below (e.g. "international" → "International").
+        if ($isEnglish && function_exists('en_label') && !empty($_subName)) {
+            $_v379_latestLabel = en_label($_v379_latestLabel);
+        }
+        $_v379_latestLabel = _mo_ucfirst_cat($_v379_latestLabel);
         $newHTML .= <<<HTML
 <div class="section-head">
     <div class="sh-title">{$_v379_latestLabel}</div>
@@ -5424,6 +5726,9 @@ HTML;
                 if ($_v379_cat !== '') $_v379_cat = en_label($_v379_cat);
                 if ($_v379_sub !== '') $_v379_sub = en_label($_v379_sub);
             }
+            // ★ v3.107: capitalize first letter of cat/sub (block letter)
+            $_v379_cat = _mo_ucfirst_cat($_v379_cat);
+            $_v379_sub = _mo_ucfirst_cat($_v379_sub);
             $_v379_timeHtml = !empty($_v379_nc['time']) ? '<span><i class="far fa-clock"></i> ' . htmlspecialchars($_v379_nc['time']) . '</span>' : '';
             // ★ v3.88: "Category / Subcategory" format on featured card
             $_v379_catHtml = '';
@@ -5452,6 +5757,11 @@ HTML;
 }
 
 // Section title
+// ★ v3.109: render-point safety net — re-apply ucfirst at OUTPUT time so the
+//    block-letter capitalization is guaranteed no matter how $sectionTitle was
+//    set upstream. ucfirst on an already-capital word is a no-op
+//    ("Cricket" → "Cricket", "Latest News" → "Latest News"), so this is safe.
+$sectionTitle = _mo_ucfirst_cat($sectionTitle);
 $newHTML .= <<<HTML
 <div class="section-head">
     <div class="sh-title">{$sectionTitle}</div>
@@ -5515,6 +5825,9 @@ if (!empty($newsCards)) {
             if ($_nc_cat !== '') $_nc_cat = en_label($_nc_cat);
             if ($_nc_sub !== '') $_nc_sub = en_label($_nc_sub);
         }
+        // ★ v3.107: capitalize first letter of cat/sub (block letter)
+        $_nc_cat = _mo_ucfirst_cat($_nc_cat);
+        $_nc_sub = _mo_ucfirst_cat($_nc_sub);
         $timeStr = !empty($nc['time']) ? '<div class="nc-time"><i class="far fa-clock"></i>' . htmlspecialchars($nc['time']) . '</div>' : '';
         // ★ v3.88: "Category / Subcategory" format — red category, gold subcategory, grey slash
         $catStr = '';
@@ -5607,6 +5920,8 @@ if ($page === 'home' && !$searchQuery && !$currentCat) {
         $catNameEn = $fc['en'];
         $catIcon   = $fc['icon'];
         $catLabel  = $isEnglish ? $catNameEn : $catNameBn;
+        // ★ v3.107: capitalize first letter of category label (block letter)
+        $catLabel  = _mo_ucfirst_cat($catLabel);
         $catHref   = '?cat=' . urlencode($catNameBn);
 
         // Try to find this category's panel cards from index.php's HTML
@@ -5781,6 +6096,8 @@ HTML;
                 } elseif (!$isEnglish && function_exists('en_label') && $_pc_sub !== '') {
                     $_pc_sub = en_label($_pc_sub);
                 }
+                // ★ v3.107: capitalize first letter of subcategory (block letter)
+                $_pc_sub = _mo_ucfirst_cat($_pc_sub);
                 // ★ v3.88: "Category / Subcategory" format — red category, gold subcategory
                 $_pc_catStr = '<div class="nc-cat">' . htmlspecialchars($catLabel);
                 if (!empty($_pc_sub)) {
@@ -5855,6 +6172,10 @@ foreach ($catList as $cat) {
     $hasSubs    = !empty($catSubs);
     $isActive   = ($currentCat === $catName && !$dbCurrentSub) ? ' active' : '';
     $countBadge = $catCount > 0 ? '<span class="sb-cat-count">' . (int)$catCount . '</span>' : '';
+    // ★ v3.107: capitalize first letter of category display name (block letter).
+    //    Applied to $catDisplay so BOTH the visible text AND the data-cat
+    //    attribute used by the JS toggle stay consistent.
+    $catDisplay = _mo_ucfirst_cat($catDisplay);
     $newHTML .= '<div class="sb-cat-wrap' . ($hasSubs ? ' has-subs' : '') . '">';
     $newHTML .= '<a href="' . htmlspecialchars($catHref) . '" class="sb-cat-item' . $isActive . '"><i class="fas ' . htmlspecialchars($catIcon) . '"></i><span class="sb-cat-name">' . htmlspecialchars($catDisplay) . '</span>' . $countBadge . '</a>';
     if ($hasSubs) {
@@ -5865,7 +6186,8 @@ foreach ($catList as $cat) {
             $subBadge  = $subCount > 0 ? '<span class="sb-sub-count">' . (int)$subCount . '</span>' : '';
             $subHref   = '?cat=' . urlencode($catName) . '&sub=' . (int)$sub['id'];
             $subActive = ($dbCurrentSub === (int)$sub['id']) ? ' active' : '';
-            $newHTML .= '<a href="' . htmlspecialchars($subHref) . '" class="sb-sub-item' . $subActive . '"><i class="fas fa-circle"></i><span class="sb-sub-name">' . htmlspecialchars($sub['name']) . '</span>' . $subBadge . '</a>';
+            // ★ v3.107: capitalize first letter of subcategory name (block letter)
+            $newHTML .= '<a href="' . htmlspecialchars($subHref) . '" class="sb-sub-item' . $subActive . '"><i class="fas fa-circle"></i><span class="sb-sub-name">' . htmlspecialchars(_mo_ucfirst_cat($sub['name'])) . '</span>' . $subBadge . '</a>';
         }
         $newHTML .= '</div>';
     }

@@ -1402,6 +1402,7 @@ try { $pdo->exec("ALTER TABLE news ADD COLUMN tags VARCHAR(500) DEFAULT '' AFTER
 //   category_id পরিবর্তন হবে না।
 $__phpNow = date('Y-m-d H:i:s');                    // current IST time
 $__php30DaysAgo = date('Y-m-d H:i:s', strtotime('-30 days'));  // 30 days ago IST
+$__php10DaysAgo = date('Y-m-d H:i:s', strtotime('-10 days'));  // 10 days ago IST (breaking news only)
 // =====================================================
 
  $currentCat = $_GET['cat'] ?? '';
@@ -1475,8 +1476,8 @@ try {
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
-// Breaking News: Valid for 30 days only, no future dates
- $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= '{$__php30DaysAgo}' ORDER BY created_at DESC")->fetchAll());
+// Breaking News: Valid for 10 days only (older breaking news will not show), no future dates
+ $breakingData = array_map(function($b){ return ['id'=>$b['id'],'text'=>$b['text'],'time'=>$b['created_at']]; }, $pdo->query("SELECT * FROM breaking_news WHERE created_at >= '{$__php10DaysAgo}' ORDER BY created_at DESC")->fetchAll());
 
 // ====== PERFORMANCE FIX: Fetch Latest News ID directly instead of loading all news ======
 // ★ v6.6: id + title দুটোই নেওয়া হচ্ছে — পেজ লোডেই সর্বশেষ খবরের পপ-আপ দেখানোর জন্য।
@@ -1664,7 +1665,16 @@ if ($page === 'single') {
         $stmt->execute($params);
         $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
         $displayFeatured = []; // আর্কাইভে banner দেখাবে না
-    } elseif (!$searchQuery && !$currentSub) {
+    } elseif (!$searchQuery) {
+        // ★ FIX v7.27: আগে শর্ত ছিল `!$searchQuery && !$currentSub` — তাই $currentSub
+        //   set থাকলে (subcategory page) এই branch-ই execute হত না; $pagedGrid empty
+        //   থেকে "কোনো সংবাদ পাওয়া যায়নি" দেখাত। এখন `!$searchQuery` করায় subcategory
+        //   page-ও এখানে আসে। $currentSub থাকলে line 1429 থেকে $currentCat-ও set হয়,
+        //   তাই $isCategoryPage=true হবে এবং নিচের category-page logic (top-4 banner
+        //   + side panel "শীর্ষ সংবাদ" + 6-card grid) subcategory-র জন্যও চলবে।
+        //   Banner feat-section template gate ও no-res gate থেকেও $currentSub সরানো
+        //   হয়েছে (line ~3286, ~3431) যাতে banner দেখায় এবং empty grid-এ "no results"
+        //   না দেখায় যখন banner আছে।
         $isCategoryPage = !empty($currentCat);
 
         if ($isCategoryPage) {
@@ -3264,7 +3274,9 @@ $sTags = !empty($singleNews['tags']) ? array_filter(array_map('trim', explode(',
 
 <?php else: ?>
 
-<?php if (!empty($displayFeatured) && !$searchQuery && !$currentSub && !$archYear && !$archMonth): ?>
+<?php /* ★ FIX v7.27: !$currentSub সরানো হয়েছে — যাতে subcategory page-এও
+   feat-section (1 boro latest news banner + "শীর্ষ সংবাদ" side panel) দেখায়। */ ?>
+<?php if (!empty($displayFeatured) && !$searchQuery && !$archYear && !$archMonth): ?>
 <div class="feat-section">
 <?php $fm = $displayFeatured[0]; $fsItems = array_slice($displayFeatured, 1); ?>
 <div class="feat-grid">
@@ -3409,7 +3421,10 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$archY
     <?= $paginationHTML ?>
 </div>
 <?php if (!empty($adContentMiddle)) echo $adContentMiddle; ?>
-<?php elseif (empty($displayFeatured) || $searchQuery || $currentSub || $archYear || $archMonth): ?>
+<?php /* ★ FIX v7.27: $currentSub সরানো হয়েছে — subcategory page-এ banner
+   ($displayFeatured) থাকলে "no results" দেখাবে না; শুধু সত্যিই খালি থাকলেই
+   দেখাবে (empty($displayFeatured) তখন true)। */ ?>
+<?php elseif (empty($displayFeatured) || $searchQuery || $archYear || $archMonth): ?>
 <div class="no-res">
     <i class="fas fa-newspaper"></i>
     <h3>কোনো সংবাদ পাওয়া যায়নি</h3>

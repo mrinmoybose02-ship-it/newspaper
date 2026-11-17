@@ -1258,10 +1258,16 @@ if (!function_exists('newsImage')) {
         if (strpos($img, '//') === 0) return $img;
         if (strpos($img, 'uploads/') === 0) {
             while (strpos($img, 'uploads/uploads/') === 0) { $img = substr($img, 8); }
-            return $img;
+        } elseif (strpos($img, '/') !== 0) {
+            $img = 'uploads/' . $img;
         }
-        if (strpos($img, '/') === 0) return $img;
-        return 'uploads/' . $img;
+        // ★ Auto cache-buster (?v=file mtime): the admin panel moves the watermark by re-stamping
+        //   the image file in place. Without this, the browser kept showing the OLD cached copy
+        //   (old watermark position) until a manual Ctrl+F5. The URL now changes the moment the
+        //   file is re-stamped, so the new watermark appears on index.php instantly — for everyone.
+        $m = @filemtime(__DIR__ . '/' . ltrim($img, '/'));
+        if ($m) return $img . '?v=' . $m;
+        return $img;
     }
 }
 
@@ -1630,7 +1636,9 @@ if ($page === 'single') {
     $countSql = "SELECT COUNT(*) FROM news n LEFT JOIN categories c ON n.category_id = c.id WHERE n.status = 'published'";
     $params = [];
     if ($currentCat) { $sql .= " AND c.name = ?"; $countSql .= " AND c.name = ?"; $params[] = $currentCat; }
-    if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
+    // ★ FIX: ট্যাগ ক্লিক (?q=ট্যাগ) কাজ করার জন্য n.tags কলামও সার্চে যোগ করা হলো —
+    //   আগে শুধু title/content খোঁজা হতো, তাই ট্যাগের নাম শিরোনামে না থাকলে কিছুই মেলে না।
+    if ($searchQuery) { $sql .= " AND (n.title LIKE ? OR n.content LIKE ? OR n.tags LIKE ?)"; $countSql .= " AND (n.title LIKE ? OR n.content LIKE ? OR n.tags LIKE ?)"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; $params[] = "%$searchQuery%"; }
     if ($currentSub) { $sql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $countSql .= " AND n.id IN (SELECT news_id FROM news_subcategories WHERE subcategory_id = ?)"; $params[] = $currentSub; }
 
     if ($archYear) {
@@ -1665,6 +1673,22 @@ if ($page === 'single') {
         $stmt->execute($params);
         $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
         $displayFeatured = []; // আর্কাইভে banner দেখাবে না
+    } elseif ($searchQuery) {
+        // ★ FIX (tag/search redirect): জনপ্রিয় ট্যাগ বা সার্চ বক্স থেকে ?q= দিয়ে আসলে
+        //   আগে grid লোডই হতো না — নিচের branch ছিল `elseif (!$searchQuery)`, তাই
+        //   $pagedGrid সবসময় empty থেকে সবসময় "" পাওয়া যায়নি" দেখাত।
+        //   এখন archive view-এর মতো সরাসরি grid লোড হবে (ট্যাগ/সার্চ ভিউতে
+        //   featured banner দেখানো হবে না — রেন্ডার gate আগেই সেটা বন্ধ করে)।
+        $currentPage = max(1, intval($_GET['p'] ?? 1));
+        $stmt = $pdo->prepare($gridCountSql); $stmt->execute($params);
+        $totalGrid = (int)$stmt->fetchColumn();
+        $totalPages = max(1, ($perPage > 0) ? (int)ceil($totalGrid / $perPage) : 1);
+        if ($currentPage > $totalPages) $currentPage = $totalPages;
+        $offset = ($currentPage - 1) * $perPage;
+        $stmt = $pdo->prepare($gridSql . " LIMIT " . $perPage . " OFFSET " . $offset);
+        $stmt->execute($params);
+        $pagedGrid = array_map(function($row) { $row['subcategory'] = $row['subcategory_name'] ?? ''; return $row; }, array_map('safeMapNewsKeys', $stmt->fetchAll()));
+        $displayFeatured = []; // সার্চ/ট্যাগ ভিউতে banner দেখাবে না
     } elseif (!$searchQuery) {
         // ★ FIX v7.27: আগে শর্ত ছিল `!$searchQuery && !$currentSub` — তাই $currentSub
         //   set থাকলে (subcategory page) এই branch-ই execute হত না; $pagedGrid empty

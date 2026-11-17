@@ -2959,7 +2959,11 @@ img { max-width: 100%; display: block; }
     max-width: 100%;
     border: none;
     border-radius: 8px;
-    margin: 16px 0;
+    /* ★ v3.105: display:block + margin:auto — raw (unwrapped) embed iframes
+       (Instagram, Facebook, Twitter widgets…) are centered like images,
+       instead of sitting flush left */
+    display: block;
+    margin: 16px auto;
 }
 
 /* ★ v3.3: STRIP all inline styles from article content's divs/spans.
@@ -3031,6 +3035,29 @@ img { max-width: 100%; display: block; }
 .art-content .twitter-embed-wrapper iframe {
     width: 100% !important;
     height: 500px !important;
+}
+/* ★ v3.105: Center Instagram embeds in article content.
+   Instagram posts come as a raw <iframe src="https://www.instagram.com/p/…/embed">
+   (or <blockquote class="instagram-media">) with NO wrapper div, so they used to
+   sit flush LEFT while the YouTube videos (news-video-wrapper) stayed centered.
+   Instagram's own embed CSS/JS forces margin:1px / min-width:326px, so we must
+   beat it with !important on margin + sizing. */
+.art-content iframe[src*="instagram.com"],
+.art-content iframe.instagram-media,
+.art-content blockquote.instagram-media {
+    display: block !important;
+    margin: 16px auto !important;
+    max-width: 540px;
+    width: calc(100% - 2px);
+}
+/* embed.js replaces the blockquote with an <iframe class="instagram-media …">
+   inside a container div — center that container too (beats the v3.3 div reset
+   which pins margin: 0 0 14px 0 !important on every div) */
+.art-content > div:has(> iframe.instagram-media),
+.art-content div:has(> blockquote.instagram-media) {
+    margin: 0 auto 14px auto !important;
+    max-width: 540px;
+    text-align: center;
 }
 /* Headlines that may have come over from article content (single-headline class)
    are also stripped — we don't want any pink/grey callout boxes */

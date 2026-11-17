@@ -22,7 +22,7 @@ error_reporting(E_ERROR | E_PARSE);
 if (function_exists('ob_start') && function_exists('mb_strtoupper') && empty($_GET['ajax_today_news'])) {
     ob_start(function($html) {
         return preg_replace_callback(
-            '/(<(?:div|span|a|h2)\b[^>]*class="[^"]*(?:sh-title|nc-cat|nc-sub|fc-cat|art-cat|si-cat|sb-cat-name|sb-sub-name)[^"]*"[^>]*>)(\s*)(\p{L})/u',
+            '/(<(?:div|span|a|h2)\b[^>]*class="[^"]*(?:sh-title|nc-cat|nc-sub|fc-cat|art-cat|si-cat|sb-cat-name|sb-sub-name|cat-badge)[^"]*"[^>]*>)(\s*)(\p{L})/u',
             function($m) { return $m[1] . $m[2] . mb_strtoupper($m[3], 'UTF-8'); },
             $html
         );
@@ -590,7 +590,7 @@ $__moTrScript = <<<'MOJS'
                 //   Added .fc-cat, .sh-title, .sb-cat-name, .sb-sub-name to the
                 //   closest() list so featured-card titles, section headings and
                 //   sidebar sub-category links are covered too.
-                if (parent && parent.closest && parent.closest('.cb, .fcs, .sec-title, .nc-cat, .nc-sub, .fc-cat, .si-cat, .art-cat, .sb-cat-name, .sb-sub-name, .cpc-time, .ksn, .sb-si, .kn-sub-link, .cat-panel-title, .cat-panel-head, .sh-title')) {
+                if (parent && parent.closest && parent.closest('.cb, .fcs, .sec-title, .nc-cat, .nc-sub, .fc-cat, .si-cat, .art-cat, .sb-cat-name, .sb-sub-name, .cpc-time, .ksn, .sb-si, .kn-sub-link, .cat-panel-title, .cat-panel-head, .sh-title, .cat-badge')) {
                     t = t.replace(/\bthe country\b/gi, 'National').replace(/\bcountry\b/gi, 'National');
                     // Capitalize the first ASCII letter (skip leading whitespace
                     // and any leading non-letter such as "/" or digits). Bengali
@@ -2207,7 +2207,23 @@ if ($isSinglePage) {
                 $relImg = $relTitle = $relCat = $relTime = '';
                 if (preg_match('#<img[^>]+src="([^"]+)"#u', $relBlockItem, $rim)) $relImg = $rim[1];
                 if (preg_match('#<h3[^>]*>([^<]+)</h3>#u', $relBlockItem, $rtm)) $relTitle = html_entity_decode(trim($rtm[1]), ENT_QUOTES, 'UTF-8');
-                if (preg_match('#<div class="nc-cat"[^>]*>([^<]+)</div>#u', $relBlockItem, $rcm)) $relCat = trim($rcm[1]);
+                // ★ v3.115: TOLERANT category label extraction (fixes v3.114 badge
+                //    not showing). The original card can carry the label three
+                //    ways: (a) nc-cat WITH nested spans — the site's own format is
+                //    'Cat<span class="nc-cat-sep">/</span><span class="nc-sub">Sub</span>',
+                //    and the old ([^<]+)</div> regex failed on it ENTIRELY (stopped
+                //    at the first '<', then needed </div> right there) → cat came
+                //    back empty and the badge vanished; (b) the overlay badge
+                //    <span class="cb">…</span> (same badge as featured cards);
+                //    (c) plain text. Capture the FULL element, strip tags,
+                //    normalize the slash, so every shape yields "Cat / Sub".
+                if (preg_match('#<div class="nc-cat"[^>]*>(.*?)</div>#us', $relBlockItem, $rcm)) {
+                    $relCat = trim(preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($rcm[1], ENT_QUOTES, 'UTF-8'))));
+                }
+                if ($relCat === '' && preg_match('#<span class="cb"[^>]*>(.*?)</span>#us', $relBlockItem, $rcb)) {
+                    $relCat = trim(preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($rcb[1], ENT_QUOTES, 'UTF-8'))));
+                }
+                if ($relCat !== '') $relCat = preg_replace('#\s*/\s*#u', ' / ', $relCat);
                 if (preg_match('#<i class="far fa-clock"></i>\s*([^<]+)#u', $relBlockItem, $rtm2)) $relTime = trim($rtm2[1]);
                 if ($relTitle) {
                     $article['related'][] = [
@@ -3205,9 +3221,39 @@ img { max-width: 100%; display: block; }
     background: #eee;
 }
 .rel-card .rc-body { padding: 8px 10px 10px; flex: 1; }
-.rel-card .rc-cat { font-size: 9px; color: var(--red); font-weight: 700; text-transform: uppercase; margin-bottom: 3px; }
 .rel-card .rc-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .rel-card .rc-time { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+/* ★ v3.116: Category / Subcategory badge sits BELOW the thumbnail, in front
+   of the card title (user request "niche korun / title er aage"). .cat-thumb
+   still wraps the thumbnail so images AND video thumbs share 16/10 sizing. */
+.rel-card .cat-thumb {
+    width: 100%;
+    aspect-ratio: 16/10;
+    overflow: hidden;
+    background: #eee;
+}
+.rel-card .cat-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.rel-card .cat-badge {
+    display: inline-block;
+    max-width: 100%;
+    background: var(--red);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.25;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
 /* FOOTER */
 .app-footer {
@@ -3603,12 +3649,73 @@ HTML;
     if (!empty($article['related'])) {
         $relLabel = $isEnglish ? 'Related News' : 'সম্পর্কিত সংবাদ';
         $newSingleHTML .= '<div class="rel-sec"><div class="rel-head">' . $relLabel . '</div><div class="rel-grid">';
+        // ★ v3.115: DB FALLBACK — related cards whose markup carries NO label at
+        //    all still get the badge: look up category (+ subcategory) straight
+        //    from the DB via the news id in the href. One batched query per
+        //    table, fully try/catch'd — can never break the page.
+        $_v115_needIds = [];
+        foreach ($article['related'] as $_v115_rel) {
+            if (!empty($_v115_rel['cat'])) continue;
+            if (preg_match('/[?&]id=(\d+)/', (string)($_v115_rel['href'] ?? ''), $_v115_m)) {
+                $_v115_needIds[(int)$_v115_m[1]] = true;
+            }
+        }
+        if (isset($pdo) && !empty($_v115_needIds)) {
+            $_v115_ids  = array_map('intval', array_keys($_v115_needIds));
+            $_v115_ph   = implode(',', array_fill(0, count($_v115_ids), '?'));
+            $_v115_cats = [];
+            $_v115_subs = [];
+            try {
+                $_v115_st = $pdo->prepare("SELECT n.id, c.name AS cat_name
+                                           FROM news n
+                                           LEFT JOIN categories c ON n.category_id = c.id
+                                           WHERE n.id IN ($_v115_ph)");
+                $_v115_st->execute($_v115_ids);
+                foreach ($_v115_st->fetchAll(PDO::FETCH_ASSOC) as $_v115_r) {
+                    if (!empty($_v115_r['cat_name'])) $_v115_cats[(int)$_v115_r['id']] = trim($_v115_r['cat_name']);
+                }
+            } catch (Exception $e) {}
+            // Subcategory via the junction table discovered by the v3.92
+            // machinery (standard column names — same as the v3.78 query).
+            if (!empty($_v392_junctionTable) && !empty($_v392_subNameMap)) {
+                try {
+                    $_v115_st2 = $pdo->prepare("SELECT news_id, subcategory_id
+                                                FROM " . $_v392_junctionTable . "
+                                                WHERE news_id IN ($_v115_ph)
+                                                ORDER BY subcategory_id ASC");
+                    $_v115_st2->execute($_v115_ids);
+                    foreach ($_v115_st2->fetchAll(PDO::FETCH_ASSOC) as $_v115_r2) {
+                        $_v115_nid = (int)$_v115_r2['news_id'];
+                        $_v115_sid = (int)$_v115_r2['subcategory_id'];
+                        if (!isset($_v115_subs[$_v115_nid]) && isset($_v392_subNameMap[$_v115_sid])) {
+                            $_v115_subs[$_v115_nid] = (string)$_v392_subNameMap[$_v115_sid];
+                        }
+                    }
+                } catch (Exception $e) {}
+            }
+            foreach ($article['related'] as $_rk => $_v115_rel) {
+                if (!empty($_v115_rel['cat'])) continue;
+                if (!preg_match('/[?&]id=(\d+)/', (string)($_v115_rel['href'] ?? ''), $_v115_m2)) continue;
+                $_v115_nid = (int)$_v115_m2[1];
+                $_v115_label = trim($_v115_cats[$_v115_nid] ?? '');
+                if ($_v115_label === '') continue;
+                $_v115_sub = trim($_v115_subs[$_v115_nid] ?? '');
+                if ($_v115_sub !== '' && mb_stripos($_v115_label, $_v115_sub) === false) {
+                    $_v115_label .= ' / ' . $_v115_sub;
+                }
+                $article['related'][$_rk]['cat'] = _mo_ucfirst_cat($_v115_label);
+            }
+        }
         foreach ($article['related'] as $rel) {
             $relTimeStr = !empty($rel['time']) ? '<div class="rc-time"><i class="far fa-clock"></i> ' . htmlspecialchars($rel['time']) . '</div>' : '';
-            $relCatStr  = !empty($rel['cat']) ? '<div class="rc-cat">' . htmlspecialchars($rel['cat']) . '</div>' : '';
+            // ★ v3.116: Badge moved BELOW the image — sits in front of (above)
+            //    the title inside .rc-body (user request: "niche / title er aage").
+            $relCatStr = !empty($rel['cat']) ? '<span class="cat-badge">' . htmlspecialchars($rel['cat']) . '</span>' : '';
             // ★ v3.103: Use video thumbnail if image is .mp4
             $_rel_thumb = _renderCardThumb($rel['img'], '');
-            $newSingleHTML .= '<a href="' . $rel['href'] . '" class="rel-card">' . $_rel_thumb . '<div class="rc-body">' . $relCatStr . '<div class="rc-title">' . $rel['title'] . '</div>' . $relTimeStr . '</div></a>';
+            $newSingleHTML .= '<a href="' . $rel['href'] . '" class="rel-card">'
+                . '<div class="cat-thumb">' . $_rel_thumb . '</div>'
+                . '<div class="rc-body">' . $relCatStr . '<div class="rc-title">' . $rel['title'] . '</div>' . $relTimeStr . '</div></a>';
         }
         $newSingleHTML .= '</div></div>';
     }

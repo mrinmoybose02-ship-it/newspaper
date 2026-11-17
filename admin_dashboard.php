@@ -82,7 +82,6 @@ if (!function_exists('adminFestUrl')) {
 // ========================================== Live Image Preview Ends ==========================================
 // ========================================== Bengali Calendar Class Ends ==========================================
 
-
 if (!isset($_SESSION["user_id"])) { header("Location: ?page=admin_login"); exit; }
 
 try {
@@ -182,6 +181,51 @@ if (!function_exists('handleUpload')) {
     }
 }
 
+// ★ Auto-resize an uploaded image to fit within $maxDim on its longest side.
+//   Used for the site (sidebar brand) logo so big uploads don't waste disk or break layout.
+//   Overwrites the file in place. Returns true on success, false if GD missing / not an image / already small.
+if (!function_exists('resizeImageFit')) {
+    function resizeImageFit($srcPath, $maxDim = 256, $quality = 92) {
+        if (!function_exists('gd_info')) return false;
+        $info = @getimagesize($srcPath);
+        if (!$info) return false;                       // SVG or unreadable → skip (vector, no resize needed)
+        $mime = $info['mime'] ?? '';
+        $w = (int)($info[0] ?? 0); $h = (int)($info[1] ?? 0);
+        if ($w <= 0 || $h <= 0) return false;
+        if ($w <= $maxDim && $h <= $maxDim) return true; // already small enough — nothing to do
+        $scale = min($maxDim / $w, $maxDim / $h);
+        $nw = max(1, (int)round($w * $scale));
+        $nh = max(1, (int)round($h * $scale));
+        switch ($mime) {
+            case 'image/jpeg': case 'image/jpg': $src = @imagecreatefromjpeg($srcPath); break;
+            case 'image/png':  $src = @imagecreatefrompng($srcPath);  break;
+            case 'image/gif':  $src = @imagecreatefromgif($srcPath);  break;
+            case 'image/webp': $src = @imagecreatefromwebp($srcPath); break;
+            default: return false;
+        }
+        if (!$src) return false;
+        $dst = imagecreatetruecolor($nw, $nh);
+        if ($mime === 'image/png' || $mime === 'image/gif' || $mime === 'image/webp') {
+            imagealphablending($dst, false);
+            imagesavealpha($dst, true);
+            $trans = imagecolorallocatealpha($dst, 0, 0, 0, 127);
+            imagefilledrectangle($dst, 0, 0, $nw, $nh, $trans);
+        }
+        imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+        $ok = false;
+        switch ($mime) {
+            case 'image/jpeg': case 'image/jpg': $ok = imagejpeg($dst, $srcPath, $quality); break;
+            case 'image/png':  $ok = imagepng($dst, $srcPath, 6); break;
+            case 'image/gif':  $ok = imagegif($dst, $srcPath);   break;
+            case 'image/webp': $ok = imagewebp($dst, $srcPath, $quality); break;
+        }
+        imagedestroy($src);
+        imagedestroy($dst);
+        @chmod($srcPath, 0644);
+        return $ok;
+    }
+}
+
 if (!function_exists('sendWebSocketNotification')) {
     function sendWebSocketNotification($news_id, $news_title) {
         $data = json_encode(['id' => $news_id, 'title' => $news_title]);
@@ -225,7 +269,7 @@ try {
 } catch (Exception $e) {}
 
  $section = $_GET["section"] ?? "dashboard";
- $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "breaking_speed", "users", "date_requests", "visitor_stats", "password_requests"];
+ $validSections = ["dashboard", "add", "edit", "manage", "articles", "epaper", "categories", "social", "contact", "watermark", "ads", "password", "api_subcategories", "nse_market", "api_nse_data", "api_ad_click", "videos", "home_panels", "breaking_speed", "users", "date_requests", "visitor_stats", "password_requests"];
 if (!in_array($section, $validSections)) $section = "dashboard";
 
 // Handle Date Change Request Approval/Rejection
@@ -416,6 +460,122 @@ if (!function_exists('saveNewsSubcategories')) { function saveNewsSubcategories(
 if (!function_exists('loadSettings')) { function loadSettings($pdo, $keys) { $v = []; try { $in = implode(",", array_fill(0, count($keys), "?")); $st = $pdo->prepare("SELECT setting_key,setting_value FROM site_settings WHERE setting_key IN ($in)"); $st->execute($keys); $rows = $st->fetchAll(PDO::FETCH_KEY_PAIR); foreach ($keys as $k) { $v[$k] = $rows[$k] ?? ""; } } catch (Exception $e) { foreach ($keys as $k) { $v[$k] = ""; } } return $v; } }
 if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st = $pdo->prepare("INSERT INTO site_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?,updated_at=NOW()"); foreach ($data as $k => $val) { $st->execute([$k, $val, $val]); } } }
 
+// ========================================== ★ Watermark Setting (brand your own news images + restore originals) ==========================================
+// নিজের ছবিতে নিজের ওয়াটারমার্ক বসানো/সরানোর টুল। ওয়াটারমার্ক বসানোর আগে প্রতিটি ছবির
+// অরিজিনাল কপি '<file>.orig' নামে ব্যাকআপ রাখা হয় — তাই Remove মানে অরিজিনাল restore (১০০% reversible)।
+if (!function_exists('wmDefaults')) { function wmDefaults() { return [
+    'wm_enabled' => '0', 'wm_apply_new' => '1', 'wm_type' => 'text',
+    'wm_image' => '', 'wm_text' => 'Songbad Songolon', 'wm_font_size' => '24',
+    'wm_color' => '#FFFFFF', 'wm_opacity' => '35', 'wm_position' => 'bottom-right',
+    'wm_margin' => '16', 'wm_scale' => '25',
+]; } }
+if (!function_exists('wmGetSettings')) { function wmGetSettings($pdo) { $d = wmDefaults(); $v = loadSettings($pdo, array_keys($d)); foreach ($d as $k => $def) { if (!isset($v[$k]) || $v[$k] === '' || $v[$k] === null) $v[$k] = $def; } return $v; } }
+if (!function_exists('wmResolvePath')) { function wmResolvePath($rel) { $rel = ltrim((string)$rel, '/'); if ($rel === '' || preg_match('~^https?://~i', $rel)) return ''; foreach ([__DIR__ . '/../' . $rel, __DIR__ . '/' . $rel] as $__p) { if (is_file($__p)) return $__p; } return ''; } }
+if (!function_exists('wmImgLoad')) { function wmImgLoad($path) { $info = @getimagesize($path); if (!$info) return null; switch ($info['mime'] ?? '') { case 'image/jpeg': case 'image/jpg': return @imagecreatefromjpeg($path); case 'image/png': return @imagecreatefrompng($path); case 'image/gif': return @imagecreatefromgif($path); case 'image/webp': return function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($path) : null; } return null; } }
+if (!function_exists('wmImgSave')) { function wmImgSave($im, $path) { $info = @getimagesize($path); $mime = $info['mime'] ?? 'image/jpeg'; if ($mime === 'image/png') { imagesavealpha($im, true); return imagepng($im, $path, 6); } if ($mime === 'image/gif') { return imagegif($im, $path); } if ($mime === 'image/webp') { if (!function_exists('imagewebp')) return false; return imagewebp($im, $path, 90); } return imagejpeg($im, $path, 90); } }
+if (!function_exists('wmFindFont')) { function wmFindFont() { static $f = null; if ($f !== null) return $f; $cands = []; $dirs = ['/usr/share/fonts/truetype/', '/usr/share/fonts/', '/usr/share/fonts/TTF/', __DIR__ . '/fonts/']; foreach ($dirs as $d) { if (!is_dir($d)) continue; foreach ((array)glob($d . '*.ttf') as $c) $cands[] = $c; foreach ((array)glob($d . '*/*.ttf') as $c) $cands[] = $c; foreach ((array)glob($d . '*.otf') as $c) $cands[] = $c; } foreach ($cands as $c) { if (stripos(basename($c), 'bengali') !== false) { $f = $c; return $f; } } foreach ($cands as $c) { $bn = basename($c); if (stripos($bn, 'bold') !== false && (stripos($bn, 'dejavu') !== false || stripos($bn, 'noto') !== false || stripos($bn, 'liberation') !== false || stripos($bn, 'freefont') !== false)) { $f = $c; return $f; } } foreach ($cands as $c) { $bn = basename($c); if (stripos($bn, 'dejavusans') !== false || stripos($bn, 'notosans') !== false || stripos($bn, 'liberation') !== false) { $f = $c; return $f; } } $f = $cands[0] ?? ''; return $f; } }
+if (!function_exists('wmScaleAlpha')) { function wmScaleAlpha($im, $op) { $w = imagesx($im); $h = imagesy($im); imagealphablending($im, false); imagesavealpha($im, true); for ($y = 0; $y < $h; $y++) { for ($x = 0; $x < $w; $x++) { $c = imagecolorat($im, $x, $y); $a = ($c >> 24) & 0x7F; $a2 = (int)round(127 - (127 - $a) * $op); imagesetpixel($im, $x, $y, imagecolorallocatealpha($im, ($c >> 16) & 0xFF, ($c >> 8) & 0xFF, $c & 0xFF, $a2)); } } } }
+if (!function_exists('wmPrepareStamp')) { function wmPrepareStamp($s, $tw, $th) {
+    $op = max(0, min(100, (int)$s['wm_opacity'])) / 100; if ($op <= 0) return null;
+    if (($s['wm_type'] ?? '') === 'image' && !empty($s['wm_image'])) {
+        $p = wmResolvePath($s['wm_image']); if ($p === '') return null;
+        $src = wmImgLoad($p); if (!$src) return null;
+        $__ti = imagecolortransparent($src);
+        if ($__ti >= 0) { // palette (GIF) transparency → convert to real alpha, otherwise resampling renders black
+            imagealphablending($src, false); imagesavealpha($src, true);
+            $__sw = imagesx($src); $__sh = imagesy($src);
+            $__tc = imagecolorsforindex($src, $__ti);
+            for ($yy = 0; $yy < $__sh; $yy++) { for ($xx = 0; $xx < $__sw; $xx++) { if (imagecolorat($src, $xx, $yy) === $__ti) { imagesetpixel($src, $xx, $yy, imagecolorallocatealpha($src, $__tc['red'], $__tc['green'], $__tc['blue'], 127)); } } }
+        }
+        $sw = imagesx($src); $sh = imagesy($src);
+        $ww = (int)round($tw * max(5, min(60, (int)$s['wm_scale'])) / 100);
+        $ww = max(16, min(800, $ww)); $wh = max(8, (int)round($sh * $ww / max(1, $sw)));
+        $st = imagecreatetruecolor($ww, $wh);
+        imagealphablending($st, false); imagesavealpha($st, true);
+        imagefilledrectangle($st, 0, 0, $ww, $wh, imagecolorallocatealpha($st, 0, 0, 0, 127));
+        imagecopyresampled($st, $src, 0, 0, 0, 0, $ww, $wh, $sw, $sh);
+        imagedestroy($src);
+        wmScaleAlpha($st, $op);
+        return ['res' => $st, 'w' => $ww, 'h' => $wh];
+    }
+    $txt = trim((string)($s['wm_text'] ?? '')); if ($txt === '') return null;
+    $fs = max(8, min(96, (int)$s['wm_font_size']));
+    $hex = preg_replace('~[^0-9a-fA-F]~', '', (string)$s['wm_color']); if (strlen($hex) !== 6) $hex = 'FFFFFF';
+    $r = hexdec(substr($hex, 0, 2)); $g = hexdec(substr($hex, 2, 2)); $b = hexdec(substr($hex, 4, 2));
+    $alpha = (int)round(127 * (1 - $op));
+    $font = wmFindFont();
+    if ($font !== '' && function_exists('imagettftext')) {
+        $box = imagettfbbox($fs, 0, $font, $txt);
+        $cw = (int)abs($box[4] - $box[0]) + 10; $ch = (int)abs($box[1] - $box[5]) + 12;
+        if ($cw < 10 || $ch < 10) return null;
+        $st = imagecreatetruecolor($cw, $ch);
+        imagealphablending($st, false); imagesavealpha($st, true);
+        imagefilledrectangle($st, 0, 0, $cw, $ch, imagecolorallocatealpha($st, 0, 0, 0, 127));
+        imagealphablending($st, true);
+        imagettftext($st, $fs, 0, 5, (int)abs($box[5]) + 6, imagecolorallocatealpha($st, $r, $g, $b, $alpha), $font, $txt);
+        imagealphablending($st, false);
+        return ['res' => $st, 'w' => $cw, 'h' => $ch];
+    }
+    if (!function_exists('imagestring')) return null;
+    $n = $fs <= 12 ? 1 : ($fs <= 16 ? 2 : ($fs <= 22 ? 3 : ($fs <= 30 ? 4 : 5)));
+    $cw = imagefontwidth($n) * max(1, strlen($txt)) + 8; $ch = imagefontheight($n) + 8;
+    $st = imagecreatetruecolor((int)$cw, (int)$ch);
+    imagealphablending($st, false); imagesavealpha($st, true);
+    imagefilledrectangle($st, 0, 0, (int)$cw, (int)$ch, imagecolorallocatealpha($st, 0, 0, 0, 127));
+    imagealphablending($st, true);
+    imagestring($st, $n, 4, 4, $txt, imagecolorallocatealpha($st, $r, $g, $b, $alpha));
+    imagealphablending($st, false);
+    return ['res' => $st, 'w' => (int)$cw, 'h' => (int)$ch];
+} }
+if (!function_exists('wmStampPosition')) { function wmStampPosition($pos, $tw, $th, $ww, $wh, $m) { $m = max(0, (int)$m); $pos = (string)$pos; if (strpos($pos, 'left') !== false) { $x = $m; } elseif (strpos($pos, 'right') !== false) { $x = $tw - $ww - $m; } else { $x = (int)round(($tw - $ww) / 2); } if (strpos($pos, 'top') !== false) { $y = $m; } elseif (strpos($pos, 'bottom') !== false) { $y = $th - $wh - $m; } else { $y = (int)round(($th - $wh) / 2); } return [max(0, $x), max(0, $y)]; } }
+if (!function_exists('wmApplyToImage')) { function wmApplyToImage($absPath, $s) {
+    if (empty($s['wm_enabled']) || $s['wm_enabled'] !== '1') return ['skip' => 'Watermark disabled'];
+    if (!function_exists('gd_info')) return ['err' => 'GD image library not available'];
+    $absPath = (string)$absPath; if ($absPath === '' || !is_file($absPath)) return ['skip' => 'file missing'];
+    $info = @getimagesize($absPath); if (!$info) return ['skip' => 'not a raster image'];
+    $mime = $info['mime'] ?? '';
+    if ($mime === 'image/gif') return ['skip' => 'GIF (animation preserved)'];
+    if ($mime === 'image/svg+xml') return ['skip' => 'SVG vector'];
+    $im = wmImgLoad($absPath); if (!$im) return ['err' => 'could not decode image'];
+    $bak = $absPath . '.orig';
+    if (!is_file($bak) && !@copy($absPath, $bak)) { imagedestroy($im); return ['err' => 'could not create original backup']; }
+    $stamp = wmPrepareStamp($s, imagesx($im), imagesy($im));
+    if (!$stamp) { imagedestroy($im); return ['err' => 'watermark content missing (logo/text not configured)']; }
+    list($x, $y) = wmStampPosition($s['wm_position'], imagesx($im), imagesy($im), $stamp['w'], $stamp['h'], $s['wm_margin']);
+    imagealphablending($im, true); imagesavealpha($im, true);
+    imagecopy($im, $stamp['res'], $x, $y, 0, 0, $stamp['w'], $stamp['h']);
+    $ok = wmImgSave($im, $absPath);
+    imagedestroy($im); imagedestroy($stamp['res']);
+    @chmod($absPath, 0644);
+    return $ok ? ['ok' => true] : ['err' => 'could not save image'];
+} }
+if (!function_exists('wmRestoreOriginal')) { function wmRestoreOriginal($absPath) { $bak = $absPath . '.orig'; if (!is_file($bak)) return ['skip' => 'no original backup']; if (!@copy($bak, $absPath)) return ['err' => 'restore failed']; @unlink($bak); @chmod($absPath, 0644); return ['ok' => true]; } }
+$wmVals = wmGetSettings($pdo);
+
+// ★ Watermark feature rollout flag — when false, the sidebar section shows "Under Construction"
+//   and the engine stays fully dormant (no auto-stamping, no bulk actions, no preview).
+//   Set to true to activate the complete Watermark Setting UI.
+$WM_FEATURE_LIVE = false;
+
+// ★ Watermark live preview — streams a watermarked sample (works on a temp copy, never touches real files)
+if ($section === "watermark" && $WM_FEATURE_LIVE && isset($_GET["preview"]) && hasPerm('categories')) {
+    $__wmS = wmGetSettings($pdo);
+    $__srcAbs = '';
+    try { $__wmRows = $pdo->query("SELECT image FROM news WHERE image<>'' ORDER BY id DESC LIMIT 8")->fetchAll(PDO::FETCH_COLUMN); } catch (Exception $e) { $__wmRows = []; }
+    foreach ((array)$__wmRows as $__im) { $__p = wmResolvePath((string)$__im); if ($__p !== '') { $__srcAbs = $__p; break; } }
+    $__tmp = tempnam(sys_get_temp_dir(), 'wmprv');
+    if ($__srcAbs !== '') { @copy($__srcAbs, $__tmp); }
+    if (!is_file($__tmp) || !@getimagesize($__tmp)) { $__cv = imagecreatetruecolor(640, 400); imagefilledrectangle($__cv, 0, 0, 639, 399, imagecolorallocate($__cv, 41, 44, 51)); imagejpeg($__cv, $__tmp, 90); imagedestroy($__cv); }
+    $__res = wmApplyToImage($__tmp, $__wmS);
+    $__pm = @getimagesize($__tmp)['mime'] ?? 'image/jpeg';
+    header('Content-Type: ' . $__pm);
+    header('Cache-Control: no-store, must-revalidate');
+    header('Pragma: no-cache');
+    readfile($__tmp);
+    @unlink($__tmp); @unlink($__tmp . '.orig');
+    exit;
+}
+
  $adPositions = [
     "header_banner" => ["label" => "Header Banner", "icon" => "fas fa-window-maximize", "color" => "#C41E3A"],
     "content_top" => ["label" => "Top of Content", "icon" => "fas fa-arrow-up", "color" => "#1E5A8C"],
@@ -469,6 +629,8 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
         else {
             $ur = handleUpload("news_image");
             if ($ur !== null) { if (isset($ur["error"])) { $addError = $ur["error"]; } else { $addData["image"] = $ur["path"]; } }
+            // ★ Watermark: stamp the site watermark on this freshly uploaded news image (original kept as .orig backup, removal-friendly)
+            if ($WM_FEATURE_LIVE && $ur !== null && empty($addError) && $wmVals['wm_enabled'] === '1' && $wmVals['wm_apply_new'] === '1') { wmApplyToImage($ur["full_path"], $wmVals); }
             if (empty($addError)) {
                 try {
                     $firstSubId = !empty($addData["subcategories"]) ? (int)$addData["subcategories"][0] : null;
@@ -539,8 +701,10 @@ if ($section === "edit") {
                     if (isset($ur["error"])) { 
                         $editError = $ur["error"]; 
                     } else { 
-                        if (!empty($editData["image"]) && file_exists(__DIR__ . '/' . $editData["image"])) @unlink(__DIR__ . '/' . $editData["image"]); 
-                        $editData["image"] = $ur["path"]; 
+                        if (!empty($editData["image"])) { if (file_exists(__DIR__ . '/' . $editData["image"])) @unlink(__DIR__ . '/' . $editData["image"]); } 
+                        $editData["image"] = $ur["path"];
+                        // ★ Watermark: stamp on the replaced news image too (original kept as .orig backup)
+                        if ($WM_FEATURE_LIVE && $wmVals['wm_enabled'] === '1' && $wmVals['wm_apply_new'] === '1') { wmApplyToImage($ur["full_path"], $wmVals); }
                     } 
                 }
                 if (empty($editError)) {
@@ -778,12 +942,44 @@ if ($section === "social" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verif
  $contactValues = loadSettings($pdo, array_merge(array_keys($contactFields), array_keys($contactCodeFields)));
 if ($section === "contact" && $_SERVER["REQUEST_METHOD"] === "POST") { if (!verifyCSRF()) { $contactError = "Token mismatch."; } else { try { $sd = []; foreach (array_merge($contactFields, $contactCodeFields) as $k => $c) { $sd[$k] = $_POST[$k] ?? ""; $contactValues[$k] = $sd[$k]; } saveSettings($pdo, $sd); $contactSuccess = "Saved successfully."; } catch (PDOException $e) { $contactError = "Failed: " . $e->getMessage(); } } }
 
+// ★ Site (sidebar brand) logo upload / delete handler — runs on EVERY page load so the sidebar logo always resolves.
+$siteLogoVals = loadSettings($pdo, ['site_logo_img']);
+$currentSiteLogo = $siteLogoVals['site_logo_img'] ?? '';
+$siteLogoMsg = '';
+
+if (isset($_GET["delete_site_logo"]) && isset($_GET["dtoken"])) {
+    if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["dtoken"])) {
+        if (!empty($currentSiteLogo) && !preg_match('~^https?://~i', $currentSiteLogo) && file_exists(__DIR__ . '/../' . ltrim($currentSiteLogo, '/'))) { @unlink(__DIR__ . '/../' . ltrim($currentSiteLogo, '/')); }
+        saveSettings($pdo, ['site_logo_img' => '']);
+        $currentSiteLogo = '';
+        $siteLogoMsg = 'deleted';
+    }
+}
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['site_logo_action']) && $_POST['site_logo_action'] === 'upload') {
+    if (!verifyCSRF()) { $siteLogoMsg = 'token'; }
+    else {
+        $ur = handleUpload('site_logo_file', 2);
+        if ($ur !== null) {
+            if (isset($ur["error"])) { $siteLogoMsg = 'err:' . $ur["error"]; }
+            else {
+                if (!empty($currentSiteLogo) && !preg_match('~^https?://~i', $currentSiteLogo) && $currentSiteLogo !== $ur["path"] && file_exists(__DIR__ . '/../' . ltrim($currentSiteLogo, '/'))) { @unlink(__DIR__ . '/../' . ltrim($currentSiteLogo, '/')); }
+                // Auto-resize big uploads down to a small icon (max 256px longest side). Safe no-op if GD is missing or image is already small.
+                if (!empty($ur["full_path"])) { @resizeImageFit($ur["full_path"], 256); }
+                saveSettings($pdo, ['site_logo_img' => $ur["path"]]);
+                $currentSiteLogo = $ur["path"];
+                $siteLogoMsg = 'saved';
+            }
+        }
+    }
+}
+
  $adSuccess = ""; $adError = ""; $adEditData = null; $adFilter = $_GET["ad_filter"] ?? "all"; $adList = []; $adTotal = 0;
 if ($section === "ads") {
     if (isset($_GET["ad_delete"]) && isset($_GET["ad_dtoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_dtoken"])) { $di = (int)$_GET["ad_delete"]; $dr = $pdo->prepare("SELECT image FROM advertisements WHERE id=?"); $dr->execute([$di]); $dw = $dr->fetch(); if ($dw && !empty($dw["image"]) && file_exists(__DIR__ . '/' . $dw["image"])) @unlink(__DIR__ . '/' . $dw["image"]); $pdo->prepare("DELETE FROM advertisements WHERE id=?")->execute([$di]); $adSuccess = "Deleted successfully."; } }
     if (isset($_GET["ad_toggle"]) && isset($_GET["ad_ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ad_ttoken"])) { $pdo->prepare("UPDATE advertisements SET is_active=IF(is_active=1,0,1) WHERE id=?")->execute([(int)$_GET["ad_toggle"]]); $adSuccess = "Status changed successfully."; } }
     if (isset($_GET["ad_edit"])) { $er = $pdo->prepare("SELECT * FROM advertisements WHERE id=?"); $er->execute([(int)$_GET["ad_edit"]]); $er = $er->fetch(); if ($er) { $adEditData = $er; } }
-    if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['update_flash_ads']) && !isset($_POST['user_action']) && !isset($_POST['save_festival_logo'])) {
+
+    if ($_SERVER["REQUEST_METHOD"] === "POST" && !isset($_POST['update_ads']) && !isset($_POST['update_flash_ads']) && !isset($_POST['user_action']) && !isset($_POST['save_festival_logo']) && !isset($_POST['site_logo_action'])) {
         if (!verifyCSRF()) { $adError = "Token mismatch."; }
         else {
             $at = trim($_POST["ad_title"] ?? ""); $ap = $_POST["ad_position"] ?? "content_middle"; $aty = $_POST["ad_type"] ?? "image"; $al = trim($_POST["ad_link_url"] ?? ""); $acd = $_POST["ad_code"] ?? ""; $aso = (int)($_POST["ad_sort_order"] ?? 0); $asd = !empty($_POST["ad_start_date"]) ? $_POST["ad_start_date"] : null; $aed = !empty($_POST["ad_end_date"]) ? $_POST["ad_end_date"] : null; $ami = !empty($_POST["ad_max_impressions"]) ? (int)$_POST["ad_max_impressions"] : null;
@@ -948,6 +1144,81 @@ if ($section === "breaking_speed" && $_SERVER["REQUEST_METHOD"] === "POST") {
     }
 }
 
+// ====== ★ Watermark Setting — save config / logo upload / bulk apply / bulk remove ======
+$wmSuccess = ""; $wmError = "";
+if ($section === "watermark" && $WM_FEATURE_LIVE && hasPerm('categories')) {
+    if (isset($_GET["delete_wm"]) && isset($_GET["dtoken"])) {
+        $__wp = wmResolvePath($wmVals['wm_image']);
+        if ($__wp !== '') { @unlink($__wp); }
+        saveSettings($pdo, ['wm_image' => '']);
+        $wmVals['wm_image'] = '';
+        $wmSuccess = "Watermark logo deleted.";
+    }
+    if ($_SERVER["REQUEST_METHOD"] === "POST") {
+        if (!verifyCSRF()) { $wmError = "Token mismatch."; }
+        else {
+            $act = $_POST['wm_action'] ?? 'save';
+            if ($act === 'upload_wm') {
+                $ur = handleUpload('wm_image_file', 2, ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+                if ($ur !== null) {
+                    if (isset($ur["error"])) { $wmError = $ur["error"]; }
+                    else {
+                        resizeImageFit($ur["full_path"], 512, 92);
+                        $__old = wmResolvePath($wmVals['wm_image']);
+                        if ($__old !== '' && $__old !== $ur["full_path"]) { @unlink($__old); }
+                        saveSettings($pdo, ['wm_image' => $ur["path"], 'wm_type' => 'image']);
+                        $wmVals = wmGetSettings($pdo);
+                        $wmSuccess = "Watermark logo uploaded and saved (type switched to Logo).";
+                    }
+                } else { $wmError = "No file received."; }
+            } elseif ($act === 'apply_all') {
+                @set_time_limit(0);
+                try { $__imgs = $pdo->query("SELECT image FROM news WHERE image<>'' AND image IS NOT NULL ORDER BY id DESC")->fetchAll(PDO::FETCH_COLUMN); } catch (Exception $e) { $__imgs = []; }
+                $__ok = 0; $__skip = 0; $__fail = 0;
+                foreach ((array)$__imgs as $__im) {
+                    $__p = wmResolvePath((string)$__im);
+                    if ($__p === '') { $__skip++; continue; }
+                    if (is_file($__p . '.orig')) { wmRestoreOriginal($__p); } // re-apply always starts from the pristine original
+                    $__r = wmApplyToImage($__p, $wmVals);
+                    if (!empty($__r['ok'])) { $__ok++; } elseif (!empty($__r['err'])) { $__fail++; } else { $__skip++; }
+                }
+                $wmSuccess = "Watermark applied to {$__ok} image(s) — {$__skip} skipped, {$__fail} failed. Skips are GIF/SVG (animations & vectors are never modified) or missing files.";
+            } elseif ($act === 'remove_all') {
+                @set_time_limit(0);
+                try { $__imgs = $pdo->query("SELECT image FROM news WHERE image<>'' AND image IS NOT NULL ORDER BY id DESC")->fetchAll(PDO::FETCH_COLUMN); } catch (Exception $e) { $__imgs = []; }
+                $__ok = 0; $__none = 0; $__fail = 0;
+                foreach ((array)$__imgs as $__im) {
+                    $__p = wmResolvePath((string)$__im);
+                    if ($__p === '') { $__none++; continue; }
+                    $__r = wmRestoreOriginal($__p);
+                    if (!empty($__r['ok'])) { $__ok++; } elseif (!empty($__r['err'])) { $__fail++; } else { $__none++; }
+                }
+                $wmSuccess = "Original restored for {$__ok} image(s) — watermark fully removed. {$__none} image(s) had no stored original (never watermarked by this tool), {$__fail} failed.";
+            } else {
+                $__pos = (string)($_POST['wm_position'] ?? 'bottom-right');
+                $__allowedPos = ['top-left','top-center','top-right','middle-left','center','middle-right','bottom-left','bottom-center','bottom-right'];
+                if (!in_array($__pos, $__allowedPos, true)) $__pos = 'bottom-right';
+                $__wmText = (string)($_POST['wm_text'] ?? '');
+                $__wmText = function_exists('mb_substr') ? mb_substr(trim($__wmText), 0, 60) : substr(trim($__wmText), 0, 120);
+                $__sd = [
+                    'wm_enabled' => isset($_POST['wm_enabled']) ? '1' : '0',
+                    'wm_apply_new' => isset($_POST['wm_apply_new']) ? '1' : '0',
+                    'wm_type' => ($_POST['wm_type'] ?? 'text') === 'image' ? 'image' : 'text',
+                    'wm_text' => $__wmText,
+                    'wm_font_size' => (string)max(8, min(96, (int)($_POST['wm_font_size'] ?? 24))),
+                    'wm_color' => preg_match('~^#[0-9a-fA-F]{6}$~', (string)($_POST['wm_color'] ?? '')) ? $_POST['wm_color'] : '#FFFFFF',
+                    'wm_opacity' => (string)max(5, min(100, (int)($_POST['wm_opacity'] ?? 35))),
+                    'wm_position' => $__pos,
+                    'wm_margin' => (string)max(0, min(200, (int)($_POST['wm_margin'] ?? 16))),
+                    'wm_scale' => (string)max(5, min(60, (int)($_POST['wm_scale'] ?? 25))),
+                ];
+                if ($__sd['wm_type'] === 'image' && empty($wmVals['wm_image'])) { $wmError = "Upload a watermark logo first, or switch type to Text."; }
+                else { saveSettings($pdo, $__sd); $wmVals = wmGetSettings($pdo); $wmSuccess = "Watermark settings saved successfully."; }
+            }
+        }
+    }
+}
+
 if (!function_exists('secLink')) { function secLink($s, $i, $l, $b = "") { global $section; $a = ($section === $s) ? " active" : ""; $bg = $b ? "<span class=\"badge\">$b</span>" : ""; return "<a href=\"?page=admin_dashboard&section=$s\" class=\"$a\"><i class=\"fas $i\"></i> $l$bg</a>"; } }
 
  $pendingUsersCount = 0;
@@ -1004,6 +1275,19 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .sb-logo{width:34px;height:34px;background:var(--accent);border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px;flex-shrink:0}
 .sb-brand{font-family:'Noto Serif Bengali',serif;font-size:14px;font-weight:700;color:#fff;line-height:1.2}
 .sb-brand small{font-size:9px;color:#777;font-weight:400;letter-spacing:1px;text-transform:uppercase;display:block}
+/* ★ Sidebar brand logo (upload / delete aware) */
+.sb-logo-wrap{position:relative;flex-shrink:0}
+.sb-logo{position:relative;overflow:hidden;cursor:pointer}
+.sb-logo input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;z-index:3}
+.sb-logo-edit{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);color:#fff;font-size:11px;opacity:0;transition:opacity .15s;z-index:2}
+.sb-logo:hover .sb-logo-edit,.sb-logo:focus-within .sb-logo-edit{opacity:1}
+.sb-logo img{width:100%;height:100%;object-fit:contain;display:block}
+.sb-logo.sb-logo-has-img{background:#fff}
+.sb-logo-del{position:absolute;top:-6px;right:-6px;width:16px;height:16px;background:#ef4444;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;line-height:1;z-index:4;box-shadow:0 0 0 2px var(--sb-bg)}
+.sb-logo-del:hover{background:#dc2626}
+.sb-logo-toast{position:fixed;top:14px;right:14px;z-index:9999;padding:10px 14px;border-radius:6px;font-size:12.5px;font-weight:600;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.25);animation:sbToastIn .2s ease;display:flex;align-items:center;gap:8px}
+.sb-logo-toast.ok{background:#16a34a}.sb-logo-toast.err{background:#dc2626}.sb-logo-toast.warn{background:#d97706}
+@keyframes sbToastIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 .sb-user{padding:14px 18px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px}
 .sb-avatar{width:34px;height:34px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0}
 .sb-user-info{font-size:12px;color:#fff;font-weight:600}.sb-user-info small{color:#777;font-weight:400;display:block;font-size:10px}
@@ -1180,7 +1464,32 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <div class="sb-overlay" onclick="document.querySelector('.admin-sidebar').classList.remove('open');this.classList.remove('show')"></div>
 <div class="admin-layout">
 <aside class="admin-sidebar">
-<div class="sb-header"><div class="sb-logo">A</div><div class="sb-brand">News Portal<small>Admin Panel</small></div></div>
+<div class="sb-header"><div class="sb-logo-wrap"><form method="POST" enctype="multipart/form-data" id="sbLogoForm" style="margin:0;padding:0;display:block"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="site_logo_action" value="upload"><?php
+// Resolve the logo file's real location and build a browser URL that actually loads.
+// handleUpload() saves under __DIR__.'/../uploads/' (one level ABOVE the admin file),
+// while festival-style images live under __DIR__.'/uploads/' (inside the project).
+// So we detect which one exists and emit 'uploads/...' or '../uploads/...' accordingly.
+$__siteLogoOK = false;
+$__siteLogoUrl = '';
+if (!empty($currentSiteLogo)) {
+    if (preg_match('~^https?://~i', $currentSiteLogo)) {
+        $__siteLogoOK = true;
+        $__siteLogoUrl = $currentSiteLogo;
+    } else {
+        $p = ltrim($currentSiteLogo, '/');
+        if (is_file(__DIR__ . '/' . $p)) {
+            $__siteLogoOK = true;
+            $__fm = @filemtime(__DIR__ . '/' . $p);
+            $__siteLogoUrl = $p . ($__fm ? '?v=' . $__fm : '');
+        } elseif (is_file(__DIR__ . '/../' . $p)) {
+            $__siteLogoOK = true;
+            $__fm = @filemtime(__DIR__ . '/../' . $p);
+            $__siteLogoUrl = '../' . $p . ($__fm ? '?v=' . $__fm : '');
+        }
+    }
+}
+?>
+<label class="sb-logo<?= $__siteLogoOK ? ' sb-logo-has-img' : '' ?>" title="<?= $__siteLogoOK ? 'Click to replace logo' : 'Click to upload logo' ?>"><?php if ($__siteLogoOK): ?><img src="<?= htmlspecialchars($__siteLogoUrl) ?>" alt="logo"><?php else: ?>A<?php endif; ?><input type="file" name="site_logo_file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" onchange="document.getElementById('sbLogoForm').submit()"><span class="sb-logo-edit"><i class="fas fa-camera"></i></span></label></form><?php if ($__siteLogoOK): ?><a href="?page=admin_dashboard&delete_site_logo=1&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>" class="sb-logo-del" title="Delete logo — revert to default A" onclick="return confirm('Delete the site logo? The default A will be shown again.')"><i class="fas fa-times"></i></a><?php endif; ?></div><div class="sb-brand">News Portal<small>Admin Panel</small></div></div>
 <div class="sb-user"><div class="sb-avatar"><?= mb_substr($fullName,0,1) ?></div><div class="sb-user-info"><?= htmlspecialchars($fullName) ?><small><?= htmlspecialchars($currentUserRoleLabel) ?></small></div></div>
 <nav class="sb-nav">
 <?php if (hasPerm('dashboard')): ?>
@@ -1214,6 +1523,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php endif; ?>
 <?php if (hasPerm('contact')): ?>
 <?= secLink("contact","fa-address-book","Contact Details") ?>
+<?php endif; ?>
+<?php if (hasPerm('categories')): ?>
+<?= secLink("watermark","fa-stamp","Watermark Setting") ?>
 <?php endif; ?>
 <?php if (hasPerm('ads')): ?>
 <div class="sb-nav-divider"></div>
@@ -1259,6 +1571,18 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 </nav>
 </aside>
 <main class="admin-main">
+<?php if (!empty($siteLogoMsg)):
+    $__m = $siteLogoMsg;
+    if ($__m === 'saved'):      $__cls = 'ok';   $__ico = 'fa-circle-check';  $__txt = 'Logo uploaded successfully.';
+    elseif ($__m === 'deleted'): $__cls = 'ok';   $__ico = 'fa-trash-can';     $__txt = 'Logo deleted. Default A is shown again.';
+    elseif ($__m === 'token'):  $__cls = 'err';  $__ico = 'fa-triangle-exclamation'; $__txt = 'Token mismatch — please retry.';
+    elseif (strpos($__m, 'err:') === 0): $__cls = 'err'; $__ico = 'fa-triangle-exclamation'; $__txt = 'Logo upload failed: ' . htmlspecialchars(substr($__m, 4));
+    else: $__cls = 'warn'; $__ico = 'fa-circle-info'; $__txt = htmlspecialchars($__m);
+    endif;
+?>
+<div class="sb-logo-toast <?= $__cls ?>" id="sbLogoToast"><i class="fas <?= $__ico ?>"></i><span><?= $__txt ?></span></div>
+<script>setTimeout(function(){var t=document.getElementById('sbLogoToast');if(t){t.style.transition='opacity .3s';t.style.opacity='0';setTimeout(function(){t.remove()},320)}},3500);</script>
+<?php endif; ?>
 
 <?php if ($section === "dashboard" && hasPerm('dashboard')): ?>
 <div class="admin-topbar"> 
@@ -1373,7 +1697,9 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 <?php if (hasPerm('ads')): ?><a href="?page=admin_dashboard&section=ads" class="quick-action"><i class="fas fa-rectangle-ad"></i> Manage Advertisements</a><?php endif; ?>
 <?php if (hasPerm('users')): ?><a href="?page=admin_dashboard&section=users" class="quick-action"><i class="fas fa-users"></i> Manage Users & Roles</a><?php endif; ?>
 <?php if (hasPerm('nse_market')): ?><a href="?page=admin_dashboard&section=nse_market" class="quick-action"><i class="fas fa-chart-line"></i> View NSE Market</a><?php endif; ?>
-</div></div></div></div>
+</div></div>
+
+</div></div>
 
 <?php elseif ($section === "date_requests" && $currentUserPerms === null): // Super Admin Date Requests View ?>
 <div class="admin-topbar"><h1><i class="fas fa-calendar-check" style="color:var(--purple)"></i> Date Change Requests</h1></div>
@@ -1554,16 +1880,16 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
     <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন।</div>
 </div>
 
-<!-- Facebook/Twitter Video Link Embed Input (Outside CKEditor) -->
+<!-- Facebook/Twitter/Instagram Video Link / Embed Code Input (Outside CKEditor) -->
 <div class="form-group" style="background: var(--bg); padding: 14px; border-radius: 10px; border: 2px dashed var(--border);">
-    <label class="form-label" style="color: var(--accent);"><i class="fas fa-people-arrows"></i> Insert Facebook / Twitter Video</label>
+    <label class="form-label" style="color: var(--accent);"><i class="fas fa-people-arrows"></i> Insert Facebook / Twitter / Instagram Video</label>
     <div style="display:flex; gap:10px; align-items:center;">
-        <input type="text" id="socialVideoUrlInput" class="form-input" placeholder="ভিডিও লিংক দিন (যেমন: https://facebook.com/... বা https://twitter.com/...)" style="flex:1;">
+        <input type="text" id="socialVideoUrlInput" class="form-input" placeholder="ভিডিও লিংক অথবা Embed Code দিন (Instagram / Facebook / Twitter)" style="flex:1;">
         <button type="button" class="btn btn-primary" onclick="insertSocialVideoToEditor()">
             <i class="fas fa-arrow-down-to-bracket"></i> Embed Video
         </button>
     </div>
-    <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন। (শুধু লিংক দিন, কোড দেওয়ার দরকার নেই)</div>
+    <div class="form-hint" style="margin-top:6px;">টেক্সটের যেকোনো জায়গায় কার্সর রেখে এই বাটনে ক্লিক করুন। ভিডিও লিংক অথবা Instagram/Facebook/Twitter এর পুরো Embed Code — যেকোনোটি দিলেই কাজ করবে।</div>
 </div>
 
 <!-- Custom Image Alignment Toolbar (Outside CKEditor) -->
@@ -1593,6 +1919,28 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 </div>
 
 <div class="form-group"><label class="form-label">Content <span style="color:var(--accent)">*</span></label><textarea name="content" id="editor1" rows="12" class="form-input" style="height:400px" required><?= htmlspecialchars($fD["content"]) ?></textarea></div>
+
+<div class="form-group" id="igEmbedPanelWrap" style="display:none">
+    <label class="form-label">Video Embed Settings <span style="font-size:10px; color:var(--muted); font-weight:400">(choose a video below, or double-click one in the editor)</span></label>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f8f9fb;border:1px solid #e2e6ee;border-radius:8px;padding:10px 12px">
+        <span style="font-size:12px;font-weight:600;color:#555">Video:</span>
+        <select id="igEmbedSelect" style="padding:3px 6px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;font-size:12px;max-width:200px"><option value="">— Select video —</option></select>
+        <span style="color:#d5dbe6">|</span>
+        <span style="font-size:12px;font-weight:600;color:#555">Zoom:</span>
+        <button type="button" id="igZoomOut" style="padding:3px 12px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700;line-height:1.4">&minus;</button>
+        <span id="igZoomVal" style="font-size:12px;font-weight:700;color:var(--accent);min-width:72px;text-align:center">Auto</span>
+        <button type="button" id="igZoomIn" style="padding:3px 12px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700;line-height:1.4">+</button>
+        <span style="color:#d5dbe6">|</span>
+        <span style="font-size:12px;font-weight:600;color:#555">Align:</span>
+        <button type="button" id="igAl_left" style="padding:3px 10px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Left</button>
+        <button type="button" id="igAl_center" style="padding:3px 10px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Center</button>
+        <button type="button" id="igAl_right" style="padding:3px 10px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Right</button>
+        <span style="color:#d5dbe6">|</span>
+        <button type="button" id="igEmbedReset" style="padding:3px 10px;border:1px solid #cfd6e4;background:#fff;border-radius:6px;cursor:pointer;font-size:12px">Reset</button>
+        <span id="igEmbedHint" style="font-size:11px;color:var(--muted)">Auto zoom fits the column; manual zoom is capped to the column width.</span>
+    </div>
+    <!-- igEmbedPanelEnd -->
+</div>
 
 <div class="form-group">
     <label class="form-label">Tags <span style="font-size:10px; color:var(--muted); font-weight:400">(Type and press Enter)</span></label>
@@ -1673,8 +2021,16 @@ if (typeof CKEDITOR !== 'undefined') {
         //   templates        -> pre-defined content templates
         //   preview,print    -> preview & print current content
         //   pastefromword    -> cleaned paste from Microsoft Word
-        extraPlugins: 'justify,colorbutton,font,iframe,emoji,uploadimage,copyformatting,codesnippet,mathjax,magicline,autogrow,tableresize,tableselection,tabletools,sourcedialog,colordialog,a11yhelp,liststyle,placeholder,templates,preview,print,pastefromword',
-        extraAllowedContent: 'iframe[*]; div[*]; p[*]; span[*]; img[*]; video[*]; source[*]; blockquote[*]; pre[*]; code[*]; figure[*]; figcaption[*]; table[*]; tr[*]; td[*]; th[*]; thead[*]; tbody[*]; span(!math-tex,cke_mathjax); p(oembed-content); iframe[oembed]',
+        //   NOTE: the 'iframe' plugin is deliberately NOT loaded — its dialog round-trip rewrites every
+        //   inserted <iframe>: it strips the style attribute (embeds lose their width/height -> tiny
+        //   players) and adds sandbox="" (blocks the player JS, so embedded videos cannot play).
+        //   Without the plugin, iframes inserted via the URL inputs stay exactly as generated.
+        extraPlugins: 'justify,colorbutton,font,emoji,uploadimage,copyformatting,codesnippet,mathjax,magicline,autogrow,tableresize,tableselection,tabletools,sourcedialog,colordialog,a11yhelp,liststyle,placeholder,templates,preview,print,pastefromword',
+        // ACF fully disabled: admin-trusted content must be saved exactly as inserted.
+        // (CKEditor's default content filter was silently stripping style properties — width:100%,
+        //  max-width, margin, border, position... — from embedded <iframe>/<div> markup, shrinking
+        //  Instagram/YouTube/Facebook embeds even after the iframe plugin was removed.)
+        allowedContent: true,
         // Only remove Save (handled by form submit button) and NewPage (would wipe content)
         removeButtons: 'Save,NewPage',
         toolbar: [
@@ -1686,7 +2042,7 @@ if (typeof CKEDITOR !== 'undefined') {
             { name: 'basicstyles', items: ['Bold','Italic','Underline','Strike','Subscript','Superscript','-','CopyFormatting','-','RemoveFormat'] },
             { name: 'paragraph', items: ['NumberedList','BulletedList','-','Outdent','Indent','-','Blockquote','CreateDiv','-','JustifyLeft','JustifyCenter','JustifyRight','JustifyBlock','-','BidiLtr','BidiRtl','Language'] },
             { name: 'links', items: ['Link','Unlink','Anchor'] },
-            { name: 'insert', items: ['Image','Flash','Table','HorizontalRule','Smiley','EmojiPanel','SpecialChar','PageBreak','Iframe','CodeSnippet','Mathjax','Placeholder'] },
+            { name: 'insert', items: ['Image','Flash','Table','HorizontalRule','Smiley','EmojiPanel','SpecialChar','PageBreak','CodeSnippet','Mathjax','Placeholder'] },
             '/',
             { name: 'styles', items: ['Styles','Format','Font','FontSize'] },
             { name: 'colors', items: ['TextColor','BGColor','Colordialog'] },
@@ -2062,14 +2418,41 @@ function insertYoutubeToEditor() {
     } else { alert('Invalid YouTube URL. Please enter a valid link.'); }
 }
 
-// Function to insert Facebook/Twitter video into CKEditor at cursor position
+// Function to insert Facebook/Twitter/Instagram video into CKEditor at cursor position
+// Accepts BOTH a plain video URL and a full embed code (Instagram blockquote, FB plugin iframe, Twitter blockquote).
+// The frontend script that ships INSIDE every Instagram embed (auto-fit + zoom support).
+// Kept as a shared constant: the payload uses it on insert, and the editor-side repair
+// rewrites the script of embeds saved by OLDER builds (their sc() predates data-zoom /
+// data-align support) so old articles pick up the new behaviour just by opening and
+// re-saving them here.
+var IG_EMBED_SCRIPT = '<script>(function(){if(window.__igFit)return;window.__igFit=1;function ok(o){try{var h=String(o||"").split("/")[2];return /(^|\\.)instagram\\.com$/.test(h)}catch(e){return false}}function sc(f){var wrap=f.parentNode;if(!wrap||!wrap.getAttribute||wrap.getAttribute("data-ig-wrap")!=="1")return;var p=wrap.parentNode,pw=p?(p.clientWidth||p.offsetWidth||538):538;if(!pw)pw=538;var z=parseFloat(wrap.getAttribute("data-zoom"));var s=(z>=0.5&&z<=2)?Math.min(z,pw/538):Math.max(0.5,Math.min(1.4,pw/538));var al=wrap.getAttribute("data-align");wrap.style.marginLeft=(al==="left")?"0":"auto";wrap.style.marginRight=(al==="right")?"0":"auto";wrap.style.maxWidth=(z>=0.5&&z<=2)?"none":"";var h=parseFloat(f.style.height)||672;if(s>1.001||s<0.999){f.style.transform="scale("+s+")";f.style.maxWidth="none";wrap.style.width=Math.round(538*s)+"px";wrap.style.height=Math.round(h*s)+"px"}else{f.style.transform="";f.style.maxWidth="";wrap.style.width="";wrap.style.height=""}}window.addEventListener("message",function(ev){if(!ok(ev.origin))return;var d=ev.data;if(typeof d==="string"){try{d=JSON.parse(d)}catch(e){return}}if(!d||typeof d!=="object"||!d.details||typeof d.details!=="object")return;var fs=document.querySelectorAll("iframe[data-ig-auto]");for(var i=0;i<fs.length;i++){var f=fs[i],w=null;try{w=f.contentWindow}catch(e){}if(w!==ev.source)continue;var h=(typeof d.details.height==="number"&&d.details.height>0)?d.details.height:null;if(!h&&d.details.styles&&d.details.styles.length){for(var j=0;j<d.details.styles.length;j++){if(d.details.styles[j][0]==="height"){h=parseFloat(d.details.styles[j][1])||null;break}}}if(h&&h>200&&h<2500){f.style.height=Math.round(h)+"px";sc(f)}break}});var fi=document.querySelectorAll("iframe[data-ig-auto]");for(var k=0;k<fi.length;k++){sc(fi[k])}})();<\/script>';
+
 function insertSocialVideoToEditor() {
-    var url = document.getElementById('socialVideoUrlInput').value.trim();
-    if (!url) { alert('Please enter a Facebook or Twitter video URL.'); return; }
-    
+    var raw = document.getElementById('socialVideoUrlInput').value.trim();
+    if (!raw) { alert('Please enter a Facebook, Twitter or Instagram video URL or embed code.'); return; }
+
+    // ★ Embed-code support: if the pasted input is an HTML snippet (embed code) instead of a plain URL,
+    //   extract the real video permalink from it, then continue through the normal URL flow below.
+    var url = raw;
+    if (raw.indexOf('<') !== -1) {
+        var ex = raw.match(/data-instgrm-permalink=["']([^"']+)["']/i)
+              || raw.match(/href=["']([^"']*(?:instagram\.com|instagr\.am|facebook\.com|fb\.watch|twitter\.com|x\.com)\/[^"']*)["']/i)
+              || raw.match(/plugins\/video\.php\?[^"'\s]*?href=((?:https?%3[aA]%2[fF]%2[fF]|https?:\/\/)[^"'\s&]+)/i)
+              || raw.match(/src=["']([^"']*(?:instagram\.com|instagr\.am|facebook\.com|fb\.watch|twitter\.com|x\.com)\/[^"']*)["']/i);
+        if (ex && ex[1] && ex[1].indexOf('embed.js') === -1) {
+            url = ex[1].replace(/&amp;/g, '&');
+            try { if (/^https?%3[aA]%2[fF]%2[fF]/.test(url)) url = decodeURIComponent(url); } catch (e) { /* keep as-is */ }
+            if (url.indexOf('//') === 0) url = 'https:' + url;
+        } else {
+            alert('Embed code থেকে ভিডিও লিংক পাওয়া যায়নি। আসল ভিডিও লিংক অথবা সঠিক embed code দিন।');
+            return;
+        }
+    }
+
     var html = '';
     var isFB = url.indexOf('facebook.com') !== -1 || url.indexOf('fb.watch') !== -1;
     var isTwitter = url.indexOf('twitter.com') !== -1 || url.indexOf('x.com') !== -1;
+    var isInstagram = url.indexOf('instagram.com') !== -1 || url.indexOf('instagr.am') !== -1;
     
     if (isFB) {
         var encodedUrl = encodeURIComponent(url);
@@ -2087,8 +2470,27 @@ function insertSocialVideoToEditor() {
             alert('Invalid Twitter URL. Make sure it includes /status/ID');
             return;
         }
+    } else if (isInstagram) {
+        var igMatch = url.match(/(?:instagram\.com|instagr\.am)\/(?:[A-Za-z0-9_.]+\/)?(p|reels?|tv)\/([A-Za-z0-9_-]+)/);
+        if (igMatch && igMatch[2]) {
+            var igType = igMatch[1] === 'reels' ? 'reel' : igMatch[1];
+            // ★ Auto-fit + auto-ZOOM embed: a tiny script ships inside the embed and listens to the IG embed
+            //   page's own postMessage ({"type":"MEASURE","details":{"height":N}}) and resizes the iframe to
+            //   Instagram's natural height. Instagram's /embed page only renders at <=538px CSS width (wider
+            //   iframes go blank), and at 538px it letterboxes the video to ~380px — so the wrapper scales
+            //   the whole card up to the article column width (max 1.4x) via CSS transform: the video plays
+            //   big, and on narrow/mobile columns it scales down responsively. 672px is only the initial
+            //   height until the embed reports its real size.
+            html = '<div data-ig-wrap="1" style="position: relative; max-width: 760px; margin: 15px auto;">' +
+                   '<iframe src="https://www.instagram.com/' + igType + '/' + igMatch[2] + '/embed" data-ig-auto="1" style="border:none;overflow:hidden;width:538px;max-width:100%;height:672px;display:block;margin:0 auto;transform-origin:top left;" scrolling="no" frameborder="0" allowfullscreen></iframe>' +
+                   IG_EMBED_SCRIPT +
+                   '</div><p>&nbsp;</p>';
+        } else {
+            alert('Invalid Instagram URL. Make sure it includes /p/CODE, /reel/CODE or /tv/CODE');
+            return;
+        }
     } else {
-        alert('Please provide a valid Facebook or Twitter video link.');
+        alert('Please provide a valid Facebook, Twitter or Instagram video link.');
         return;
     }
     
@@ -2096,6 +2498,307 @@ function insertSocialVideoToEditor() {
         CKEDITOR.instances.editor1.insertHtml(html);
         document.getElementById('socialVideoUrlInput').value = '';
     } else { alert('Editor is not loaded yet!'); }
+}
+
+// ★ Instagram embed auto-fit (editor side): mirror of the listener that ships inside each
+//   Instagram embed. The IG embed page posts its real size via postMessage —
+//   {"type":"MEASURE","details":{"height":N}} and {"type":"MOUNTED","details":{"styles":[["height","Npx"]]}} —
+//   so the iframe is resized to the true content height while editing (video always big, no black bars).
+window.__igOkOrigin = function(o) { try { var h = String(o || '').split('/')[2]; return /(^|\.)instagram\.com$/.test(h); } catch (e) { return false; } };
+// Scale the embed card to the article column width (Instagram's /embed page only renders
+// at <=538px CSS width and letterboxes the video to ~380px there — transform zoom makes
+// the video play big on wide columns and shrinks responsively on mobile). A manual zoom
+// (wrapper data-zoom, 0.5-2.0) overrides the auto fit; data-align sets left/center/right.
+window.__igScaleFrame = function(f) {
+    var wrap = f.parentNode;
+    if (!wrap || !wrap.getAttribute || wrap.getAttribute('data-ig-wrap') !== '1') return;
+    var p = wrap.parentNode, pw = p ? (p.clientWidth || p.offsetWidth || 538) : 538;
+    if (!pw) pw = 538;
+    var z = parseFloat(wrap.getAttribute('data-zoom'));
+    var manual = (z >= 0.5 && z <= 2);
+    var s = manual ? Math.min(z, pw / 538) : Math.max(0.5, Math.min(1.4, pw / 538));
+    var al = wrap.getAttribute('data-align');
+    wrap.style.marginLeft = (al === 'left') ? '0' : 'auto';
+    wrap.style.marginRight = (al === 'right') ? '0' : 'auto';
+    wrap.style.maxWidth = manual ? 'none' : '';
+    var h = parseFloat(f.style.height) || 672;
+    if (s > 1.001 || s < 0.999) {
+        f.style.transform = 'scale(' + s + ')';
+        f.style.maxWidth = 'none';
+        wrap.style.width = Math.round(538 * s) + 'px';
+        wrap.style.height = Math.round(h * s) + 'px';
+    } else {
+        f.style.transform = '';
+        f.style.maxWidth = '';
+        wrap.style.width = '';
+        wrap.style.height = '';
+    }
+};
+window.__igFitFrame = function(f, d) {
+    var h = (typeof d.details.height === 'number' && d.details.height > 0) ? d.details.height : null;
+    if (h === null && d.details.styles && d.details.styles.length) {
+        for (var j = 0; j < d.details.styles.length; j++) { if (d.details.styles[j][0] === 'height') { h = parseFloat(d.details.styles[j][1]) || null; break; } }
+    }
+    if (h && h > 200 && h < 2500) { f.style.height = Math.round(h) + 'px'; }
+    window.__igScaleFrame(f);
+};
+// Self-repair for embeds saved by the OLD buggy editor build: the iframe widget used to add
+// sandbox="" (blocks the player JS -> no play button, no playback) and strip the style
+// attribute (embed collapses to a ~300x150 default box). Opening an old article in this
+// editor now restores the frames automatically; just saving the article keeps the fix.
+// Editor-only CSS: let mouse events pass through the (cross-origin) video iframe so clicks /
+// double-clicks on the video reach the editor document and open the settings panel. Applied
+// via a stylesheet (never inline) so it is NOT serialized into the saved article HTML — on
+// the frontend the video stays fully playable.
+window.__igEditorCss = function(doc) {
+    if (!doc || !doc.head || doc.getElementById('igEditorCss')) return;
+    var st = doc.createElement('style');
+    st.id = 'igEditorCss';
+    st.textContent = 'iframe[data-ig-auto]{pointer-events:none !important}div[data-ig-wrap]{cursor:pointer}';
+    doc.head.appendChild(st);
+};
+// Upgrade the script block that ships inside embeds saved by OLDER builds so its sc()
+// honours data-zoom/data-align. CKEditor keeps <script> content as protected source (no
+// real script element exists in the editing DOM), so the rewrite is done at the DATA level:
+// getData -> replace the old embed script with the current IG_EMBED_SCRIPT -> setData,
+// then re-run repair/scale on the rebuilt DOM.
+window.__igUpgradeScripts = function(editor) {
+    try {
+        var can = String(window.IG_EMBED_SCRIPT || '');
+        if (!can || !editor || !editor.getData) return;
+        var data = editor.getData();
+        if (data.indexOf('window.__igFit') === -1) return;
+        var re = /<script[^>]*>\s*\(function\(\)\{if\(window\.__igFit\)[\s\S]*?<\/script>/;
+        var m = data.match(re);
+        if (!m || m[0].indexOf('data-zoom') !== -1) return;
+        editor.setData(data.replace(re, function() { return can; }));
+        setTimeout(function() {
+            try {
+                var d = editor.document.$;
+                window.__igRepairDoc(d); window.__igFitDoc(d); window.__igScaleAll(d); window.__igPanelRefreshList(d);
+            } catch (e) {}
+        }, 300);
+    } catch (e) {}
+};
+window.__igRepairDoc = function(doc) {
+    if (!doc || !doc.querySelectorAll) return;
+    window.__igEditorCss(doc);
+    var fs = doc.querySelectorAll('iframe');
+    for (var i = 0; i < fs.length; i++) {
+        var f = fs[i];
+        var src = String(f.getAttribute('src') || '');
+        var host = ''; try { host = src.split('/')[2] || ''; } catch (e) {}
+        var needReload = false;
+        if (f.hasAttribute('sandbox')) { f.removeAttribute('sandbox'); needReload = true; }
+        var st = String(f.getAttribute('style') || '');
+        var isIg = /(^|\.)instagram\.com$/.test(host) && src.indexOf('/embed') !== -1;
+        var isYt = /youtube(-nocookie)?\.com\/embed|youtu\.be/.test(src);
+        var isFb = /facebook\.com\/plugins|fb\.watch/.test(src);
+        if (isIg) {
+            var wrap = f.parentNode;
+            if (wrap && wrap.nodeName === 'DIV' && wrap.getAttribute('data-ig-wrap') !== '1') {
+                wrap.setAttribute('data-ig-wrap', '1');
+                wrap.setAttribute('style', 'position: relative; max-width: 760px; margin: 15px auto;');
+            }
+            // canonical embed style; keep the currently fitted height so a re-open does not reload-loop
+            var curH = parseFloat(f.style.height) || 672;
+            var sigSq = String(f.getAttribute('style') || '').replace(/\s+/g, '');
+            if (sigSq.indexOf('width:538px') === -1 || sigSq.indexOf('transform-origin') === -1) {
+                f.setAttribute('style', 'border:none;overflow:hidden;width:538px;max-width:100%;height:' + Math.round(curH) + 'px;display:block;margin:0 auto;transform-origin:top left;');
+                needReload = true;
+            }
+            if (!f.getAttribute('data-ig-auto')) { f.setAttribute('data-ig-auto', '1'); needReload = true; }
+        } else if (isYt) {
+            var w = f.parentNode;
+            if (w && w.nodeName === 'DIV' && String(w.getAttribute('style') || '').indexOf('padding-bottom') === -1) { w.setAttribute('style', 'position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; margin: 15px 0;'); }
+            if (st.indexOf('width') === -1) { f.setAttribute('style', 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;' + st); }
+        } else if (isFb) {
+            if (st.indexOf('max-width') === -1) { f.setAttribute('style', 'border:none;overflow:hidden;width:100%;height:400px;max-width:560px;display:block;margin:auto;' + st); needReload = true; }
+        }
+        if (needReload) { try { f.src = f.src; } catch (e) {} }
+    }
+};
+window.__igFitDoc = function(doc) {
+    if (!doc || !doc.defaultView || doc.defaultView.__igFit) return;
+    doc.defaultView.__igFit = 1;
+    doc.defaultView.addEventListener('message', function(ev) {
+        if (!window.__igOkOrigin(ev.origin)) return;
+        var d = ev.data;
+        if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return; } }
+        if (!d || typeof d !== 'object' || !d.details || typeof d.details !== 'object') return;
+        var fs = doc.querySelectorAll('iframe[data-ig-auto]');
+        for (var i = 0; i < fs.length; i++) { var w = null; try { w = fs[i].contentWindow; } catch (e) {} if (w === ev.source) { window.__igFitFrame(fs[i], d); break; } }
+    });
+};
+// ---- Video embed settings panel (zoom + alignment) ----
+// The panel lives in the admin form under the content editor. Clicking an embed inside the
+// editor selects it (cross-origin iframes report focusin with the iframe as target), then
+// the buttons write data-zoom (0.5-2.0) / data-align (left|center|right) on the wrapper —
+// both saved with the article and honoured by the frontend scale script.
+window.__igPanelState = { iframe: null, wrap: null };
+window.__igIsEmbed = function(f) {
+    if (!f || f.tagName !== 'IFRAME') return false;
+    var src = String(f.getAttribute('src') || '');
+    return /instagram\.com/.test(src) && src.indexOf('/embed') !== -1 && f.hasAttribute('data-ig-auto');
+};
+window.__igPanelCurScale = function() {
+    var m = String((window.__igPanelState.iframe || {}).style ? window.__igPanelState.iframe.style.transform || '' : '').match(/scale\(([0-9.]+)\)/);
+    return m ? parseFloat(m[1]) : 1;
+};
+window.__igPanelRefresh = function() {
+    var st = window.__igPanelState, v = document.getElementById('igZoomVal');
+    if (!st.iframe || !v) return;
+    var z = parseFloat(st.wrap.getAttribute('data-zoom'));
+    v.textContent = (z >= 0.5 && z <= 2) ? Math.round(z * 100) + '%' : 'Auto (' + Math.round(window.__igPanelCurScale() * 100) + '%)';
+    var al = st.wrap.getAttribute('data-align') || 'center';
+    ['left', 'center', 'right'].forEach(function(a) {
+        var b = document.getElementById('igAl_' + a);
+        if (b) { b.style.background = (a === al) ? 'var(--accent)' : '#fff'; b.style.color = (a === al) ? '#fff' : '#333'; }
+    });
+};
+window.__igPanelSelect = function(f) {
+    if (!window.__igIsEmbed(f)) return;
+    window.__igPanelState = { iframe: f, wrap: f.parentNode };
+    window.__igPanelDoc = f.ownerDocument;
+    var w = document.getElementById('igEmbedPanelWrap');
+    if (w) w.style.display = '';
+    window.__igPanelRefresh();
+    try {
+        var d = window.__igPanelDoc, sel = document.getElementById('igEmbedSelect');
+        if (d && sel) {
+            var fs = d.querySelectorAll('iframe[data-ig-auto]');
+            for (var j = 0; j < fs.length; j++) { if (fs[j] === f) { sel.value = String(j); break; } }
+        }
+    } catch (e) {}
+};
+window.__igPanelZoom = function(dir) {
+    var st = window.__igPanelState; if (!st.iframe) return;
+    var z = parseFloat(st.wrap.getAttribute('data-zoom'));
+    if (!(z >= 0.5 && z <= 2)) z = window.__igPanelCurScale() || 1;
+    z = Math.round((z + dir * 0.1) * 10) / 10;
+    if (z < 0.5) z = 0.5; if (z > 2) z = 2;
+    st.wrap.setAttribute('data-zoom', String(z));
+    window.__igScaleFrame(st.iframe);
+    window.__igPanelRefresh();
+};
+window.__igPanelAlign = function(al) {
+    var st = window.__igPanelState; if (!st.iframe) return;
+    st.wrap.setAttribute('data-align', al);
+    window.__igScaleFrame(st.iframe);
+    window.__igPanelRefresh();
+};
+window.__igPanelReset = function() {
+    var st = window.__igPanelState; if (!st.iframe) return;
+    st.wrap.removeAttribute('data-zoom');
+    st.wrap.removeAttribute('data-align');
+    window.__igScaleFrame(st.iframe);
+    window.__igPanelRefresh();
+};
+window.__igPanelFromNode = function(doc, node) {
+    var n = node;
+    while (n && n !== doc.body) {
+        if (n.getAttribute && n.getAttribute('data-ig-wrap') === '1') {
+            var f = n.querySelector('iframe[data-ig-auto]');
+            if (f) window.__igPanelSelect(f);
+            return;
+        }
+        n = n.parentNode;
+    }
+};
+// Element-level hooking: attach mousedown/dblclick DIRECTLY on each embed wrapper. Doc-level
+// listeners can be silently wiped when CKEditor re-opens the editing document (setData
+// round-trips), so the watch re-hooks unhooked wrappers — idempotent via an element flag.
+window.__igPanelSelectFrom = function(w) {
+    if (!w || !w.getAttribute || w.getAttribute('data-ig-wrap') !== '1') return;
+    var f = w.querySelector('iframe[data-ig-auto]');
+    if (f) window.__igPanelSelect(f);
+};
+window.__igPanelHookElements = function(doc) {
+    if (!doc || !doc.querySelectorAll) return;
+    var ws = doc.querySelectorAll('[data-ig-wrap]');
+    for (var i = 0; i < ws.length; i++) {
+        var w = ws[i];
+        if (w.__igPanelHooked) continue;
+        w.__igPanelHooked = 1;
+        w.addEventListener('mousedown', function(ev) { window.__igPanelSelectFrom(ev.currentTarget); });
+        w.addEventListener('dblclick', function(ev) { window.__igPanelSelectFrom(ev.currentTarget); });
+    }
+};
+window.__igPanelBind = function(doc) {
+    if (!doc || doc.__igPanelBound) return;
+    doc.__igPanelBound = 1;
+    doc.addEventListener('focusin', function(ev) { var t = ev.target; if (t && t.tagName === 'IFRAME') window.__igPanelSelect(t); });
+    doc.addEventListener('mousedown', function(ev) { window.__igPanelFromNode(doc, ev.target); });
+    doc.addEventListener('dblclick', function(ev) { window.__igPanelFromNode(doc, ev.target); });
+    window.__igPanelHookElements(doc);
+};
+window.__igPanelMaybeShow = function(doc) {
+    if (doc && doc.querySelector && doc.querySelector('iframe[data-ig-auto]')) {
+        var w = document.getElementById('igEmbedPanelWrap');
+        if (w) w.style.display = '';
+    }
+};
+// Populate the panel's video dropdown (the always-working selection path — it needs no
+// click detection inside the cross-origin embed, so it works in every environment).
+window.__igPanelRefreshList = function(doc) {
+    var sel = document.getElementById('igEmbedSelect');
+    if (!sel || !doc || !doc.querySelectorAll) return;
+    window.__igPanelDoc = doc;
+    var fs = doc.querySelectorAll('iframe[data-ig-auto]');
+    var cur = window.__igPanelState.iframe;
+    var opts = '<option value="">— Select video —</option>';
+    for (var i = 0; i < fs.length; i++) {
+        var m = String(fs[i].getAttribute('src') || '').match(/\/(p|reel|tv)\/([A-Za-z0-9_-]+)/);
+        opts += '<option value="' + i + '">Video ' + (i + 1) + (m ? ' (' + m[2] + ')' : '') + '</option>';
+    }
+    sel.innerHTML = opts;
+    if (cur) { for (var j = 0; j < fs.length; j++) { if (fs[j] === cur) { sel.value = String(j); break; } } }
+};
+(function() {
+    function on(id, fn) { var b = document.getElementById(id); if (b) b.addEventListener('click', function(e) { e.preventDefault(); fn(); }); }
+    on('igZoomIn', function() { window.__igPanelZoom(1); });
+    on('igZoomOut', function() { window.__igPanelZoom(-1); });
+    on('igAl_left', function() { window.__igPanelAlign('left'); });
+    on('igAl_center', function() { window.__igPanelAlign('center'); });
+    on('igAl_right', function() { window.__igPanelAlign('right'); });
+    on('igEmbedReset', function() { window.__igPanelReset(); });
+    var sel = document.getElementById('igEmbedSelect');
+    if (sel) sel.addEventListener('change', function() {
+        var d = window.__igPanelDoc;
+        if (!sel.value || !d || !d.querySelectorAll) return;
+        var fs = d.querySelectorAll('iframe[data-ig-auto]');
+        var f = fs[parseInt(sel.value, 10)];
+        if (f) window.__igPanelSelect(f);
+    });
+})();
+if (typeof CKEDITOR !== 'undefined') {
+    window.__igScaleAll = function(doc) { var fs = doc.querySelectorAll('iframe[data-ig-auto]'); for (var i = 0; i < fs.length; i++) { window.__igScaleFrame(fs[i]); } };
+    CKEDITOR.on('instanceReady', function(ev) {
+        try {
+            var __igDoc = ev.editor.document.$;
+            window.__igUpgradeScripts(ev.editor);
+            window.__igRepairDoc(__igDoc); window.__igFitDoc(__igDoc); window.__igScaleAll(__igDoc);
+            window.__igPanelBind(__igDoc); window.__igPanelMaybeShow(__igDoc); window.__igPanelRefreshList(__igDoc);
+            ev.editor.on('doubleclick', function(e) { try { window.__igPanelFromNode(ev.editor.document.$, e.data.getTarget().$); } catch (x) {} });
+            ev.editor.on('afterInsertHtml', function() { try { var d2 = ev.editor.document.$; window.__igRepairDoc(d2); window.__igScaleAll(d2); window.__igPanelMaybeShow(d2); window.__igPanelRefreshList(d2); } catch (x) {} });
+        } catch (e) {}
+    });
+    try { var __igEd = CKEDITOR.instances.editor1; if (__igEd) { __igEd.on('contentDom', function() { try { var __igDoc = __igEd.document.$; window.__igRepairDoc(__igDoc); window.__igFitDoc(__igDoc); window.__igScaleAll(__igDoc); window.__igPanelBind(__igDoc); window.__igPanelMaybeShow(__igDoc); window.__igPanelRefreshList(__igDoc); } catch (e) {} }); } } catch (e) {}
+    // Self-healing watch: CKEditor may swap the editing document object (setData round-trips,
+    // source-mode toggles) WITHOUT firing contentDom — the panel listeners bound at startup
+    // would then be dead. Every 1.5s, if the current doc is not bound yet, re-run repair +
+    // scale + panel binding on it. All steps are idempotent, so this is cheap and safe.
+    window.__igWatchTimer = setInterval(function() {
+        try {
+            var ed = CKEDITOR.instances.editor1;
+            if (!ed || !ed.document || !ed.document.$) return;
+            var d = ed.document.$;
+            window.__igPanelHookElements(d);
+            if (d.__igPanelBound) return;
+            window.__igRepairDoc(d); window.__igFitDoc(d); window.__igScaleAll(d);
+            window.__igPanelBind(d); window.__igPanelMaybeShow(d); window.__igPanelRefreshList(d);
+        } catch (e) {}
+    }, 1500);
 }
 
 // Modern Tag Input Logic
@@ -2407,6 +3110,133 @@ if (tagPillsContainer) {
 <?php if ($contactError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($contactError) ?></div><?php endif; ?>
 <?php if ($contactSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($contactSuccess) ?></div><?php endif; ?>
 <form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><?php foreach ($contactGroupLabels as $gK => $gC): $gF = array_filter($contactFields, function($f) use ($gK) { return ($f["group"] ?? "") === $gK; }); if (empty($gF)) continue; ?><div class="panel"><div class="panel-header"><div class="panel-title"><i class="<?= $gC["icon"] ?>" style="color:<?= $gC["color"] ?>"></i> <?= $gC["label"] ?></div></div><div class="panel-body"><?php foreach ($gF as $k => $c): ?><div class="form-group"><label class="form-label"><i class="<?= $c["icon"] ?>" style="color:var(--muted);margin-right:6px"></i><?= $c["label"] ?></label><?php if (isset($c["rows"])): ?><textarea name="<?= $k ?>" class="form-input" rows="<?= $c["rows"] ?>"><?= htmlspecialchars($contactValues[$k] ?? "") ?></textarea><?php else: ?><input type="<?= $c["type"] ?? "text" ?>" name="<?= $k ?>" class="form-input" value="<?= htmlspecialchars($contactValues[$k] ?? "") ?>" placeholder="<?= htmlspecialchars($c["placeholder"]) ?>"><?php endif; ?></div><?php endforeach; ?></div></div><?php endforeach; ?><div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-code" style="color:var(--purple)"></i> Embeds</div></div><div class="panel-body"><?php foreach ($contactCodeFields as $k => $c): ?><div class="form-group"><label class="form-label"><i class="<?= $c["icon"] ?>" style="color:var(--purple);margin-right:6px"></i><?= $c["label"] ?></label><textarea name="<?= $k ?>" class="form-input" rows="<?= $c["rows"] ?? 4 ?>"><?= htmlspecialchars($contactValues[$k] ?? "") ?></textarea></div><?php endforeach; ?></div><div class="form-actions-bar"><div></div><button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save</button></div></div></form>
+
+<?php elseif ($section === "watermark" && hasPerm('categories')): ?>
+<?php if (!$WM_FEATURE_LIVE): ?>
+<div class="admin-topbar"><h1><i class="fas fa-stamp" style="color:var(--gold)"></i> Watermark Setting</h1></div>
+<div class="panel">
+<div class="panel-body" style="text-align:center;padding:64px 20px">
+<div style="font-size:54px;color:var(--gold);margin-bottom:16px"><i class="fas fa-helmet-safety"></i></div>
+<h2 style="margin:0 0 10px;font-size:20px;font-weight:700;color:#fff">Under Construction</h2>
+<p style="color:var(--muted);font-size:13px;max-width:480px;margin:0 auto;line-height:1.7">The Watermark Setting tools are being prepared and will be available soon. Please check back later.</p>
+<p style="color:var(--muted);font-size:12.5px;max-width:480px;margin:10px auto 0;line-height:1.7">ওয়াটারমার্ক সেটিং সেকশনটি খুব শীঘ্রই আসছে — চালু হলে এখান থেকেই সব নিউজ ইমেজে ওয়াটারমার্ক বসানো ও সরানো যাবে।</p>
+<div style="margin-top:24px;display:inline-flex;align-items:center;gap:8px;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.35);color:var(--gold);font-size:11.5px;font-weight:600;padding:7px 16px;border-radius:20px"><i class="fas fa-clock"></i> Coming Soon</div>
+</div>
+</div>
+<?php else: // ——— Full Watermark UI (dormant until $WM_FEATURE_LIVE = true) ——— ?>
+<?php
+// Counts for the bulk tools panel
+$__wmTotal = 0; $__wmBacked = 0;
+try { $__wmRows = $pdo->query("SELECT image FROM news WHERE image<>'' AND image IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN); } catch (Exception $e) { $__wmRows = []; }
+foreach ((array)$__wmRows as $__im) { $__p = wmResolvePath((string)$__im); if ($__p === '') continue; $__wmTotal++; if (is_file($__p . '.orig')) $__wmBacked++; }
+$__wmLogoUrl = ($wmVals['wm_image'] !== '' && !preg_match('~^https?://~i', $wmVals['wm_image'])) ? '../' . ltrim($wmVals['wm_image'], '/') : $wmVals['wm_image'];
+$__wmPositions = ['top-left' => '↖', 'top-center' => '↑', 'top-right' => '↗', 'middle-left' => '←', 'center' => '●', 'middle-right' => '→', 'bottom-left' => '↙', 'bottom-center' => '↓', 'bottom-right' => '↘'];
+?>
+<style>
+.wmpos-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:240px}
+.wmpos{position:relative;display:flex;align-items:center;justify-content:center;background:var(--sb-hover);border:1px solid #333;border-radius:6px;height:34px;cursor:pointer;color:var(--muted);font-size:13px}
+.wmpos.on{background:var(--accent);border-color:var(--gold);color:#fff;font-weight:700}
+.wmpos input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.wm-mini{font-size:11.5px;color:var(--muted);line-height:1.6}
+.wm-preview-box{background:repeating-conic-gradient(#2b2b2b 0 25%,#1f1f1f 0 50%) 0 0/20px 20px;border:1px solid #333;border-radius:8px;padding:10px;text-align:center;min-height:120px}
+.wm-preview-box img{max-width:100%;max-height:280px;border-radius:6px;display:inline-block}
+</style>
+<div class="admin-topbar"><h1><i class="fas fa-stamp" style="color:var(--gold)"></i> Watermark Setting</h1></div>
+<?php if ($wmError): ?><div class="alert alert-error"><i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($wmError) ?></div><?php endif; ?>
+<?php if ($wmSuccess): ?><div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($wmSuccess) ?></div><?php endif; ?>
+
+<div class="panel">
+<div class="panel-header"><div class="panel-title"><i class="fas fa-sliders" style="color:var(--gold)"></i> Watermark Configuration</div></div>
+<form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="wm_action" value="save">
+<div class="panel-body">
+<div class="form-row">
+<div class="form-group" style="margin-bottom:0"><label class="form-label">Enable Watermark</label><label class="switch"><input type="checkbox" name="wm_enabled" value="1" <?= $wmVals['wm_enabled'] === '1' ? 'checked' : '' ?> onchange="wmRefreshPreview()"><span class="switch-slider"></span></label></div>
+<div class="form-group" style="margin-bottom:0"><label class="form-label">Auto-apply to New Uploads</label><label class="switch"><input type="checkbox" name="wm_apply_new" value="1" <?= $wmVals['wm_apply_new'] === '1' ? 'checked' : '' ?>><span class="switch-slider"></span></label></div>
+</div>
+<div class="form-group"><label class="form-label">Watermark Type</label>
+<div class="radio-group">
+<div class="radio-item <?= $wmVals['wm_type'] !== 'image' ? 'selected' : '' ?>"><input type="radio" name="wm_type" value="text" <?= $wmVals['wm_type'] !== 'image' ? 'checked' : '' ?> onchange="wmTypeToggle('text');this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Text</label></div>
+<div class="radio-item <?= $wmVals['wm_type'] === 'image' ? 'selected' : '' ?>"><input type="radio" name="wm_type" value="image" <?= $wmVals['wm_type'] === 'image' ? 'checked' : '' ?> onchange="wmTypeToggle('image');this.closest('.radio-group').querySelectorAll('.radio-item').forEach(r=>r.classList.remove('selected'));this.closest('.radio-item').classList.add('selected')"><label>Logo Image</label></div>
+</div>
+</div>
+<div id="wmTextSec" style="display:<?= $wmVals['wm_type'] === 'image' ? 'none' : 'block' ?>">
+<div class="form-row">
+<div class="form-group" style="flex:2"><label class="form-label">Watermark Text</label><input type="text" name="wm_text" class="form-input" value="<?= htmlspecialchars($wmVals['wm_text']) ?>" maxlength="60" oninput="wmRefreshPreview()"></div>
+<div class="form-group"><label class="form-label">Font Size (px)</label><input type="number" name="wm_font_size" class="form-input" value="<?= htmlspecialchars($wmVals['wm_font_size']) ?>" min="8" max="96" onchange="wmRefreshPreview()"></div>
+<div class="form-group"><label class="form-label">Text Color</label><input type="color" name="wm_color" value="<?= htmlspecialchars($wmVals['wm_color']) ?>" style="width:100%;height:38px;background:var(--sb-hover);border:1px solid #333;border-radius:6px;cursor:pointer" onchange="wmRefreshPreview()"></div>
+</div>
+</div>
+<div id="wmImgSec" style="display:<?= $wmVals['wm_type'] === 'image' ? 'block' : 'none' ?>">
+<div class="form-row">
+<div class="form-group"><label class="form-label">Logo Size (% of image width)</label><input type="number" name="wm_scale" class="form-input" value="<?= htmlspecialchars($wmVals['wm_scale']) ?>" min="5" max="60" onchange="wmRefreshPreview()"></div>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label class="form-label">Opacity: <span id="wmOpLbl"><?= htmlspecialchars($wmVals['wm_opacity']) ?>%</span></label><input type="range" name="wm_opacity" min="5" max="100" value="<?= htmlspecialchars($wmVals['wm_opacity']) ?>" style="width:220px" oninput="document.getElementById('wmOpLbl').textContent=this.value+'%';wmRefreshPreview()"></div>
+<div class="form-group"><label class="form-label">Margin (px)</label><input type="number" name="wm_margin" class="form-input" value="<?= htmlspecialchars($wmVals['wm_margin']) ?>" min="0" max="200" onchange="wmRefreshPreview()"></div>
+</div>
+<div class="form-group"><label class="form-label">Position</label>
+<div class="wmpos-grid">
+<?php foreach ($__wmPositions as $__pp => $__ico): ?>
+<label class="wmpos <?= $wmVals['wm_position'] === $__pp ? 'on' : '' ?>"><input type="radio" name="wm_position" value="<?= $__pp ?>" <?= $wmVals['wm_position'] === $__pp ? 'checked' : '' ?> onchange="document.querySelectorAll('.wmpos').forEach(l=>l.classList.remove('on'));this.closest('.wmpos').classList.add('on');wmRefreshPreview()"><span><?= $__ico ?></span></label>
+<?php endforeach; ?>
+</div>
+</div>
+<div class="form-actions-bar"><div></div><button type="submit" class="btn btn-gold"><i class="fas fa-save"></i> Save Settings</button></div>
+</div>
+</form>
+</div>
+
+<div class="panel">
+<div class="panel-header"><div class="panel-title"><i class="fas fa-image" style="color:var(--gold)"></i> Watermark Logo</div></div>
+<div class="panel-body">
+<form method="POST" enctype="multipart/form-data" id="wmLogoForm" style="margin:0">
+<input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="wm_action" value="upload_wm">
+<div class="img-upload-area <?= $wmVals['wm_image'] !== '' ? 'has-image' : '' ?>" style="max-width:340px">
+<input type="file" name="wm_image_file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="document.getElementById('wmLogoForm').submit()">
+<?php if ($wmVals['wm_image'] !== ''): ?>
+<img src="<?= htmlspecialchars($__wmLogoUrl) ?>" class="img-preview" alt="watermark logo" style="max-width:200px;max-height:120px">
+<div style="margin-top:6px;font-size:11px;color:var(--green);font-weight:600"><i class="fas fa-check-circle"></i> Logo set — click to replace</div>
+<?php else: ?>
+<div class="img-upload-icon"><i class="fas fa-cloud-arrow-up"></i></div>
+<div class="img-upload-text">Upload watermark logo</div>
+<div class="img-upload-hint">PNG with transparency recommended — auto-resized to 512px</div>
+<?php endif; ?>
+</div>
+</form>
+<?php if ($wmVals['wm_image'] !== '' && !preg_match('~^https?://~i', $wmVals['wm_image'])): ?>
+<a href="?page=admin_dashboard&section=watermark&delete_wm=1&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>" class="btn btn-sm btn-outline" style="margin-top:10px;color:#ef4444" onclick="return confirm('Delete the watermark logo?')"><i class="fas fa-trash"></i> Delete Logo</a>
+<?php endif; ?>
+<div class="wm-mini" style="margin-top:10px">বাংলা লেখার ওয়াটারমার্ক দরকার হলে টেক্সটের বদলে লোগো ইমেজ (PNG) ব্যবহার করুন — সব সার্ভারে বাংলা ফন্ট থাকে না।</div>
+</div>
+</div>
+
+<div class="panel">
+<div class="panel-header"><div class="panel-title"><i class="fas fa-eye" style="color:var(--gold)"></i> Live Preview</div><div class="topbar-actions"><button type="button" class="btn btn-sm btn-outline" onclick="wmRefreshPreview()"><i class="fas fa-rotate"></i> Refresh</button></div></div>
+<div class="panel-body">
+<div class="wm-preview-box"><img id="wmPreview" src="?page=admin_dashboard&section=watermark&preview=1&t=<?= time() ?>" alt="watermark preview"></div>
+<div class="wm-mini" style="margin-top:8px">Preview applies your current settings to your latest news image on a temp copy — nothing is modified. Click Save Settings first if you changed them.</div>
+</div>
+</div>
+
+<div class="panel">
+<div class="panel-header"><div class="panel-title"><i class="fas fa-wand-magic-sparkles" style="color:var(--gold)"></i> Apply / Remove on Existing News Images</div></div>
+<div class="panel-body">
+<div class="wm-mini">Total news images found: <b><?= $__wmTotal ?></b> &nbsp;·&nbsp; Currently watermarked (original backed up): <b><?= $__wmBacked ?></b></div>
+<div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+<form method="POST" onsubmit="return confirm('Apply watermark to ALL news images? GIF/SVG files are skipped. Large libraries may take a while.')"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="wm_action" value="apply_all"><button type="submit" class="btn btn-primary"><i class="fas fa-stamp"></i> Apply Watermark to All</button></form>
+<form method="POST" onsubmit="return confirm('Remove watermark from ALL news images by restoring the stored originals? Images never watermarked by this tool are skipped.')"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>"><input type="hidden" name="wm_action" value="remove_all"><button type="submit" class="btn btn-outline" style="color:#ef4444"><i class="fas fa-eraser"></i> Remove Watermark (Restore Originals)</button></form>
+</div>
+<div class="wm-mini" style="margin-top:12px">নিরাপত্তা: ওয়াটারমার্ক বসানোর আগে প্রতিটি ছবির অরিজিনাল <b>.orig</b> ব্যাকআপ হিসেবে জমা থাকে — Remove চাপলে সেই অরিজিনাল ফিরে আসে, তাই কোয়ালিটির কোনো স্থায়ী ক্ষতি হয় না।</div>
+</div>
+</div>
+
+<script>
+function wmTypeToggle(t){document.getElementById('wmTextSec').style.display=t==='text'?'block':'none';document.getElementById('wmImgSec').style.display=t==='image'?'block':'none';}
+var wmPt=null;
+function wmRefreshPreview(){clearTimeout(wmPt);wmPt=setTimeout(function(){var i=document.getElementById('wmPreview');if(i)i.src='?page=admin_dashboard&section=watermark&preview=1&t='+Date.now();},350);}
+</script>
+<?php endif; ?>
 
 <?php elseif ($section === "ads" && hasPerm('ads')): ?>
 <div class="admin-topbar"><h1><i class="fas fa-rectangle-ad" style="color:var(--gold)"></i> Advertisements</h1><div class="topbar-actions"><?php if ($adEditData): ?><a href="?page=admin_dashboard&section=ads" class="topbar-btn topbar-btn-outline"><i class="fas fa-times"></i> Cancel</a><?php endif; ?></div></div>

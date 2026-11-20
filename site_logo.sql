@@ -1,40 +1,31 @@
 -- ============================================================
---  Site Logo SQL — ROBUST VERSION (kono table structure e-i kaj korbe)
---  Database table: site_settings   |   Setting key: site_logo_img
---
---  NOTE: SQL diye logo set korle file-ta SERVER E physically thakte
---  hobe ei path e:  uploads/news/Sonbad Sonkolon.png
+--  SITE LOGO SQL (v4)
+--  The site logo lives in its OWN dedicated folder: uploads/logo/
+--  (never shared with news images / ads / festival logo files)
+--  Current expected file: uploads/logo/Sonbad Sonkolon.png
 -- ============================================================
 
-
--- 1) TABLE STRUCTURE CHECK — ei query ta run kore output dekhun:
---    setting_key er upor PRIMARY/UNIQUE key ache kina (Key column: PRI/UNI dekhabe)
---    ar updated_at column ache kina.
-DESCRIBE site_settings;
-
-
--- 2) DUPLICATE ROW CHECK — same key er ekadhik row thakle save "harano" dey:
-SELECT setting_key, COUNT(*) AS rows_cnt
-FROM site_settings
-GROUP BY setting_key
-HAVING COUNT(*) > 1;
-
-
--- 3) LOGO SET / UPDATE — SAFE VERSION (updated_at column lagbe NA,
---    duplicate thakle-o kaj korbe):
-UPDATE site_settings
-SET setting_value = 'uploads/news/Sonbad Sonkolon.png'
-WHERE setting_key = 'site_logo_img';
-
--- Jodi table khali thake (UPDATE ei 0 row kheye fele), tokhon INSERT run korun:
-INSERT INTO site_settings (setting_key, setting_value)
-SELECT 'site_logo_img', 'uploads/news/Sonbad Sonkolon.png'
-WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE setting_key = 'site_logo_img');
-
-
--- 4) RESULT CHECK — ei value ta dekhabe:
+-- 1) Check the current value
 SELECT setting_key, setting_value FROM site_settings WHERE setting_key = 'site_logo_img';
 
+-- 2) Duplicate-row check — if this returns cnt > 1, old rows WIN over new saves
+--    and every save "looks lost" in the database. The admin panel fixes this
+--    automatically on upload, but you can verify here.
+SELECT setting_key, COUNT(*) AS cnt FROM site_settings
+WHERE setting_key = 'site_logo_img' GROUP BY setting_key;
 
--- 5) LOGO BAD DITE CHAILE (default "A" abar dekhabe):
--- UPDATE site_settings SET setting_value = '' WHERE setting_key = 'site_logo_img';
+-- 3) Set / update the logo — BULLETPROOF way (works even with duplicate rows):
+DELETE FROM site_settings WHERE setting_key = 'site_logo_img';
+INSERT INTO site_settings (setting_key, setting_value, updated_at)
+VALUES ('site_logo_img', 'uploads/logo/Sonbad Sonkolon.png', NOW());
+
+--    If your table has NO updated_at column, use this instead:
+-- INSERT INTO site_settings (setting_key, setting_value) VALUES ('site_logo_img', 'uploads/logo/Sonbad Sonkolon.png');
+
+-- 4) Clear the logo (reverts to the default "A") — same bulletproof way:
+-- DELETE FROM site_settings WHERE setting_key = 'site_logo_img';
+-- INSERT INTO site_settings (setting_key, setting_value) VALUES ('site_logo_img', '');
+
+-- NOTE: the file must physically exist at uploads/logo/Sonbad Sonkolon.png
+-- (web root -> uploads -> logo). After changing the DB, reload the admin
+-- panel — the sidebar logo resolves automatically.

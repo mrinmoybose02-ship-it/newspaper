@@ -1383,10 +1383,32 @@ if (in_array($page, $otherAdminPages)) {
 
 try { $pdo->exec("DELETE t1 FROM categories t1 INNER JOIN categories t2 WHERE t1.name = t2.name AND t1.id > t2.id"); } catch(PDOException $e) {}
 
+// ★ v7.28 FIX: hidden-character/normalization-নিরপেক্ষ category-name key —
+//   দুটো নাম "দেখতে একই" কিনা তা এই key দিয়ে মাপা হয়। নিচের সব dedupe
+//   (DB merge + display list + render guard) এটিই ব্যবহার করে।
+if (!function_exists('cat_norm_key')) {
+    function cat_norm_key($name) {
+        $s = (string)$name;
+        // zero-width / invisible অক্ষর সরাও (ZWNJ, ZWJ, ZWSP, BOM ইত্যাদি)
+        $s = str_replace(["\u{200B}", "\u{200C}", "\u{200D}", "\u{2060}", "\u{FEFF}", "\u{00AD}"], '', $s);
+        // NBSP (U+00A0) সহ সব ধরনের space → একটা ASCII space, তারপর trim
+        $s = preg_replace('/[\s\x{00A0}\x{2000}-\x{200A}\x{202F}\x{205F}\x{3000}]+/u', ' ', $s);
+        $s = trim($s);
+        // intl extension থাকলে NFC normalization — য়/ড়/ঢ়-এর ভিন্ন Unicode
+        // sequence (যেমন U+09AF U+09BC বনাম precomposed) এক হয়ে যায়
+        if (class_exists('Normalizer')) {
+            $n = @Normalizer::normalize($s, Normalizer::FORM_C);
+            if (is_string($n) && $n !== '') $s = $n;
+        }
+        return mb_strtolower($s, 'UTF-8');
+    }
+}
+
  $defaultCategories = ['প্রধান খবর','জাতীয়','রাজনীতি','আন্তর্জাতিক','অর্থনীতি','খেলাধুলা','বিনোদন','শিক্ষা','প্রযুক্তি','স্বাস্থ্য','বিশেষ সংবাদ','লাইফস্টাইল','ধর্ম','সংস্কৃতি','মতামত','ক্রাইম','কৃষি','ভ্রমণ','চাকরি','আর্কাইভ'];
  $existingCats = $pdo->query("SELECT name FROM categories GROUP BY name ORDER BY MIN(id) ASC")->fetchAll(PDO::FETCH_COLUMN);
+ $existingCatKeys = array_map('cat_norm_key', $existingCats); // ★ v7.28: hidden-char variant থাকলেও নতুন duplicate insert হবে না
 foreach ($defaultCategories as $cat) {
-    if (!in_array($cat, $existingCats)) {
+    if (!in_array(cat_norm_key($cat), $existingCatKeys, true)) {
         $catSlug = generateSlug($cat); if (empty($catSlug)) $catSlug = 'cat-' . time() . '-' . rand(100, 9999);
         $checkCatSlug = $pdo->prepare("SELECT id FROM categories WHERE slug = ?"); $checkCatSlug->execute([$catSlug]);
         $slugBase = $catSlug; $slugCounter = 1;
@@ -1398,6 +1420,76 @@ try { $pdo->exec("ALTER TABLE news ADD COLUMN tags VARCHAR(500) DEFAULT '' AFTER
 
  $pdo->exec("CREATE TABLE IF NOT EXISTS subcategories (id INT AUTO_INCREMENT PRIMARY KEY,category_id INT NOT NULL,name VARCHAR(255) NOT NULL,slug VARCHAR(255) NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,INDEX idx_category (category_id),INDEX idx_slug (slug)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
  $pdo->exec("CREATE TABLE IF NOT EXISTS news_subcategories (news_id INT NOT NULL,subcategory_id INT NOT NULL,PRIMARY KEY (news_id, subcategory_id),INDEX idx_sub (subcategory_id),INDEX idx_news (news_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+// ============================================================
+//   ★ v7.28 DUPLICATE-CATEGORY MERGE — dropdown-এ "একই ক্যাটাগরি বারবার"
+//   সমস্যার ROOT-CAUSE fix। categories টেবিলে এমন duplicate row থাকতে পারে
+//   যার নাম দেখতে হুবহু একই কিন্তু bytes আলাদা (লুকানো NBSP/ZWNJ/ZWJ/
+//   zero-width অক্ষর, বা আলাদা Unicode normalization)। উপরের SQL dedup ও
+//   GROUP BY name byte-ভিন্ন নাম ধরতে পারে না — ফলে নেভ "আরও" প্যানেল,
+//   সাইডবার "বিভাগসমূহ" লিস্ট ও ফুটারে একই ক্যাটাগরি দুবার দেখাত।
+//   এখানে একই visible নামের rows merge হয়: সবচেয়ে ছোট id-টা থাকে,
+//   news ও subcategories সেই id-তে re-point হয়, বাকিগুলো delete হয়।
+//   প্রতি page load-এ চলে — ভবিষ্যতে admin থেকে duplicate তৈরি হলেও
+//   পরের লোডেই auto-merge হয়ে যাবে।
+// ============================================================
+$__canonicalCatMap = [];
+try {
+    $__allCatRows = $pdo->query("SELECT id, name FROM categories ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    $__catGroupIds = [];
+    foreach ($__allCatRows as $__catRow) {
+        $__ckey = cat_norm_key($__catRow['name']);
+        if ($__ckey === '') continue;
+        if (!isset($__canonicalCatMap[$__ckey])) $__canonicalCatMap[$__ckey] = ['id' => (int)$__catRow['id'], 'name' => $__catRow['name']]; // lowest id = canonical
+        $__catGroupIds[$__ckey][] = (int)$__catRow['id'];
+    }
+    foreach ($__catGroupIds as $__ids) {
+        if (count($__ids) < 2) continue;
+        $__keepId = $__ids[0];
+        $__dupIds = array_slice($__ids, 1);
+        $__inIds = implode(',', $__dupIds);
+        try { $pdo->exec("UPDATE news SET category_id = {$__keepId} WHERE category_id IN ({$__inIds})"); } catch (Exception $e) {}
+        try { $pdo->exec("UPDATE subcategories SET category_id = {$__keepId} WHERE category_id IN ({$__inIds})"); } catch (Exception $e) {}
+        try { $pdo->exec("DELETE FROM categories WHERE id IN ({$__inIds})"); } catch (Exception $e) {}
+    }
+    // ২০টা বিল্ট-ইন ক্যাটাগরির spelling-ও exact নামে align করা হয়
+    // (যেমন 'আর্কাইভ␣' → 'আর্কাইভ') — যাতে en_label(), আইকন ও
+    // আর্কাইভ-গার্ড ঠিকমতো কাজ করে।
+    foreach ($defaultCategories as $__defCat) {
+        $__defKey = cat_norm_key($__defCat);
+        if ($__defKey === '' || !isset($__canonicalCatMap[$__defKey])) continue;
+        if ($__canonicalCatMap[$__defKey]['name'] !== $__defCat) {
+            try {
+                $pdo->prepare("UPDATE categories SET name = ? WHERE id = ?")->execute([$__defCat, $__canonicalCatMap[$__defKey]['id']]);
+                $__canonicalCatMap[$__defKey]['name'] = $__defCat;
+            } catch (Exception $e) {}
+        }
+    }
+} catch (Exception $e) {}
+
+// ★ v7.28 (part 2): subcategories-এর duplicate row merge — একই ক্যাটাগরির
+//   নিচে একই visible নামের সাব-ক্যাটাগরি দুবার থাকলে sub-dropdown-এ দুবার
+//   দেখাত। নিচ id-টা থাকে, news_subcategories লিংক re-point হয়
+//   (UPDATE IGNORE duplicate PK স্কিপ করে), তারপর বাকি লিংক/row মুছে যায়।
+try {
+    $__allSubRows = $pdo->query("SELECT id, category_id, name FROM subcategories ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    if (count($__allSubRows) > 1) {
+        $__subGroupIds = [];
+        foreach ($__allSubRows as $__srow) {
+            $__skey = (int)$__srow['category_id'] . '|' . cat_norm_key($__srow['name']);
+            $__subGroupIds[$__skey][] = (int)$__srow['id'];
+        }
+        foreach ($__subGroupIds as $__ids) {
+            if (count($__ids) < 2) continue;
+            $__keepId = $__ids[0];
+            $__dupIds = array_slice($__ids, 1);
+            $__inIds = implode(',', $__dupIds);
+            try { $pdo->exec("UPDATE IGNORE news_subcategories SET subcategory_id = {$__keepId} WHERE subcategory_id IN ({$__inIds})"); } catch (Exception $e) {}
+            try { $pdo->exec("DELETE FROM news_subcategories WHERE subcategory_id IN ({$__inIds})"); } catch (Exception $e) {}
+            try { $pdo->exec("DELETE FROM subcategories WHERE id IN ({$__inIds})"); } catch (Exception $e) {}
+        }
+    }
+} catch (Exception $e) {}
 
 // ====== AUTO-MOVE OLD NEWS TO ARCHIVE CATEGORY ======
 // ★ FIX (v7.20): Auto-archive DISABLED on page load.
@@ -1412,6 +1504,14 @@ $__php10DaysAgo = date('Y-m-d H:i:s', strtotime('-10 days'));  // 10 days ago IS
 // =====================================================
 
  $currentCat = $_GET['cat'] ?? '';
+// ★ v7.28 FIX: ?cat= -এ পুরোনো variant নাম (লুকানো স্পেস/অক্ষর সহ) এলে
+//   canonical category নামে ম্যাপ হবে — নাহলে সেই URL-এ "কোনো সংবাদ পাওয়া যায়নি" দেখাত।
+if ($currentCat !== '' && !empty($__canonicalCatMap)) {
+    $__reqCatKey = cat_norm_key($currentCat);
+    if ($__reqCatKey !== '' && isset($__canonicalCatMap[$__reqCatKey])) {
+        $currentCat = $__canonicalCatMap[$__reqCatKey]['name'];
+    }
+}
  $searchQuery = trim($_GET['q'] ?? '');
  $currentSub = isset($_GET['sub']) ? (int)$_GET['sub'] : 0;
  $archYear = isset($_GET['y']) ? (int)$_GET['y'] : 0;
@@ -1478,7 +1578,18 @@ try {
  // ★ v7.24: English month names for archive dropdown/page in EN mode
  $enMonths = [1=>'January', 2=>'February', 3=>'March', 4=>'April', 5=>'May', 6=>'June', 7=>'July', 8=>'August', 9=>'September', 10=>'October', 11=>'November', 12=>'December'];
 
- $categories = $pdo->query("SELECT MIN(id) as id, name FROM categories GROUP BY name ORDER BY MIN(id) ASC")->fetchAll();
+// ★ v7.28 FIX: ডিসপ্লে লিস্ট cat_norm_key() দিয়ে dedupe — DB merge কোনো কারণে
+//   না চললেও (host permission ইত্যাদি) "আরও" প্যানেল / সাইডবার "বিভাগসমূহ" /
+//   ফুটারে একই ক্যাটাগরি দুবার দেখাতে পারবে না। id = canonical (lowest-id) row।
+ $categories = [];
+ $__seenCatKeys = [];
+foreach ($pdo->query("SELECT id, name FROM categories ORDER BY id ASC")->fetchAll() as $__crow) {
+    $__ckey = cat_norm_key($__crow['name']);
+    if ($__ckey === '' || isset($__seenCatKeys[$__ckey])) continue;
+    $__seenCatKeys[$__ckey] = true;
+    $categories[] = ['id' => (int)$__crow['id'], 'name' => $__crow['name']];
+}
+unset($__seenCatKeys, $__crow, $__ckey);
  $catIdMap = [];
 foreach ($pdo->query("SELECT id, name FROM categories")->fetchAll() as $c) { $catIdMap[$c['id']] = $c['name']; }
 
@@ -1509,13 +1620,60 @@ try {
 // ====== PERFORMANCE FIX: Fetch Category Post Counts directly ======
  $catPostCounts = [];
 try {
-    $cntStmt = $pdo->query("SELECT c.name, COUNT(n.id) as cnt FROM categories c LEFT JOIN news n ON n.category_id = c.id AND n.status = 'published' GROUP BY c.name");
-    foreach ($cntStmt->fetchAll() as $r) { $catPostCounts[$r['name']] = $r['cnt']; }
+    // ★ v7.28 FIX: একই visible নামের গণনা একত্রিত — আগে duplicate variant-এ
+    //   count ভাগ হয়ে যেত (একটায় সংখ্যা, আরেকটায় 0 দেখাত)।
+    $cntStmt = $pdo->query("SELECT c.id, c.name, COUNT(n.id) as cnt FROM categories c LEFT JOIN news n ON n.category_id = c.id AND n.status = 'published' GROUP BY c.id, c.name");
+    $__cntByNorm = []; $__cntNameMap = [];
+    foreach ($cntStmt->fetchAll() as $r) {
+        $__nkey = cat_norm_key($r['name']);
+        $__cntByNorm[$__nkey] = ($__cntByNorm[$__nkey] ?? 0) + (int)$r['cnt'];
+        $__cntNameMap[$__nkey][$r['name']] = true;
+    }
+    foreach ($__cntNameMap as $__nkey => $__nmSet) {
+        foreach (array_keys($__nmSet) as $__nname) { $catPostCounts[$__nname] = $__cntByNorm[$__nkey]; }
+    }
+    unset($__cntByNorm, $__cntNameMap, $__nkey, $__nname, $__nmSet);
 } catch (Exception $e) {}
 
  $catSubcategories = [];
+ $__catSubAliases = [];  // ★ v7.28: একই ক্যাটাগরির সব name-variant → canonical sub লিস্ট
+ $__seenSubKeys = [];    // ★ v7.28: একই (category, subcategory-name) দ্বিতীয়বার এলে বাদ
  $subRows = $pdo->query("SELECT s.id, s.category_id, s.name, s.slug FROM subcategories s ORDER BY s.category_id ASC, s.id ASC")->fetchAll();
-foreach ($subRows as $sr) { $catName = $catIdMap[$sr['category_id']] ?? ''; if ($catName) { if (!isset($catSubcategories[$catName])) $catSubcategories[$catName] = []; $__subName = (mb_strtolower(trim($catName)) === 'the country') ? ucfirst($sr['name']) : $sr['name']; $catSubcategories[$catName][] = ['id' => (int)$sr['id'], 'name' => $__subName, 'slug' => $sr['slug']]; } }
+foreach ($subRows as $sr) {
+    $catName = $catIdMap[$sr['category_id']] ?? '';
+    if (!$catName) continue;
+    $__ckey2 = cat_norm_key($catName);
+    $__skey2 = cat_norm_key($sr['name']);
+    if ($__ckey2 === '' || $__skey2 === '') continue;
+    // ★ v7.30 FIX: সাব-ক্যাটাগরির নাম parent ক্যাটাগরির নামের হুবহু সমান হলে
+    //   dropdown/লিস্টে আর দেখানো হবে না — নাহলে "আন্তর্জাতিক" নেভ-আইটেমের
+    //   dropdown-এ আবার "আন্তর্জাতিক" দেখায় (duplicate মনে হয়)।
+    //   cat_norm_key() দিয়ে তুলনা — hidden-char/NBSP/normalization variant
+    //   হলেও ধরা পড়বে। সব dropdown (নেভ kn-drop, আরও-প্যানেল, সাইডবার)
+    //   এই একই অ্যারে থেকে রেন্ডার হয় — এখানে filter করলেই সব জায়গায় ঠিক।
+    if ($__skey2 === $__ckey2) continue;
+    if (!isset($__catSubAliases[$__ckey2])) $__catSubAliases[$__ckey2] = [];
+    $__catSubAliases[$__ckey2][$catName] = true;
+    if (isset($__seenSubKeys[$__ckey2][$__skey2])) continue; // ★ একই সাব-ক্যাটাগরি dropdown-এ দ্বিতীয়বার দেখাবে না
+    $__seenSubKeys[$__ckey2][$__skey2] = true;
+    if (!isset($catSubcategories[$catName])) $catSubcategories[$catName] = [];
+    $__subName = (mb_strtolower(trim($catName)) === 'the country') ? ucfirst($sr['name']) : $sr['name'];
+    $catSubcategories[$catName][] = ['id' => (int)$sr['id'], 'name' => $__subName, 'slug' => $sr['slug']];
+}
+// name-variant গুলোর sub লিস্ট একত্রিত (union) করে প্রতিটি variant-এ assign করা
+foreach ($__catSubAliases as $__ckey2 => $__nmSet2) {
+    $__unionList = []; $__seenUnion = [];
+    foreach (array_keys($__nmSet2) as $__nname2) {
+        foreach (($catSubcategories[$__nname2] ?? []) as $__subIt) {
+            $__ukey = cat_norm_key($__subIt['name']);
+            if (isset($__seenUnion[$__ukey])) continue;
+            $__seenUnion[$__ukey] = true;
+            $__unionList[] = $__subIt;
+        }
+    }
+    foreach (array_keys($__nmSet2) as $__nname2) { $catSubcategories[$__nname2] = $__unionList; }
+}
+unset($__catSubAliases, $__seenSubKeys, $__ckey2, $__skey2, $__nmSet2, $__nname2, $__unionList, $__seenUnion, $__ukey, $__subIt);
 
  $subPostCounts = [];
 if (!empty($subRows)) {
@@ -2973,7 +3131,8 @@ $EPAPER_URL = 'epaper.php';
 </div>
 </div>
 <div class="kn-panel" id="knPanel">
-<?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; if ($cn === 'আর্কাইভ') continue; ?>
+<?php $__knRenderedCats = []; // ★ v7.28 render-guard: একই ক্যাটাগরি এই dropdown-এ দুবার render হবে না ?>
+<?php foreach ($categories as $cat): $cn = $cat['name']; if (isset($__knRenderedCats[cat_norm_key($cn)])) continue; $__knRenderedCats[cat_norm_key($cn)] = true; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cPostCNT = $catPostCounts[$cn] ?? 0; if (in_array($cn, $navInlineCats)) continue; if ($cn === 'আর্কাইভ') continue; ?>
 <div class="kn-pl-link<?= $cActive ? ' active' : '' ?><?= $cHasSubs ? ' has-psubs' : '' ?>" data-pcat="<?= htmlspecialchars(en_label($cn)) ?>">
 <div class="kpi"><i class="fas <?= $cIcon ?>"></i></div>
 <a href="?cat=<?= urlencode($cn) ?>" class="kpn"><?= htmlspecialchars(en_label($cn)) ?></a>
@@ -3006,7 +3165,8 @@ $EPAPER_URL = 'epaper.php';
 <div class="sb-block">
 <h3><i class="fas fa-layer-group"></i> বিভাগসমূহ</h3>
 <ul class="sb-cat-list">
-<?php foreach ($categories as $cat): $cn = $cat['name']; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cCnt = $catPostCounts[$cn] ?? 0; ?>
+<?php $__sbRenderedCats = []; // ★ v7.28 render-guard: সাইডবার লিস্টে একই ক্যাটাগরি দুবার নয় ?>
+<?php foreach ($categories as $cat): $cn = $cat['name']; if (isset($__sbRenderedCats[cat_norm_key($cn)])) continue; $__sbRenderedCats[cat_norm_key($cn)] = true; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cCnt = $catPostCounts[$cn] ?? 0; ?>
 <li class="sb-ci<?= $cHasSubs ? ' has-subs' : '' ?>">
 <a href="?cat=<?= urlencode($cn) ?>" class="<?= $cActive ? 'active' : '' ?>"><i class="fas <?= $cIcon ?>"></i><span><?= htmlspecialchars(en_label($cn)) ?></span><?php if ($cCnt > 0): ?><span class="sb-cc"><?= $cCnt ?></span><?php endif; ?></a>
 <?php if ($cHasSubs): ?><span class="sb-st" data-stog="<?= htmlspecialchars(en_label($cn)) ?>"><i class="fas fa-chevron-down"></i></span>
@@ -3150,7 +3310,7 @@ $EPAPER_URL = 'epaper.php';
 <article class="single-wrap">
 <div style="margin-bottom:10px;">
 <a href="?cat=<?= urlencode($singleNews['category']) ?>" class="cb"><?= htmlspecialchars(en_label($singleNews['category'])) ?></a>
-<?php if (!empty($singleNews['subcategory'])): ?>
+<?php $__snCatKey = cat_norm_key($singleNews['category'] ?? ''); $__snSubKey = cat_norm_key($singleNews['subcategory']); if (!empty($singleNews['subcategory']) && $__snSubKey !== $__snCatKey): ?>
 <a href="?cat=<?= urlencode($singleNews['category']) ?>&sub=<?= (int)$singleNews['subcategory_id'] ?>" class="cb" style="background:var(--gold);color:#000;margin-left:5px;text-transform:capitalize;"><?= htmlspecialchars($singleNews['subcategory']) ?></a>
 <?php endif; ?>
 </div>

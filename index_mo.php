@@ -3377,10 +3377,17 @@ body.sidebar-open::before {
 body.sidebar-open { overflow: hidden; }
 
 /* ★ v3.45: Sidebar category list with counts + subcategories */
+/* ★ v3.113: FIXED MARK COLUMNS — count badge & dropdown arrow always sit
+   in two fixed vertical columns on the right of EVERY row (badge
+   right:36px, arrow right:4px), so all marks line up in one straight
+   column no matter how long the category name is. Rows without a
+   badge/arrow still reserve the same space (padding-right:72px).
+   Badge is absolutely positioned inside the row (.sb-cat-item is now
+   position:relative) and the arrow toggle is pinned to top:6px so it
+   stays on its own row even when the subcategory list expands. */
 .app-sidebar .sb-cat-wrap { position: relative; }
-.app-sidebar .sb-cat-wrap.has-subs .sb-cat-item { padding-right: 36px; }
 .app-sidebar .sb-cat-item {
-    display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+    position: relative; display: flex; align-items: center; gap: 8px; padding: 7px 72px 7px 8px;
     border-radius: 5px; font-size: 13px; color: var(--text);
     transition: background .15s;
 }
@@ -3394,14 +3401,16 @@ body.sidebar-open { overflow: hidden; }
 .app-sidebar .sb-cat-name {
     flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* ★ v3.113: badge pinned into the fixed badge column (right:36px) */
 .app-sidebar .sb-cat-count {
-    margin-left: auto; background: var(--red); color: #fff; font-size: 10px;
+    position: absolute; right: 36px; top: 50%; transform: translateY(-50%);
+    background: var(--red); color: #fff; font-size: 10px;
     font-weight: 700; padding: 2px 8px; border-radius: 10px; min-width: 22px;
     text-align: center; flex-shrink: 0; line-height: 1.4;
 }
 .app-sidebar .sb-cat-item:hover .sb-cat-count { background: #fff; color: var(--red); }
 .app-sidebar .sb-sub-toggle {
-    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    position: absolute; right: 4px; top: 6px; /* ★ v3.113: fixed arrow column, pinned to its own row (row = 38px) */
     width: 26px; height: 26px; background: rgba(183,28,28,.08);
     border: 1px solid rgba(183,28,28,.15); color: var(--red); border-radius: 4px;
     cursor: pointer; font-size: 10px; display: flex; align-items: center;
@@ -4165,11 +4174,11 @@ body.sidebar-open{overflow:hidden}
 .app-sidebar .sb-close{background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px}
 .app-sidebar .sb-section{padding:12px 14px;border-bottom:1px solid var(--border)}
 .app-sidebar .sb-section h4{font-family:'Noto Serif Bengali',serif;font-size:13px;color:var(--red);margin-bottom:8px;font-weight:700}
-.app-sidebar .sb-cat-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:5px;font-size:13px;color:var(--text);transition:background .15s}
+.app-sidebar .sb-cat-item{position:relative;display:flex;align-items:center;gap:8px;padding:7px 72px 7px 8px;border-radius:5px;font-size:13px;color:var(--text);transition:background .15s}
 .app-sidebar .sb-cat-item:hover,.app-sidebar .sb-cat-item.active{background:rgba(183,28,28,.06);color:var(--red)}
 .app-sidebar .sb-cat-item i{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);color:var(--red);border-radius:4px;font-size:11px;flex-shrink:0}
 .app-sidebar .sb-cat-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.app-sidebar .sb-cat-count{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:22px;text-align:center}
+.app-sidebar .sb-cat-count{position:absolute;right:36px;top:50%;transform:translateY(-50%);background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:22px;text-align:center}
 @media(max-width:600px){.video-grid{grid-template-columns:repeat(2,1fr);gap:8px}.video-play-btn{width:40px;height:40px}.video-play-btn i{font-size:14px}.video-card-title{font-size:12px}.video-card-body{padding:6px 8px 8px}}
 @media(max-width:380px){.video-grid{grid-template-columns:1fr}}
 @media(min-width:769px){.video-grid{max-width:900px;margin:0 auto}}
@@ -5337,11 +5346,13 @@ img { max-width: 100%; display: block; }
     margin-bottom: 8px;
     font-weight: 700;
 }
+/* ★ v3.113: FIXED MARK COLUMNS — badge & arrow in two fixed right columns */
 .app-sidebar .sb-cat-item {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 8px;
+    padding: 7px 72px 7px 8px;
     border-radius: 5px;
     font-size: 13px;
     color: var(--text);
@@ -5368,8 +5379,12 @@ img { max-width: 100%; display: block; }
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+/* ★ v3.113: badge pinned into the fixed badge column (right:36px) */
 .app-sidebar .sb-cat-item .sb-cat-count {
-    margin-left: auto;
+    position: absolute;
+    right: 36px;
+    top: 50%;
+    transform: translateY(-50%);
     background: var(--red);
     color: #fff;
     font-size: 10px;
@@ -5393,14 +5408,13 @@ img { max-width: 100%; display: block; }
 .app-sidebar .sb-cat-wrap {
     position: relative;
 }
-.app-sidebar .sb-cat-wrap.has-subs .sb-cat-item {
-    padding-right: 36px;
-}
+/* ★ v3.113: has-subs padding-right override removed — every row now
+   reserves the same 72px mark-column space, so badges/arrow never
+   overlap the category name. */
 .app-sidebar .sb-sub-toggle {
     position: absolute;
     right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
+    top: 6px; /* ★ v3.113: fixed arrow column — no drifting when sub-list opens */
     width: 26px;
     height: 26px;
     background: rgba(183,28,28,.08);

@@ -3790,6 +3790,7 @@ if ($page === 'home' && !$searchQuery && !$currentSub && !$currentCat && !$archY
 <?php
 // ====== APP DOWNLOAD ICONS (Google Play + App Store) ★ v6.3 ======
 // ★★ আপনার অ্যাপ পাবলিশ হলে শুধু নিচের ২টি লাইন বদলাবেন (অন্য কিছু ধরতে হবে না):
+//   ('#' থাকা অবস্থায় ক্লিক করলে "নির্মাণাধীন" মডাল দেখাবে; আসল URL বসালে সরাসরি স্টোরে যাবে)
 $PLAY_STORE_URL = '#';   // যেমন: 'https://play.google.com/store/apps/details?id=com.yoursite.app'
 $APP_STORE_URL  = '#';   // যেমন: 'https://apps.apple.com/app/id123456789'
 // আইকন দুটি সরাতে চাইলে false করুন:
@@ -3805,6 +3806,12 @@ $SHOW_QR_CODE = true;
 $mkAppBadge = function ($href, $iconClass, $label) {
     $href = trim((string)$href);
     if (!$href) return '';
+    // ★ URL এখনো '#' (অ্যাপ এখনো পাবলিশ হয়নি) → ক্লিক করলে "নির্মাণাধীন" মডাল দেখাবে
+    //   QR কোডের মতোই একই পপআপ — window.showUnderConstruction()
+    if ($href === '#') {
+        return '<a class="app-badge app-badge-uc" href="#under-construction" data-uc-trigger="1" aria-label="' . $label . ' — নির্মাণাধীন" title="নির্মাণাধীন — শীঘ্রই আসছে"><i class="' . $iconClass . '"></i></a>';
+    }
+    // আসল স্টোর URL বসানো হলে নতুন ট্যাবে সরাসরি স্টোরে নিয়ে যাবে
     return '<a class="app-badge" href="' . htmlspecialchars($href) . '" target="_blank" rel="noopener" aria-label="' . $label . '"><i class="' . $iconClass . '"></i></a>';
 };
 $playBadgeHTML  = $SHOW_APP_DOWNLOAD ? $mkAppBadge($PLAY_STORE_URL, 'fab fa-google-play', 'Google Play') : '';
@@ -3826,7 +3833,7 @@ if ($SHOW_QR_CODE) {
     // data-url অ্যাট্রিবিউটে টার্গেট URL রাখা হয়েছে
     // ★ ক্লিক করলে সরাসরি লিংকে না গিয়ে "নির্মাণাধীন" মডাল দেখাবে
     //   (QR স্ক্যান করলে তবুও $qrTarget-এ যাবে — শুধু ডেস্কটপে ক্লিকে মডাল)
-    $qrBadgeHTML  = '<a class="ft-qr" href="#qrUnderConstruction" id="ftQrTrigger" aria-label="QR কোড — নির্মাণাধীন" title="নির্মাণাধীন — শীঘ্রই আসছে">';
+    $qrBadgeHTML  = '<a class="ft-qr" href="#under-construction" id="ftQrTrigger" data-uc-trigger="1" aria-label="QR কোড — নির্মাণাধীন" title="নির্মাণাধীন — শীঘ্রই আসছে">';
     $qrBadgeHTML .= '<div id="ftQrCode" data-url="' . htmlspecialchars($qrTarget, ENT_QUOTES) . '" style="width:38px;height:38px"></div>';
     $qrBadgeHTML .= '</a>';
 }
@@ -5456,6 +5463,51 @@ if ($page === 'single' && !empty($singleNews)): ?>
 })();
 </script>
 <?php endif; // ★ v7.24 client-side translation fallback ?>
+
+<!-- ====== UNDER CONSTRUCTION MODAL (QR কোডে ক্লিক করলে দেখাবে) ====== -->
+<div class="qr-modal" id="qrUnderConstructionModal" role="dialog" aria-modal="true" aria-labelledby="ucTitle">
+    <div class="qr-modal-backdrop" data-uc-close></div>
+    <div class="qr-modal-box">
+        <button class="qr-modal-x" data-uc-close aria-label="বন্ধ করুন"><i class="fas fa-times"></i></button>
+        <div class="qr-modal-icon"><i class="fas fa-helmet-safety"></i></div>
+        <h3 id="ucTitle">নির্মাণাধীন</h3>
+        <p>এই ফিচারটি খুব শীঘ্রই আসছে।<br>আমরা কাজ করে যাচ্ছি — অপেক্ষায় থাকুন!</p>
+        <button class="qr-modal-close" data-uc-close>বন্ধ করুন</button>
+    </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    var modal = document.getElementById('qrUnderConstructionModal');
+    function openModal(e) {
+        if (e) e.preventDefault();
+        if (modal) modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeModal() {
+        if (modal) modal.classList.remove('open');
+        document.body.style.overflow = '';
+    }
+    // ★ QR কোড + Google Play + App Store — সব ব্যাজে data-uc-trigger আছে,
+    //   এক ক্লিকেই "নির্মাণাধীন" মডাল খুলবে
+    document.querySelectorAll('[data-uc-trigger]').forEach(function (el) {
+        el.addEventListener('click', openModal);
+    });
+    // backdrop, X বোতাম ও "বন্ধ করুন" বোতাম — সবগুলোতে ক্লিক করলে বন্ধ
+    if (modal) {
+        modal.querySelectorAll('[data-uc-close]').forEach(function (el) {
+            el.addEventListener('click', closeModal);
+        });
+    }
+    // Escape চাপলেও বন্ধ হবে
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeModal();
+    });
+    // গ্লোবাল এক্সপোজ (PHP-র onclick থেকেও কল করা যায়)
+    window.showUnderConstruction = openModal;
+})();
+</script>
+<!-- ====== END UNDER CONSTRUCTION MODAL ====== -->
 
 <!-- ====== QR CODE GENERATOR (★ client-side — কোনো বাহ্যিক image API লাগে না) ====== -->
 <script>

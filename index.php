@@ -1504,6 +1504,24 @@ $__php10DaysAgo = date('Y-m-d H:i:s', strtotime('-10 days'));  // 10 days ago IS
 // =====================================================
 
  $currentCat = $_GET['cat'] ?? '';
+
+// ★ Unread news count per category — cookie-based tracking
+//   (like the mobile app screenshot user shared: red badge per category
+//    showing how many news items were added since the visitor last opened
+//    that category page). When visitor opens a category, the cookie
+//    timestamp is updated, so the badge for that category resets to 0.
+$catVisits = [];
+if (isset($_COOKIE['cat_visits'])) {
+    $catVisits = @json_decode($_COOKIE['cat_visits'], true) ?: [];
+}
+// Update visit timestamp for the category the visitor is currently opening.
+// (Must run BEFORE the unread count is computed — but the count reads the
+//  OLD cookie value first, so even on a category page the badge shows the
+//  correct count of newly-arrived news before the cookie is refreshed.)
+if ($currentCat !== '') {
+    $catVisits[$currentCat] = date('Y-m-d H:i:s');
+    @setcookie('cat_visits', json_encode($catVisits, JSON_UNESCAPED_UNICODE), time() + 86400 * 365, '/');
+}
 // ★ v7.28 FIX: ?cat= -এ পুরোনো variant নাম (লুকানো স্পেস/অক্ষর সহ) এলে
 //   canonical category নামে ম্যাপ হবে — নাহলে সেই URL-এ "কোনো সংবাদ পাওয়া যায়নি" দেখাত।
 if ($currentCat !== '' && !empty($__canonicalCatMap)) {
@@ -1634,6 +1652,34 @@ try {
     }
     unset($__cntByNorm, $__cntNameMap, $__nkey, $__nname, $__nmSet);
 } catch (Exception $e) {}
+
+// ★ Unread count per category — news published AFTER visitor's last visit.
+//   Cookie tracks when each category was last opened; news added after
+//   that shows up as a pulsing red badge — exactly like the mobile app.
+//   If never visited (no cookie), we show news from the last 7 days as
+//   "new" so a fresh visitor still sees meaningful badges.
+$catUnreadCounts = [];
+if (!empty($categories)) {
+    foreach ($categories as $__ucat) {
+        $__ucn   = $__ucat['name'];
+        $__ucid  = (int)$__ucat['id'];
+        $__ulast = $catVisits[$__ucn] ?? null;
+        try {
+            if ($__ulast) {
+                $__ustmt = $pdo->prepare("SELECT COUNT(*) FROM news WHERE category_id = ? AND status = 'published' AND created_at > ?");
+                $__ustmt->execute([$__ucid, $__ulast]);
+                $catUnreadCounts[$__ucn] = (int)$__ustmt->fetchColumn();
+            } else {
+                $__ustmt = $pdo->prepare("SELECT COUNT(*) FROM news WHERE category_id = ? AND status = 'published' AND created_at >= ?");
+                $__ustmt->execute([$__ucid, date('Y-m-d H:i:s', strtotime('-7 days'))]);
+                $catUnreadCounts[$__ucn] = (int)$__ustmt->fetchColumn();
+            }
+        } catch (Exception $e) {
+            $catUnreadCounts[$__ucn] = 0;
+        }
+    }
+    unset($__ucat, $__ucn, $__ucid, $__ulast, $__ustmt);
+}
 
  $catSubcategories = [];
  $__catSubAliases = [];  // ★ v7.28: একই ক্যাটাগরির সব name-variant → canonical sub লিস্ট
@@ -2285,6 +2331,8 @@ if (function_exists('prewarm_all_news_translations')) {
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Noto+Serif+Bengali:wght@400;600;700;900&display=swap" rel="stylesheet">
 <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
 <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"></noscript>
+<!-- ★ QR Code JS library (pure client-side, no external image API needed) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <style>
 :root{--red:#B71C1C;--red-dark:#7F0000;--gold:#D4950A;--bg:#F4F1EB;--fg:#1A1A1A;--muted:#666;--card:#FFF;--border:#DDD5C8;--nav-bg:#1A1A1A;--sidebar-w:260px}
@@ -2395,7 +2443,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kn-drop-link{display:flex;align-items:center;gap:6px;padding:9px 14px;font-size:12px;color:rgba(255,255,255,.6);transition:all .15s}
 .kn-drop-link:hover{color:var(--gold);background:rgba(212,149,67,.1);padding-left:20px}
 .kn-drop-link.active{color:var(--gold);background:rgba(212,149,67,.12)}
-.kn-drop-link .kn-dc{font-size:8px;color:#fff;background:var(--red);padding:0 4px;height:14px;border-radius:9999px;margin-left:auto;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1}
+.kn-drop-link .kn-dc{font-size:9px;color:#fff;background:var(--red);padding:0;height:13px;width:13px;border-radius:50%;margin-left:auto;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1;box-sizing:border-box;overflow:hidden}
 .kn-drop-all{padding:9px 14px;font-size:11.5px;font-weight:600;color:var(--gold);border-top:1px solid rgba(255,255,255,.08);margin-top:3px;cursor:pointer;transition:background .15s;display:block}
 .kn-drop-all:hover{background:rgba(212,149,67,.1)}
 .kn-more-btn{color:#ccc;padding:12px 12px;font-size:12px;font-weight:600;white-space:nowrap;transition:all .2s;display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:none;border:none;font-family:inherit;border-bottom:2px solid transparent;flex-shrink:0}
@@ -2415,7 +2463,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kn-pl-link:hover .kpi{background:rgba(212,149,67,.15);color:var(--gold)}
 .kn-pl-link .kpn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;text-decoration:none}
 .kn-pl-link.has-psubs{padding-right:44px}
-.kpc{font-size:8px;color:#fff;background:var(--red);padding:0 4px;height:14px;border-radius:9999px;min-width:14px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1}
+.kpc{font-size:9px;color:#fff;background:var(--red);padding:0;height:13px;width:13px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1;box-sizing:border-box;overflow:hidden}
 .kn-pl-link.has-psubs .kpc{margin-right:0}
 .kn-sub-tog{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(212,149,67,.2);border:1px solid rgba(212,149,67,.35);color:var(--gold);font-size:10px;cursor:pointer;border-radius:5px;transition:all .2s;z-index:20}
 .kn-sub-tog:hover{background:rgba(212,149,67,.4);transform:translateY(-50%) scale(1.1)}
@@ -2430,7 +2478,7 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .kn-sub-link.active{color:var(--gold);background:rgba(212,149,67,.1)}
 .kn-sub-link.active::before{background:var(--gold);box-shadow:0 0 6px rgba(212,149,67,.5)}
 .kn-sub-link .ksn{flex:1}
-.kn-sub-link .ksc{font-size:8px;color:#fff;background:var(--red);padding:0 4px;height:14px;border-radius:9999px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1}
+.kn-sub-link .ksc{font-size:9px;color:#fff;background:var(--red);padding:0;height:13px;width:13px;border-radius:50%;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1;box-sizing:border-box;overflow:hidden}
 .kn-search{margin-left:auto;display:flex;align-items:center;flex-shrink:0}
 .kn-search form{display:flex;align-items:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:4px;height:32px;margin:6px 10px 6px 4px;overflow:hidden;transition:all .2s}
 .kn-search form:focus-within{border-color:rgba(212,149,67,.4);background:rgba(255,255,255,.06)}
@@ -2465,23 +2513,46 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
    যাতে panel-টি সাইডবারের পুরো প্রস্থ ব্যবহার করে এবং কন্টেন্ট বামে চলে আসে। */
 .sb-cat-list{list-style:none;padding:0;margin:0}
 .sb-ci{position:relative}
-.sb-ci a{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 12px;border-radius:0;font-size:12.5px;font-weight:500;color:var(--fg);transition:all .15s;text-decoration:none;border-left:3px solid transparent}
-.sb-ci.has-subs a{padding-right:32px}
+.sb-ci a{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:0;font-size:12.5px;font-weight:500;color:var(--fg);transition:all .15s;text-decoration:none;border-left:3px solid transparent}
+/* ★ আগে has-subs আইটেমে padding-right:32px ছিল (chevron-এর জন্য), যা ব্যাজের
+   ডান-প্রান্তিক অবস্থান পরিবর্তন করত — তাই has-subs ও সাধারণ আইটেমের ব্যাজ আলাদা
+   উল্লম্ব রেখায় পড়ত। এখন chevron absolute positioned (right:4px), তাই এই
+   extra padding সরানো হয়েছে — সব ব্যাজ এখন একই ডান-প্রান্তে, এক সোজা রেখায়। */
+.sb-ci.has-subs a{padding-right:12px}
 .sb-ci a:hover,.sb-ci a.active{background:rgba(183,28,28,.06);color:var(--red);border-left-color:var(--red)}
 .sb-ci a i{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);border-radius:4px;font-size:10px;color:var(--red);flex-shrink:0}
-.sb-ci a span{flex:1}
-.sb-cc{font-size:9px;color:#fff;background:var(--red);padding:0 5px;height:15px;border-radius:9999px;min-width:15px;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1}
+/* ★ "ekta line" fix: প্রতিটি ক্যাটাগরি আইটেম (icon + name + badge) সবসময়
+   এক লাইনে থাকবে — নাম দীর্ঘ হলে ellipsis (...) দিয়ে ছোট হবে, ব্যাজ
+   ডানদিকে একই সারিতে aligned থাকবে। কখনো wrap/double-line হবে না। */
+.sb-ci a span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ★ সব ব্যাজ (sb-cc, sb-unread, ssc) একই সাইজ + একই ডান-প্রান্তিক অবস্থান —
+   যাতে সংখ্যাগুলো এক সোজা উল্লম্ব রেখায় (vertical line) সাজে। আগে sb-cc 15px
+   আর sb-unread 17px+border ছিল, তাই দুটোর অবস্থান মিলত না। */
+.sb-cc{font-size:10px;color:#fff;background:var(--red);padding:0;height:14px;width:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1;margin-left:auto;box-sizing:border-box;overflow:hidden}
+/* ★ Unread/new news badge — সম্পূর্ণ গোলাকার (perfect circle), pulsing red.
+   fixed width=height=18px + border-radius:50% → সংখ্যা যতই বড় হোক না কেন গোল থাকবে।
+   ২+ অঙ্কের সংখ্যা গোল চেনাশনের ভেতরে সেঁটে যাবে (font-size ছোট, scale করা যায়)। */
+.sb-unread{font-size:10px;color:#fff;background:linear-gradient(135deg,#e53935,#b71c1c);padding:0;height:14px;width:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:800;flex-shrink:0;line-height:1;box-shadow:0 1px 4px rgba(183,28,28,.5);animation:sbUnreadPulse 1.8s ease-in-out infinite;border:1px solid #fff;margin-left:auto;box-sizing:border-box;overflow:hidden}
+/* ★ has-subs আইটেমে chevron ডানদিকে absolute position করা, তাই ব্যাজকে বামে
+   ঠেলতে হয় যাতে chevron-এর সাথে overlap না করে। কিন্তু এতে has-subs ও সাধারণ
+   আইটেমের ব্যাজ আলাদা উল্লম্ব রেখায় পড়বে। সমাধান: সব আইটেমেই ব্যাজকে একই
+   অবস্থানে রাখা হয়েছে (margin-left:auto + একই padding-right)। has-subs এ
+   chevron উপরে (z-index:20) থাকে, ব্যাজ নিচে। দুটো overlap এড়াতে ব্যাজের
+   অবস্থান chevron-এর ঠিক বাম পাশে ঠিক করা হয়েছে। */
+.sb-ci.has-subs .sb-cc,.sb-ci.has-subs .sb-unread{margin-right:30px}
+@keyframes sbUnreadPulse{0%,100%{box-shadow:0 2px 6px rgba(183,28,28,.5),0 0 0 0 rgba(229,57,53,.55)}50%{box-shadow:0 3px 10px rgba(183,28,28,.65),0 0 0 6px rgba(229,57,53,0)}}
 .sb-st{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);border:1px solid rgba(183,28,28,.15);color:var(--red);font-size:8px;cursor:pointer;border-radius:4px;transition:all .2s;z-index:20}
 .sb-st:hover{background:rgba(183,28,28,.18);transform:translateY(-50%) scale(1.05)}
 .sb-st.open{background:var(--red);color:#fff;border-color:var(--red)}
 .sb-st i{transition:transform .3s}.sb-st.open i{transform:rotate(180deg)}
 .sb-sl{display:none;list-style:none;padding:2px 0 2px 10px;margin:0 0 4px 18px;border-left:2px solid var(--border)}
 .sb-sl.open{display:block}
-.sb-si a{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:4px;font-size:11.5px;color:var(--muted);transition:all .15s;text-decoration:none}
+.sb-si a{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:4px;font-size:11.5px;color:var(--muted);transition:all .15s;text-decoration:none;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-si a:hover,.sb-si a.active{background:rgba(183,28,28,.06);color:var(--red)}
 .sb-si a i{font-size:7px;opacity:.4;width:10px;text-align:center;flex-shrink:0}
+.sb-si a .ssn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-si a:hover i{opacity:1}
-.sb-si .ssc{font-size:8px;color:#fff;background:var(--red);padding:0 4px;height:14px;border-radius:9999px;margin-left:auto;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1}
+.sb-si .ssc{font-size:9px;color:#fff;background:var(--red);padding:0;height:13px;width:13px;border-radius:50%;margin-left:auto;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1;box-sizing:border-box;overflow:hidden}
 .pop-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;border-radius:4px;padding-left:4px}
 .pop-item:hover{background:rgba(183,28,28,.04)}
 .pop-item:last-child{border-bottom:none}
@@ -2884,6 +2955,34 @@ body { top: 0 !important; }
 .app-badge:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.5);box-shadow:0 6px 18px rgba(0,0,0,.45)}
 .app-badge .fa-google-play{background:linear-gradient(135deg,#00d7fe,#00f076 45%,#ffd500 70%,#ff3a44);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 
+/* ===== QR Code (★ App badges-এর পরে — ছোট, সাদা ব্যাকগ্রাউন্ড সহ) ===== */
+/* ভিজিটর মোবাইল ক্যামেরা দিয়ে স্ক্যান করলে সরাসরি সাইট/অ্যাপ লিংকে যাবে।
+   QR কোড qrcodejs লাইব্রেরি দিয়ে ব্রাউজারে তৈরি হয় — কোনো বাহ্যিক image API লাগে না। */
+.ft-qr{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:9px;background:#fff;border:1px solid rgba(255,255,255,.22);padding:3px;box-sizing:border-box;transition:transform .15s,box-shadow .15s,border-color .15s;text-decoration:none;overflow:hidden}
+.ft-qr img{width:38px!important;height:38px!important;display:block;border-radius:3px}
+.ft-qr canvas{width:38px!important;height:38px!important;display:block;border-radius:3px}
+.ft-qr #ftQrCode{display:flex;align-items:center;justify-content:center;width:38px;height:38px;overflow:hidden}
+.ft-qr #ftQrCode img,.ft-qr #ftQrCode canvas{width:38px!important;height:38px!important}
+.ft-qr:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.6);box-shadow:0 6px 18px rgba(0,0,0,.45)}
+/* ★ QR কোড আলাদা লাইনে — App badges-এর নিচে। উপরে margin দিয়ে আলাদা করা। */
+.ft-qr-wrap{display:flex;align-items:center;gap:10px;margin-top:10px}
+
+/* ===== "নির্মাণাধীন" MODAL — QR কোডে ক্লিক করলে এই মডাল দেখাবে ===== */
+/* পুরো স্ক্রিন জুড়ে কালো overlay + মাঝখানে সাদা বক্স */
+.qr-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:99999;padding:20px}
+.qr-modal.open{display:flex}
+.qr-modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)}
+.qr-modal-box{position:relative;background:#fff;border-radius:14px;padding:32px 28px;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4);animation:qrModalIn .3s ease-out;z-index:1}
+@keyframes qrModalIn{from{opacity:0;transform:translateY(-20px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+.qr-modal-icon{width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#fff3cd,#ffe082);color:#B71C1C;font-size:32px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;border:3px solid #B71C1C;animation:qrModalIconBounce 2s ease-in-out infinite}
+@keyframes qrModalIconBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.qr-modal-box h3{font-family:'Hind Siliguri',sans-serif;font-size:22px;font-weight:700;color:#B71C1C;margin:0 0 10px}
+.qr-modal-box p{font-family:'Hind Siliguri',sans-serif;font-size:14px;color:#555;line-height:1.7;margin:0 0 22px}
+.qr-modal-close{font-family:'Hind Siliguri',sans-serif;background:#B71C1C;color:#fff;border:none;padding:10px 28px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s,transform .15s}
+.qr-modal-close:hover{background:#7F0000;transform:translateY(-2px)}
+.qr-modal-x{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;background:#f5f5f5;border:none;color:#666;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s,color .2s}
+.qr-modal-x:hover{background:#B71C1C;color:#fff}
+
 /* ====== BENGALI FEMALE ANCHOR WIDGET (TTS News Reader) ====== */
 .bn-anchor-fab{position:fixed;bottom:80px;right:20px;width:60px;height:60px;border-radius:50%;background:#fff;border:3px solid var(--red);box-shadow:0 6px 20px rgba(183,28,28,.4);cursor:pointer;z-index:9998;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:all .25s ease;animation:bnAnchorPulse 2.5s infinite}
 .bn-anchor-fab:hover{transform:scale(1.08);box-shadow:0 8px 28px rgba(183,28,28,.55)}
@@ -3168,11 +3267,11 @@ $EPAPER_URL = 'epaper.php';
 <?php $__sbRenderedCats = []; // ★ v7.28 render-guard: সাইডবার লিস্টে একই ক্যাটাগরি দুবার নয় ?>
 <?php foreach ($categories as $cat): $cn = $cat['name']; if (isset($__sbRenderedCats[cat_norm_key($cn)])) continue; $__sbRenderedCats[cat_norm_key($cn)] = true; $cIcon = $navCatIcons[$cn] ?? 'fa-folder'; $cSubs = $catSubcategories[$cn] ?? []; $cHasSubs = !empty($cSubs); $cActive = ($currentCat === $cn && !$currentSub); $cCnt = $catPostCounts[$cn] ?? 0; ?>
 <li class="sb-ci<?= $cHasSubs ? ' has-subs' : '' ?>">
-<a href="?cat=<?= urlencode($cn) ?>" class="<?= $cActive ? 'active' : '' ?>"><i class="fas <?= $cIcon ?>"></i><span><?= htmlspecialchars(en_label($cn)) ?></span><?php if ($cCnt > 0): ?><span class="sb-cc"><?= $cCnt ?></span><?php endif; ?></a>
+<a href="?cat=<?= urlencode($cn) ?>" class="<?= $cActive ? 'active' : '' ?>"><i class="fas <?= $cIcon ?>"></i><span><?= htmlspecialchars(en_label($cn)) ?></span><?php $__uCnt = $catUnreadCounts[$cn] ?? 0; if ($__uCnt > 0): ?><span class="sb-unread" title="নতুন সংবাদ"><?= $__uCnt ?></span><?php elseif ($cCnt > 0): ?><span class="sb-cc" title="মোট সংবাদ"><?= $cCnt ?></span><?php endif; ?></a>
 <?php if ($cHasSubs): ?><span class="sb-st" data-stog="<?= htmlspecialchars(en_label($cn)) ?>"><i class="fas fa-chevron-down"></i></span>
 <ul class="sb-sl" data-ssubs="<?= htmlspecialchars(en_label($cn)) ?>">
 <?php foreach ($cSubs as $ss): $ssActive = ($currentSub === (int)$ss['id']); $ssc = $subPostCounts[$ss['id']] ?? 0; ?>
-<li class="sb-si"><a href="?cat=<?= urlencode($cn) ?>&sub=<?= $ss['id'] ?>" class="<?= $ssActive ? ' active' : '' ?>"><i class="fas fa-circle"></i><?= htmlspecialchars($ss['name']) ?><?php if ($ssc > 0): ?><span class="ssc"><?= $ssc ?></span><?php endif; ?></a></li>
+<li class="sb-si"><a href="?cat=<?= urlencode($cn) ?>&sub=<?= $ss['id'] ?>" class="<?= $ssActive ? ' active' : '' ?>"><i class="fas fa-circle"></i><span class="ssn"><?= htmlspecialchars($ss['name']) ?></span><?php if ($ssc > 0): ?><span class="ssc"><?= $ssc ?></span><?php endif; ?></a></li>
 <?php endforeach; ?>
 </ul><?php endif; ?>
 </li>
@@ -3695,6 +3794,13 @@ $PLAY_STORE_URL = '#';   // যেমন: 'https://play.google.com/store/apps/de
 $APP_STORE_URL  = '#';   // যেমন: 'https://apps.apple.com/app/id123456789'
 // আইকন দুটি সরাতে চাইলে false করুন:
 $SHOW_APP_DOWNLOAD = true;
+
+// ★ QR Code — অ্যাপ ডাউনলোড বা সাইট শেয়ার করার জন্য। QR-এর ভেতরে যে URL এম্বেড হবে
+//   সেটি $QR_CODE_URL-এ দিন। খালি ('') রাখলে QR কোড দেখাবে না।
+//   ডিফল্ট: বর্তমান সাইটের হোম URL। ভিজিটর মোবাইলে স্ক্যান করলে সরাসরি সেই পেজে যাবে।
+$QR_CODE_URL = '';   // যেমন: 'https://play.google.com/store/apps/details?id=com.yoursite.app'
+// QR কোডের ছবি সরাসরি api.qrserver.com থেকে ব্রাউজারে লোড হয় — সার্ভারে কোনো ফাইল লাগে না।
+$SHOW_QR_CODE = true;
 // --- নিচের অংশ অটোমেটিক; আইকন সাইটের Font Awesome ৬.৫ থেকে আসে, কোনো ছবি/ফোল্ডার লাগে না ---
 $mkAppBadge = function ($href, $iconClass, $label) {
     $href = trim((string)$href);
@@ -3703,6 +3809,27 @@ $mkAppBadge = function ($href, $iconClass, $label) {
 };
 $playBadgeHTML  = $SHOW_APP_DOWNLOAD ? $mkAppBadge($PLAY_STORE_URL, 'fab fa-google-play', 'Google Play') : '';
 $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-apple',       'App Store') : '';
+
+// ★ QR code HTML তৈরি — ছবি এখন JS লাইব্রেরি দিয়ে ব্রাউজারেই তৈরি হয়
+//   (কোনো বাহ্যিক image API লাগে না — api.qrserver.com ব্লক হলেও কাজ করবে)
+$qrBadgeHTML = '';
+if ($SHOW_QR_CODE) {
+    // QR-এ যে URL এম্বেড হবে — $QR_CODE_URL খালি হলে বর্তমান সাইটের canonical URL ব্যবহার
+    $qrTarget = trim((string)$QR_CODE_URL);
+    if ($qrTarget === '') {
+        // বর্তমান সাইটের হোম URL — ভিজিটর স্ক্যান করলে একই সাইটে আসবে
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $qrTarget = $scheme . '://' . $host . '/';
+    }
+    // খালি div — JS লাইব্রেরি লোড হলে এই div-এ QR canvas/svg তৈরি হবে
+    // data-url অ্যাট্রিবিউটে টার্গেট URL রাখা হয়েছে
+    // ★ ক্লিক করলে সরাসরি লিংকে না গিয়ে "নির্মাণাধীন" মডাল দেখাবে
+    //   (QR স্ক্যান করলে তবুও $qrTarget-এ যাবে — শুধু ডেস্কটপে ক্লিকে মডাল)
+    $qrBadgeHTML  = '<a class="ft-qr" href="#qrUnderConstruction" id="ftQrTrigger" aria-label="QR কোড — নির্মাণাধীন" title="নির্মাণাধীন — শীঘ্রই আসছে">';
+    $qrBadgeHTML .= '<div id="ftQrCode" data-url="' . htmlspecialchars($qrTarget, ENT_QUOTES) . '" style="width:38px;height:38px"></div>';
+    $qrBadgeHTML .= '</a>';
+}
 ?>
 <footer class="kol-footer">
 <div class="container">
@@ -3719,6 +3846,9 @@ $appleBadgeHTML = $SHOW_APP_DOWNLOAD ? $mkAppBadge($APP_STORE_URL,  'fab fa-appl
 </div>
 <?php if ($playBadgeHTML !== '' || $appleBadgeHTML !== ''): ?>
 <div class="ft-app-badges"><?= $playBadgeHTML ?><?= $appleBadgeHTML ?></div>
+<?php endif; ?>
+<?php if ($qrBadgeHTML !== ''): ?>
+<div class="ft-qr-wrap"><?= $qrBadgeHTML ?></div>
 <?php endif; ?>
 </div>
 <div>
@@ -5326,6 +5456,57 @@ if ($page === 'single' && !empty($singleNews)): ?>
 })();
 </script>
 <?php endif; // ★ v7.24 client-side translation fallback ?>
+
+<!-- ====== QR CODE GENERATOR (★ client-side — কোনো বাহ্যিক image API লাগে না) ====== -->
+<script>
+(function () {
+    'use strict';
+    function renderQR() {
+        var el = document.getElementById('ftQrCode');
+        if (!el) return;
+        var url = el.getAttribute('data-url') || '';
+        if (!url) return;
+        try {
+            // qrcodejs লাইব্রেরি লোড হয়ে থাকলে সরাসরি canvas/svg তৈরি করে
+            if (typeof QRCode === 'function') {
+                el.innerHTML = '';
+                new QRCode(el, {
+                    text: url,
+                    width: 38,
+                    height: 38,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+                // qrcodejs দুটি এলিমেন্ট (canvas + img) তৈরি করে — শুধু img রাখি যাতে
+                // সাইজ নিয়ন্ত্রণে থাকে এবং হোভারে স্কেল হয়
+                var imgs = el.querySelectorAll('img');
+                if (imgs.length > 0) {
+                    imgs.forEach(function (img) { img.style.width = '38px'; img.style.height = '38px'; });
+                }
+                var canvases = el.querySelectorAll('canvas');
+                if (canvases.length > 0) {
+                    canvases.forEach(function (c) { c.style.width = '38px'; c.style.height = '38px'; });
+                }
+                return;
+            }
+        } catch (e) { console.warn('QRCode library error:', e); }
+        // লাইব্রেরি লোড হয়নি বা ব্যর্থ হলে — fallback হিসেবে বাহ্যিক image API ব্যবহার
+        el.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=76x76&data=' +
+            encodeURIComponent(url) + '&margin=1" alt="QR Code" width="38" height="38" loading="lazy" decoding="async" style="width:38px;height:38px">';
+    }
+    // DOM ready হলেই রেন্ডার করো; লাইব্রেরি পরে লোড হলে একবার আবার চেষ্টা করো
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderQR);
+    } else {
+        renderQR();
+    }
+    // লাইব্রেরি অ্যাসিঙ্ক্রোনাস লোড হতে পারে — সামান্য দেরি করে আবার চেষ্টা করো
+    setTimeout(renderQR, 500);
+    setTimeout(renderQR, 1500);
+})();
+</script>
+<!-- ====== END QR CODE GENERATOR ====== -->
 
 </body>
 </html>

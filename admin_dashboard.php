@@ -154,7 +154,10 @@ function roleColor($color) {
 }
 
 if (!function_exists('handleUpload')) {
-    function handleUpload($inputName, $maxSizeMB = 5, $allowedTypes = null) {
+    // ★ $preserveName (4th arg): when true the ORIGINAL file name is kept (e.g. "logo.png" stays "logo.png").
+    //   Logo uploads (site brand + festival) now use the dedicated handleLogoUploadKeepName() below.
+    //   Kept for backward compatibility — all other uploads keep the unique generated name.
+    function handleUpload($inputName, $maxSizeMB = 5, $allowedTypes = null, $preserveName = false) {
         if ($allowedTypes === null) $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
         if (!isset($_FILES[$inputName])) return null;
         $file = $_FILES[$inputName];
@@ -171,13 +174,156 @@ if (!function_exists('handleUpload')) {
         if ($dm !== 'image/svg+xml' && !@getimagesize($file['tmp_name'])) return ["error" => "Not a valid image."];
         $isAd = (strpos($inputName, 'ad_') === 0) || (strpos($inputName, 'festival_') === 0);
         $sub = $isAd ? 'ads' : 'news';
-        $dir = __DIR__ . '/../uploads/' . $sub . '/' . date('Y/m/') . '/';
-        if (!is_dir($dir)) { if (!@mkdir($dir, 0755, true)) return ["error" => "Failed to create directory."]; }
+        $subDir = date('Y/m/') . '/';
+        // Default naming (unchanged for news/ad/festival uploads): unique generated file name.
         $fn = ($isAd ? 'ad_' : 'news_') . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        // ★ Keep-original-name mode (site logo): e.g. "My Logo.PNG" is saved as "My Logo.PNG" — never renamed.
+        //   Only unsafe characters are stripped; if a file with the same name already exists it is REPLACED.
+        //   Saved directly in uploads/<sub>/ (no year/month sub-folder) so the logo path always stays the same.
+        if ($preserveName) {
+            $origBase = basename(str_replace('\\', '/', (string)($file['name'] ?? '')));
+            $safe = trim((string)preg_replace('~[\\/:*?"<>|\x00-\x1F]~', '', $origBase));
+            $__pi = ($safe !== '') ? pathinfo($safe) : [];
+            $__stem = isset($__pi['filename']) ? trim((string)$__pi['filename']) : '';
+            $__oExt = isset($__pi['extension']) ? strtolower((string)$__pi['extension']) : '';
+            if ($__stem !== '' && $__stem !== '.' && $__stem !== '..') {
+                if (mb_strlen($__stem) > 100) { $__stem = mb_substr($__stem, 0, 100); }
+                $fn = ($__oExt !== '' && in_array($__oExt, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'], true)) ? $__stem . '.' . $__pi['extension'] : $__stem . '.' . $ext;
+                $subDir = '';
+            }
+        }
+        $dir = __DIR__ . '/../uploads/' . $sub . '/' . $subDir;
+        if (!is_dir($dir)) { if (!@mkdir($dir, 0755, true)) return ["error" => "Failed to create directory."]; }
         $dest = $dir . $fn;
         if (!@move_uploaded_file($file['tmp_name'], $dest) && !@copy($file['tmp_name'], $dest)) return ["error" => "Failed to save file."];
         @chmod($dest, 0644);
-        return ["path" => "uploads/" . $sub . '/' . date('Y/m/') . '/' . $fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size']];
+        return ["path" => "uploads/" . $sub . '/' . $subDir . $fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size']];
+    }
+}
+
+// ★ v5: shared candidate list of upload folders, BEST-first. The project root is the folder one
+//   level ABOVE this admin file (on XAMPP: C:\xampp\htdocs\Newspaper), so the site logo must save to
+//   C:\xampp\htdocs\Newspaper\uploads\logo — NOT to C:\xampp\htdocs\uploads\logo. DOCUMENT_ROOT
+//   (C:\xampp\htdocs) is only the WEB root; the site can live in a sub-folder of it, so it is now the
+//   LAST choice (v3/v4 put it first — that saved the logo OUTSIDE the Newspaper project on XAMPP).
+//   InfinityFree stays safe too: any candidate that would land OUTSIDE the web root (invisible files)
+//   is skipped, and DOCUMENT_ROOT/uploads remains the fallback for htdocs-rooted installs.
+if (!function_exists('logoUploadDirCandidates')) {
+    function logoUploadDirCandidates($sub = 'logo') {
+        $__c = [];
+        $__dr = (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '') ? rtrim(str_replace('\\', '/', $_SERVER['DOCUMENT_ROOT']), '/') : '';
+        $__self = str_replace('\\', '/', __DIR__);
+        $__par = dirname($__self);
+        $__inside = function ($__p) use ($__dr) { return ($__dr !== '' && strpos($__p . '/', $__dr . '/') === 0); };
+        // 1) project root (one level above the admin file) — C:\xampp\htdocs\Newspaper\uploads\<sub> on XAMPP.
+        //    Accepted only when web-accessible (inside DOCUMENT_ROOT) so InfinityFree never saves invisible files.
+        if ($__dr === '' || ($__inside($__par) && $__par !== $__dr)) { $__c[] = $__par . '/uploads/' . $sub . '/'; }
+        // 2) this folder's own uploads/ — covers the admin file sitting directly in the project root.
+        if ($__dr === '' || $__inside($__self)) { $__c[] = $__self . '/uploads/' . $sub . '/'; }
+        // 3) web root uploads/ — fallback (InfinityFree when the admin file sits directly in htdocs).
+        if ($__dr !== '') { $__c[] = $__dr . '/uploads/' . $sub . '/'; }
+        // 4) + 5) unconditional last resorts — the real write test still decides.
+        $__c[] = $__self . '/uploads/' . $sub . '/';
+        $__c[] = $__par . '/uploads/' . $sub . '/';
+        $__seen = []; $__u = [];
+        foreach ($__c as $__d) { $__r = @realpath($__d); if ($__r === false) { $__r = $__d; } if (!isset($__seen[$__r])) { $__seen[$__r] = 1; $__u[] = $__d; } }
+        return $__u;
+    }
+}
+
+// ★ v6: DUPLICATE LOGO CHECK — decides whether a freshly uploaded logo (md5 of the temp file)
+//   already exists. Compared, in order: (a) the site_logo_hash stored at the last successful
+//   upload (original bytes — survives the auto-resize rewrite of the saved file), (b) the
+//   currently-set logo file on disk, and (c) EVERY file already inside uploads/logo/ (catches
+//   the same image being uploaded again under a different name). Returns a short description of
+//   the match, or false when the upload is a genuinely new image.
+if (!function_exists('logoUploadFindDuplicate')) {
+    function logoUploadFindDuplicate($hash, $pdo, $currentLogoRel) {
+        if ($hash === false || $hash === null || (string)$hash === '') return false;
+        // (a) stored hash of the current logo's ORIGINAL bytes
+        try {
+            $st = $pdo->prepare("SELECT setting_value FROM site_settings WHERE setting_key='site_logo_hash'");
+            if ($st->execute() !== false) {
+                $h = $st->fetchColumn();
+                if ($h !== false && $h !== null && (string)$h !== '' && (string)$h === (string)$hash) return 'the current site logo';
+            }
+        } catch (Exception $e) { /* site_settings missing — skip this check */ }
+        // (b) the currently-set logo file itself
+        $rel = ltrim((string)$currentLogoRel, '/');
+        if ($rel !== '' && !preg_match('~^https?://~i', $rel)) {
+            foreach ([__DIR__ . '/' . $rel, __DIR__ . '/../' . $rel, (isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '' ? rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $rel : '')] as $p) {
+                if ($p !== '' && @is_file($p) && @md5_file($p) === (string)$hash) return 'the current site logo file';
+            }
+        }
+        // (c) every file already inside the logo folder(s) — same image, different filename
+        foreach (logoUploadDirCandidates('logo') as $dir) {
+            if (!is_dir($dir)) continue;
+            foreach ((glob($dir . '*') ?: []) as $f) {
+                if (!@is_file($f)) continue;
+                $__bn = basename($f);
+                if (strpos($__bn, 'wtest_') === 0 || $__bn === 'logo_debug.txt') continue;
+                if (@md5_file($f) === (string)$hash) return '"' . $__bn . '" (already in uploads/logo)';
+            }
+        }
+        return false;
+    }
+}
+
+// ★ Dedicated LOGO uploader — ALWAYS keeps the ORIGINAL file name ("Sonbad Sonkolon.png" stays exactly that).
+//   Deliberately NOT reusing handleUpload(): on many setups another included file (index.php / common.php)
+//   defines handleUpload() FIRST, so this file's version is skipped by the function_exists guard and any
+//   extra $preserveName flag is silently ignored — the logo would get renamed again. This copy is self-contained.
+if (!function_exists('handleLogoUploadKeepName')) {
+    function handleLogoUploadKeepName($inputName, $maxSizeMB = 5, $allowedTypes = null) {
+        if ($allowedTypes === null) $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+        if (!isset($_FILES[$inputName])) return null;
+        $file = $_FILES[$inputName];
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $m = [1 => 'Server limit exceeded.', 2 => 'Form limit exceeded.', 3 => 'Partial upload.', 4 => 'No file selected.', 6 => 'Missing temp folder.', 7 => 'Failed to write to disk.', 8 => 'Extension blocked.'];
+            return ["error" => $m[$file['error']] ?? 'Error code: ' . $file['error']];
+        }
+        if ($file['size'] > $maxSizeMB * 1024 * 1024) return ["error" => "Maximum {$maxSizeMB}MB. Yours: " . round($file['size'] / 1024 / 1024, 2) . "MB"];
+        if ($file['size'] === 0) return ["error" => "File is empty."];
+        $dm = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+        if (!in_array($dm, $allowedTypes)) return ["error" => "Type (" . $dm . ") is not allowed. Please use JPG, PNG, GIF, WebP."];
+        $em = ['image/jpeg' => 'jpg', 'image/jpg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'image/svg+xml' => 'svg'];
+        $ext = $em[$dm] ?? 'jpg';
+        if ($dm !== 'image/svg+xml' && !@getimagesize($file['tmp_name'])) return ["error" => "Not a valid image."];
+        // Original name is kept as-is — only unsafe characters are stripped, NEVER renamed.
+        $origBase = basename(str_replace('\\', '/', (string)($file['name'] ?? '')));
+        $safe = trim((string)preg_replace('~[\\/:*?"<>|\x00-\x1F]~', '', $origBase));
+        $__pi = ($safe !== '') ? pathinfo($safe) : [];
+        $__stem = isset($__pi['filename']) ? trim((string)$__pi['filename']) : '';
+        $__oExt = isset($__pi['extension']) ? strtolower((string)$__pi['extension']) : '';
+        if ($__stem !== '' && $__stem !== '.' && $__stem !== '..') {
+            if (mb_strlen($__stem) > 100) { $__stem = mb_substr($__stem, 0, 100); }
+            $fn = ($__oExt !== '' && in_array($__oExt, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'], true)) ? $__stem . '.' . $__pi['extension'] : $__stem . '.' . $ext;
+        } else {
+            // No usable original name (very rare) → timestamped fallback, never happens for a normal file.
+            $fn = 'logo_' . time() . '_' . bin2hex(random_bytes(2)) . '.' . $ext;
+        }
+        // ★ v4: the site brand logo gets its OWN dedicated folder (uploads/logo/) — no other feature
+        //   (news images / ads / festival logo) can ever overwrite, move or share the logo file.
+        if ($inputName === 'site_logo_file') { $sub = 'logo'; }
+        else { $isAd = (strpos($inputName, 'ad_') === 0) || (strpos($inputName, 'festival_') === 0); $sub = $isAd ? 'ads' : 'news'; }
+        // Saved directly in uploads/<sub>/ — no year/month sub-folder, so the logo path always stays the same.
+        // ★ v5: MULTIPLE upload locations, PROJECT ROOT first (see logoUploadDirCandidates above).
+        //   XAMPP: saves into C:\xampp\htdocs\Newspaper\uploads\logo (the project's own uploads folder).
+        //   The real write test below still falls back to the next location if the first is not writable.
+        $__uniq = logoUploadDirCandidates($sub);
+        $dir = ''; $dirErr = '';
+        foreach ($__uniq as $__cd) {
+            if (!is_dir($__cd)) { if (!@mkdir($__cd, 0755, true)) { @chmod(dirname($__cd), 0777); if (!@mkdir($__cd, 0777, true)) { $dirErr .= ' | CANNOT CREATE: ' . $__cd; continue; } } }
+            $__tw = @file_put_contents($__cd . uniqid('wtest_'), 't');
+            if ($__tw === false) { @chmod($__cd, 0777); $__tw = @file_put_contents($__cd . uniqid('wtest_'), 't'); }
+            if ($__tw !== false) { foreach ((glob($__cd . 'wtest_*') ?: []) as $__wf) { @unlink($__wf); } $dir = $__cd; break; }
+            $dirErr .= ' | NOT WRITABLE: ' . $__cd;
+        }
+        if ($dir === '') { return ["error" => "No writable uploads folder found! Tried:" . $dirErr . " — open File Manager, set the uploads folder permission to 755 or 777, then retry."]; }
+        $dest = $dir . $fn;
+        if (!@move_uploaded_file($file['tmp_name'], $dest) && !@copy($file['tmp_name'], $dest)) { return ["error" => "Failed to save file into: " . $dir . " — set that folder's permission to 755 or 777, then retry."]; }
+        @chmod($dest, 0644);
+        return ["path" => "uploads/" . $sub . '/' . $fn, "full_path" => $dest, "filename" => $fn, "mime" => $dm, "size" => $file['size'], "dir_used" => $dir];
     }
 }
 
@@ -253,6 +399,32 @@ try {
         status VARCHAR(20) DEFAULT 'pending',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )");
+} catch (Exception $e) {}
+
+// ★ Self-heal site_settings table (site logo / contact / festival settings live here).
+//   1) Table missing → create it.  2) Old table without updated_at column → add it.
+//   3) Old table WITHOUT a UNIQUE key on setting_key → duplicate rows pile up and every save
+//      LOOKS lost (the old row keeps winning). Dedupe (keep newest) + add UNIQUE index.
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (
+        setting_key VARCHAR(191) NOT NULL PRIMARY KEY,
+        setting_value LONGTEXT NULL,
+        updated_at DATETIME DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+} catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE site_settings ADD COLUMN updated_at DATETIME DEFAULT NULL");
+} catch (Exception $e) {}
+try {
+    $pdo->exec("ALTER TABLE site_settings ADD UNIQUE KEY uk_site_settings_key (setting_key)");
+} catch (Exception $e) {}
+try {
+    $__hasId = false;
+    foreach ($pdo->query("SHOW COLUMNS FROM site_settings")->fetchAll(PDO::FETCH_ASSOC) as $__c) { if (strtolower((string)$__c['Field']) === 'id') { $__hasId = true; break; } }
+    if ($__hasId) {
+        $pdo->exec("DELETE s1 FROM site_settings s1 INNER JOIN site_settings s2 ON s1.setting_key = s2.setting_key AND s1.id < s2.id");
+        try { $pdo->exec("ALTER TABLE site_settings ADD UNIQUE KEY uk_site_settings_key (setting_key)"); } catch (Exception $e) {}
+    }
 } catch (Exception $e) {}
 
 // ★ Create Password Change Requests Table (admin approval workflow)
@@ -458,7 +630,18 @@ try { $subRows = $pdo->query("SELECT s.*, c.name as category_name FROM subcatego
 if (!function_exists('getNewsSubcategoryIds')) { function getNewsSubcategoryIds($pdo, $nid) { try { $s = $pdo->prepare("SELECT subcategory_id FROM news_subcategories WHERE news_id=?"); $s->execute([$nid]); return array_column($s->fetchAll(), 'subcategory_id'); } catch (Exception $e) { return []; } } }
 if (!function_exists('saveNewsSubcategories')) { function saveNewsSubcategories($pdo, $nid, $sids) { $pdo->prepare("DELETE FROM news_subcategories WHERE news_id=?")->execute([$nid]); if (!is_array($sids)) $sids = []; if (!empty($sids)) { $st = $pdo->prepare("INSERT IGNORE INTO news_subcategories (news_id,subcategory_id) VALUES (?,?)"); foreach ($sids as $sid) { $sid = (int)$sid; if ($sid > 0) $st->execute([$nid, $sid]); } } } }
 if (!function_exists('loadSettings')) { function loadSettings($pdo, $keys) { $v = []; try { $in = implode(",", array_fill(0, count($keys), "?")); $st = $pdo->prepare("SELECT setting_key,setting_value FROM site_settings WHERE setting_key IN ($in)"); $st->execute($keys); $rows = $st->fetchAll(PDO::FETCH_KEY_PAIR); foreach ($keys as $k) { $v[$k] = $rows[$k] ?? ""; } } catch (Exception $e) { foreach ($keys as $k) { $v[$k] = ""; } } return $v; } }
-if (!function_exists('saveSettings')) { function saveSettings($pdo, $data) { $st = $pdo->prepare("INSERT INTO site_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?,updated_at=NOW()"); foreach ($data as $k => $val) { $st->execute([$k, $val, $val]); } } }
+if (!function_exists('saveSettings')) {
+    function saveSettings($pdo, $data) {
+        try {
+            $st = $pdo->prepare("INSERT INTO site_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=?,updated_at=NOW()");
+            foreach ($data as $k => $val) { $st->execute([$k, $val, $val]); }
+        } catch (Exception $e) {
+            // ★ Fallback for older servers whose site_settings table has no updated_at column — save anyway.
+            $st = $pdo->prepare("INSERT INTO site_settings (setting_key,setting_value) VALUES (?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)");
+            foreach ($data as $k => $val) { $st->execute([$k, $val]); }
+        }
+    }
+}
 
 // ========================================== ★ Watermark Setting (brand your own news images + restore originals) ==========================================
 // নিজের ছবিতে নিজের ওয়াটারমার্ক বসানো/সরানোর টুল। ওয়াটারমার্ক বসানোর আগে প্রতিটি ছবির
@@ -627,7 +810,15 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
         if (empty($addData["title"])) { $addError = "Please provide a title."; }
         elseif (empty($addData["content"])) { $addError = "Please write a description."; }
         else {
-            $ur = handleUpload("news_image");
+            // ★ FIX (duplicate news on refresh): server-side duplicate guard.
+            // If the exact same title + content was already saved within the last 60 seconds,
+            // block the insert (protects against double-click on Save and any other resubmission).
+            try {
+                $__dup = $pdo->prepare("SELECT id FROM news WHERE title = ? AND MD5(content) = MD5(?) AND updated_at >= (NOW() - INTERVAL 60 SECOND) LIMIT 1");
+                $__dup->execute([$addData["title"], $addData["content"]]);
+                if ($__dup->fetch()) $addError = "This exact news (same title & content) was saved within the last minute — duplicate submission blocked. If this is intentional, slightly change the title and try again.";
+            } catch (PDOException $__dupErr) {}
+            $ur = (empty($addError)) ? handleUpload("news_image") : null;
             if ($ur !== null) { if (isset($ur["error"])) { $addError = $ur["error"]; } else { $addData["image"] = $ur["path"]; } }
             // ★ Watermark: stamp the site watermark on this freshly uploaded news image (original kept as .orig backup, removal-friendly)
             if ($WM_FEATURE_LIVE && $ur !== null && empty($addError) && $wmVals['wm_enabled'] === '1' && $wmVals['wm_apply_new'] === '1') { wmApplyToImage($ur["full_path"], $wmVals); }
@@ -652,9 +843,13 @@ if ($section === "add" && $_SERVER["REQUEST_METHOD"] === "POST") {
                         sendWebSocketNotification($nid, $addData["title"]);
                     }
                     
-                    $addSuccess = "Saved successfully." . ($addData["is_breaking"] ? " Breaking News tracker-এও যোগ হয়েছে।" : "");
-                    $addData = ["title" => "", "headline" => "", "slug" => "", "content" => "", "image" => "", "tags" => "", "category_id" => "", "subcategories" => [], "author" => $fullName, "status" => "draft", "is_featured" => 0, "is_breaking" => 0, "created_at" => ""];
-                    $section = "manage";
+                    // ★ FIX (duplicate news on refresh): Post -> Redirect -> GET (PRG).
+                    // Previously this only set $section="manage" and re-rendered the manage list
+                    // inside the same POST response, so pressing F5 made the browser resend the
+                    // POST and insert the same news again. Redirecting to a clean GET URL ends
+                    // the POST request, so refreshing can never re-insert the news.
+                    header("Location: ?page=admin_dashboard&section=manage&msg=" . ($addData["is_breaking"] ? "added_breaking" : "added"));
+                    exit;
                 } catch (PDOException $e) { $addError = "Failed: " . $e->getMessage(); }
             }
         }
@@ -667,6 +862,12 @@ if ($section === "edit") {
     $er = $pdo->prepare("SELECT * FROM news WHERE id=?"); $er->execute([$eid]); $er = $er->fetch();
     if (!$er) { header("Location: ?page=admin_dashboard&section=manage"); exit; }
     $esi = getNewsSubcategoryIds($pdo, $eid);
+    // ★ FIX (duplicate news on refresh): PRG flash — after a successful update the POST handler
+    // redirects back here with ?msg=..., so the success message survives the redirect but the
+    // POST request itself is gone (refreshing the page can no longer re-submit the update).
+    $__editMsg = $_GET["msg"] ?? "";
+    if ($__editMsg === "updated") $editSuccess = "Updated successfully.";
+    elseif ($__editMsg === "updated_req") $editSuccess = "News updated. A request to change the Publish Date has been sent to Super Admin.";
     // Pre-check breaking news state for edit form: combine news.is_breaking flag with breaking_news table lookup
     $__brkCheck = (int)($er["is_breaking"] ?? 0);
     if ($__brkCheck === 0) {
@@ -710,20 +911,18 @@ if ($section === "edit") {
                 if (empty($editError)) {
                     try {
                         $firstSubId = !empty($editData["subcategories"]) ? (int)$editData["subcategories"][0] : null;
+                        $__editFlash = "updated";
                         
                         if ($currentUserPerms === null) {
                             $editData["created_at"] = trim($_POST["news_created_at"] ?? "");
                             $news_created_at = !empty($editData["created_at"]) ? date('Y-m-d H:i:s', strtotime($editData["created_at"])) : date('Y-m-d H:i:s');
-                            $editSuccess = "Updated successfully.";
                         } else {
                             $news_created_at = $er["created_at"];
                             $requested_date = trim($_POST["requested_date"] ?? "");
                             if (!empty($requested_date)) {
                                 $req_date_sql = date('Y-m-d H:i:s', strtotime($requested_date));
                                 $pdo->prepare("INSERT INTO date_change_requests (news_id, requested_by, requested_date, status) VALUES (?, ?, ?, 'pending')")->execute([$eid, $_SESSION['user_id'], $req_date_sql]);
-                                $editSuccess = "News updated. A request to change the Publish Date has been sent to Super Admin.";
-                            } else {
-                                $editSuccess = "Updated successfully.";
+                                $__editFlash = "updated_req";
                             }
                         }
                         
@@ -757,6 +956,12 @@ if ($section === "edit") {
                         if ($editData["status"] === "published") {
                             sendWebSocketNotification($eid, $editData["title"]);
                         }
+                        
+                        // ★ FIX (duplicate news on refresh): PRG redirect after a successful update.
+                        // The browser lands on a clean GET URL, so pressing F5 just re-loads the
+                        // edit form instead of resubmitting the update POST.
+                        header("Location: ?page=admin_dashboard&section=edit&id=" . $eid . "&msg=" . $__editFlash);
+                        exit;
                     } catch (PDOException $e) { 
                         $editError = "Failed: " . $e->getMessage(); 
                     }
@@ -768,6 +973,15 @@ if ($section === "edit") {
 
  $manageSuccess = ""; $manageFilter = $_GET["filter"] ?? "all"; $manageSearch = trim($_GET["sq"] ?? ""); $manageNews = []; $totalManageResults = 0; $totalPages = 1;
 if ($section === "manage") {
+    // ★ FIX (duplicate news on refresh): PRG flash messages — the add/edit/delete/toggle handlers
+    // redirect here with ?msg=..., so success messages show after the redirect but no action
+    // can ever be re-executed by refreshing the page.
+    switch ($_GET["msg"] ?? "") {
+        case "added": $manageSuccess = "Saved successfully."; break;
+        case "added_breaking": $manageSuccess = "Saved successfully. Breaking News tracker-এও যোগ হয়েছে।"; break;
+        case "deleted": $manageSuccess = "Deleted successfully."; break;
+        case "status": $manageSuccess = "Status changed successfully."; break;
+    }
     if (isset($_GET["delete"]) && isset($_GET["dtoken"])) { 
         if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["dtoken"])) { 
             $di = (int)$_GET["delete"]; 
@@ -779,10 +993,14 @@ if ($section === "manage") {
             $dw = $dr->fetch(); 
             if ($dw && !empty($dw["image"]) && file_exists(__DIR__ . '/' . $dw["image"])) @unlink(__DIR__ . '/' . $dw["image"]); 
             $pdo->prepare("DELETE FROM news WHERE id=?")->execute([$di]); 
-            $manageSuccess = "Deleted successfully."; 
+            // ★ FIX (duplicate on refresh): redirect to a clean URL so F5 cannot re-run the delete
+            header("Location: ?page=admin_dashboard&section=manage&" . http_build_query(["filter" => $manageFilter, "sq" => $manageSearch, "p" => $currentPage, "msg" => "deleted"]));
+            exit;
         } 
     }
-    if (isset($_GET["toggle"]) && isset($_GET["ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ttoken"])) { $pdo->prepare("UPDATE news SET status=IF(status='published','draft','published') WHERE id=?")->execute([(int)$_GET["toggle"]]); $manageSuccess = "Status changed successfully."; } }
+    if (isset($_GET["toggle"]) && isset($_GET["ttoken"])) { if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["ttoken"])) { $pdo->prepare("UPDATE news SET status=IF(status='published','draft','published') WHERE id=?")->execute([(int)$_GET["toggle"]]); // ★ FIX (duplicate on refresh): redirect so F5 cannot re-toggle the status
+            header("Location: ?page=admin_dashboard&section=manage&" . http_build_query(["filter" => $manageFilter, "sq" => $manageSearch, "p" => $currentPage, "msg" => "status"]));
+            exit; } }
     $cs = "SELECT COUNT(*) FROM news n WHERE 1=1"; $mp = [];
     if ($manageFilter === "published") $cs .= " AND n.status='published'"; elseif ($manageFilter === "draft") $cs .= " AND n.status='draft'"; elseif ($manageFilter === "featured") $cs .= " AND n.is_featured=1";
     if ($manageSearch) { $cs .= " AND (n.title LIKE ? OR n.content LIKE ?)"; $mp[] = "%$manageSearch%"; $mp[] = "%$manageSearch%"; }
@@ -947,28 +1165,164 @@ $siteLogoVals = loadSettings($pdo, ['site_logo_img']);
 $currentSiteLogo = $siteLogoVals['site_logo_img'] ?? '';
 $siteLogoMsg = '';
 
+// ★ v4: keep the site logo in its OWN dedicated folder (uploads/logo/) — never shared with news/ads/festival files.
+//   If an older setting still points to uploads/news/... or uploads/ads/..., that file is COPIED into
+//   uploads/logo/ and the setting is rewritten. Silent no-op once the path is already uploads/logo/...
+if (!function_exists('migrateSiteLogoToOwnFolder')) {
+    function migrateSiteLogoToOwnFolder($pdo, &$currentSiteLogo) {
+        $__rel = ltrim((string)$currentSiteLogo, '/');
+        if ($__rel === '' || preg_match('~^https?://~i', $__rel)) return;
+        if (strpos($__rel, 'uploads/logo/') === 0) {
+            // ★ v5: already uploads/logo/... — but an older run (v3/v4 on XAMPP) may have dropped the
+            //   physical file into DOCUMENT_ROOT/uploads/logo instead of the project's own uploads/logo.
+            //   If the project-root copy exists we are done; otherwise fall through and copy it over.
+            $__c0 = logoUploadDirCandidates('logo');
+            if (!empty($__c0) && is_file($__c0[0] . basename($__rel))) return;
+        }
+        $__src = '';
+        foreach ([(isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '' ? rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $__rel : ''), __DIR__ . '/' . $__rel, __DIR__ . '/../' . $__rel] as $__p) {
+            if ($__p !== '' && is_file($__p)) { $__src = $__p; break; }
+        }
+        if ($__src === '') { // same file NAME inside the old news/ads logo folders?
+            $__nm = basename($__rel);
+            foreach (['uploads/news/', 'uploads/ads/'] as $__s) {
+                foreach ([(isset($_SERVER['DOCUMENT_ROOT']) && $_SERVER['DOCUMENT_ROOT'] !== '' ? rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $__s . $__nm : ''), __DIR__ . '/../' . $__s . $__nm, __DIR__ . '/' . $__s . $__nm] as $__p) {
+                    if ($__p !== '' && is_file($__p)) { $__src = $__p; break 2; }
+                }
+            }
+        }
+        if ($__src === '') return; // file physically missing — leave the setting untouched
+        $__dd = '';
+        foreach (logoUploadDirCandidates('logo') as $__c) { // ★ v5 project root first
+            if (!is_dir($__c)) { if (!@mkdir($__c, 0755, true)) continue; }
+            if (!is_writable($__c)) continue;
+            $__dd = $__c; break;
+        }
+        if ($__dd === '') return;
+        $__fn = basename($__src);
+        $__newRel = 'uploads/logo/' . $__fn;
+        if (!is_file($__dd . $__fn)) { if (!@copy($__src, $__dd . $__fn)) return; }
+        if ((string)$currentSiteLogo === $__newRel) return;
+        // DELETE + INSERT (works even when the table has duplicate setting_key rows)
+        try {
+            $__mg = $pdo->prepare("DELETE FROM site_settings WHERE setting_key=?");
+            $__mg->execute(['site_logo_img']);
+            $__mi = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value, updated_at) VALUES (?,?,NOW())");
+            if ($__mi->execute(['site_logo_img', $__newRel]) === false) {
+                $__mi2 = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value) VALUES (?,?)");
+                if ($__mi2->execute(['site_logo_img', $__newRel]) === false) return;
+            }
+            $currentSiteLogo = $__newRel;
+        } catch (Exception $__e2) { /* keep old path — the upload handler will still work */ }
+    }
+}
+migrateSiteLogoToOwnFolder($pdo, $currentSiteLogo);
+
 if (isset($_GET["delete_site_logo"]) && isset($_GET["dtoken"])) {
     if (hash_equals($_SESSION["csrf_token"] ?? "", $_GET["dtoken"])) {
-        if (!empty($currentSiteLogo) && !preg_match('~^https?://~i', $currentSiteLogo) && file_exists(__DIR__ . '/../' . ltrim($currentSiteLogo, '/'))) { @unlink(__DIR__ . '/../' . ltrim($currentSiteLogo, '/')); }
-        saveSettings($pdo, ['site_logo_img' => '']);
+        $__oldrel = ltrim((string)$currentSiteLogo, '/'); if ($__oldrel !== '' && !preg_match('~^https?://~i', $__oldrel)) { foreach ([__DIR__ . '/../' . $__oldrel, __DIR__ . '/' . $__oldrel, (isset($_SERVER['DOCUMENT_ROOT']) ? rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $__oldrel : '')] as $__of) { if ($__of !== '' && is_file($__of)) { @unlink($__of); break; } } }
+        try { saveSettings($pdo, ['site_logo_img' => '']); } catch (Exception $__e) {}
+        try { saveSettings($pdo, ['site_logo_hash' => '']); } catch (Exception $__eh6) {} // ★ v6 clear stored duplicate-check hash
+        try { // ★ v4: DELETE + INSERT so deletion also wins over duplicate setting_key rows
+            $__d4 = $pdo->prepare("DELETE FROM site_settings WHERE setting_key=?");
+            $__d4->execute(['site_logo_img']);
+            $__i4 = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value) VALUES (?,?)");
+            $__i4->execute(['site_logo_img', '']);
+        } catch (Exception $__e4) {}
         $currentSiteLogo = '';
         $siteLogoMsg = 'deleted';
     }
 }
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['site_logo_action']) && $_POST['site_logo_action'] === 'upload') {
-    if (!verifyCSRF()) { $siteLogoMsg = 'token'; }
+    // ★ v6 debug trail — every logo upload attempt appends one line to logo_debug.txt (next to this file),
+    //   so failures on the server become visible without guessing. Delete logo_debug.txt any time.
+    $__lf = is_writable(__DIR__) ? __DIR__ . '/logo_debug.txt' : (is_writable(__DIR__ . '/..') ? __DIR__ . '/../logo_debug.txt' : sys_get_temp_dir() . '/logo_debug.txt');
+    $__fi = $_FILES['site_logo_file'] ?? null;
+    @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v6 ATTEMPT | admin_dir=" . __DIR__ . " | file=" . ($__fi ? 'yes' : 'NOT received') . " | name=" . (string)($__fi['name'] ?? '') . " | size=" . (string)($__fi['size'] ?? '') . " | upload_err=" . (string)($__fi['error'] ?? '') . PHP_EOL, FILE_APPEND | LOCK_EX);
+    if (!verifyCSRF()) { $siteLogoMsg = 'token'; @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v6 CSRF token FAILED" . PHP_EOL, FILE_APPEND | LOCK_EX); }
     else {
-        $ur = handleUpload('site_logo_file', 2);
+        // ★ v6: DUPLICATE CHECK — runs BEFORE anything is saved. md5 of the freshly uploaded
+        //   temp file is compared against the current logo (stored hash + file on disk) and
+        //   every file already inside uploads/logo/. A match is rejected; nothing is written.
+        $__upHash = (isset($_FILES['site_logo_file']) && is_uploaded_file($_FILES['site_logo_file']['tmp_name'])) ? @md5_file($_FILES['site_logo_file']['tmp_name']) : false;
+        $__dup = logoUploadFindDuplicate($__upHash, $pdo, $currentSiteLogo);
+        if ($__dup !== false) {
+            $siteLogoMsg = 'err:Duplicate logo NOT saved — this exact image already exists as ' . $__dup . ' (একই লোগো আগেই সেভ আছে). Upload a different file.';
+            @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v6 DUPLICATE BLOCKED: md5=" . $__upHash . " matches " . $__dup . PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
+        else {
+        $ur = handleLogoUploadKeepName('site_logo_file', 5);   // ★ dedicated uploader — original filename kept (v6: 5MB)
+        if ($ur === null) { @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v6 NO FILE received (\$_FILES empty — form/enctype or post_max_size problem)" . PHP_EOL, FILE_APPEND | LOCK_EX); }
         if ($ur !== null) {
-            if (isset($ur["error"])) { $siteLogoMsg = 'err:' . $ur["error"]; }
+            if (isset($ur["error"])) { $siteLogoMsg = 'err:' . $ur["error"]; @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v6 ERROR: " . $ur["error"] . PHP_EOL, FILE_APPEND | LOCK_EX); }
             else {
-                if (!empty($currentSiteLogo) && !preg_match('~^https?://~i', $currentSiteLogo) && $currentSiteLogo !== $ur["path"] && file_exists(__DIR__ . '/../' . ltrim($currentSiteLogo, '/'))) { @unlink(__DIR__ . '/../' . ltrim($currentSiteLogo, '/')); }
+                $__oldrel = ltrim((string)$currentSiteLogo, '/');
+                if ($__oldrel !== '' && !preg_match('~^https?://~i', $__oldrel) && $__oldrel !== (string)$ur["path"]) {
+                    foreach ([__DIR__ . '/../' . $__oldrel, __DIR__ . '/' . $__oldrel, (isset($_SERVER['DOCUMENT_ROOT']) ? rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $__oldrel : '')] as $__of) { if ($__of !== '' && is_file($__of)) { @unlink($__of); break; } }
+                }
                 // Auto-resize big uploads down to a small icon (max 256px longest side). Safe no-op if GD is missing or image is already small.
                 if (!empty($ur["full_path"])) { @resizeImageFit($ur["full_path"], 256); }
-                saveSettings($pdo, ['site_logo_img' => $ur["path"]]);
-                $currentSiteLogo = $ur["path"];
-                $siteLogoMsg = 'saved';
+                if (empty($ur["full_path"]) || !is_file($ur["full_path"])) {
+                    $siteLogoMsg = 'err:File could not be written to the uploads folder — check that uploads/ is writable (permission 755 or 777).';
+                } else {
+                    // ★ v4: BULLETPROOF database save — 3 strategies + verification, every step logged.
+                    //   Handles: missing table, missing updated_at column, DUPLICATE setting_key rows
+                    //   (upserts pile new rows while reads keep returning the OLD value — the #1 reason
+                    //   a save "looks lost"), and silent-PDO mode (execute() returns false, no exception).
+                    $__path = (string)$ur["path"];
+                    $__dbErr = '';
+                    $__dbVerify = function () use ($pdo) {
+                        try { $v = $pdo->prepare("SELECT setting_value FROM site_settings WHERE setting_key='site_logo_img'"); if ($v->execute() === false) return '~exec-failed~'; $__r = $v->fetchColumn(); return ($__r === false || $__r === null) ? '' : (string)$__r; } catch (Exception $__e) { return '~err:' . $__e->getMessage() . '~'; }
+                    };
+                    // Attempt 1 — normal saveSettings() (has its own updated_at fallback)
+                    try {
+                        saveSettings($pdo, ['site_logo_img' => $__path]);
+                        if ((string)$__dbVerify() !== $__path) { $__dbErr = 'attempt-1 value mismatch (duplicate rows?)'; }
+                    } catch (Exception $__e1) { $__dbErr = 'attempt-1: ' . $__e1->getMessage(); }
+                    if ((string)$__dbVerify() !== $__path) {
+                        @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v4 DB " . $__dbErr . " — trying DELETE+INSERT" . PHP_EOL, FILE_APPEND | LOCK_EX);
+                        // Attempt 2 — remove ALL rows for this key (incl. duplicates), then plain INSERT
+                        try {
+                            $__d2 = $pdo->prepare("DELETE FROM site_settings WHERE setting_key=?");
+                            if ($__d2->execute(['site_logo_img']) === false) throw new Exception('DELETE failed (check DB privileges)');
+                            $__i2 = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value, updated_at) VALUES (?,?,NOW())");
+                            if ($__i2->execute(['site_logo_img', $__path]) === false) {
+                                $__i2b = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value) VALUES (?,?)");
+                                if ($__i2b->execute(['site_logo_img', $__path]) === false) throw new Exception('INSERT failed (check DB privileges)');
+                            }
+                            $__dbErr = '';
+                        } catch (Exception $__e2) {
+                            $__dbErr = 'attempt-2: ' . $__e2->getMessage();
+                            @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v4 DB DELETE+INSERT FAILED: " . $__e2->getMessage() . PHP_EOL, FILE_APPEND | LOCK_EX);
+                            // Attempt 3 — (re)create the table, then INSERT
+                            try {
+                                $pdo->exec("CREATE TABLE IF NOT EXISTS site_settings (setting_key VARCHAR(191) NOT NULL PRIMARY KEY, setting_value LONGTEXT NULL, updated_at DATETIME DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+                                $__d3 = $pdo->prepare("DELETE FROM site_settings WHERE setting_key=?");
+                                if ($__d3->execute(['site_logo_img']) === false) throw new Exception('DELETE after CREATE failed');
+                                $__i3 = $pdo->prepare("INSERT INTO site_settings (setting_key, setting_value) VALUES (?,?)");
+                                if ($__i3->execute(['site_logo_img', $__path]) === false) throw new Exception('INSERT after CREATE failed');
+                                $__dbErr = '';
+                            } catch (Exception $__e3) {
+                                $__dbErr = 'attempt-3: ' . $__e3->getMessage();
+                                @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v4 DB CREATE+INSERT FAILED: " . $__e3->getMessage() . PHP_EOL, FILE_APPEND | LOCK_EX);
+                            }
+                        }
+                    } else { $__dbErr = ''; }
+                    $__chk = (string)$__dbVerify();
+                    if ($__chk === $__path) {
+                        $currentSiteLogo = $__path;
+                        // ★ v6: remember the ORIGINAL upload's md5 (before auto-resize) so future
+                        //   duplicate uploads are detected even though the saved file was resized.
+                        try { saveSettings($pdo, ['site_logo_hash' => (string)$__upHash]); } catch (Exception $__eh6) {}
+                        $siteLogoMsg = 'saved:' . $__path . ' | folder: ' . (isset($ur["dir_used"]) ? $ur["dir_used"] : '?') . ' | DB: OK';
+                        @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v4 SAVED + DB VERIFIED: " . $__path . " -> " . (isset($ur["dir_used"]) ? $ur["dir_used"] : '?') . PHP_EOL, FILE_APPEND | LOCK_EX);
+                    } else {
+                        $siteLogoMsg = 'err:File saved on server, but DATABASE save failed — ' . ($__dbErr !== '' ? $__dbErr : 'stored value is "' . $__chk . '"');
+                        @file_put_contents($__lf, date('Y-m-d H:i:s') . " | v4 DB VERIFY FAILED: stored='" . $__chk . "' expected='" . $__path . "' err=" . $__dbErr . PHP_EOL, FILE_APPEND | LOCK_EX);
+                    }
+                }
             }
+        }
         }
     }
 }
@@ -1315,6 +1669,8 @@ a{color:inherit;text-decoration:none}button{cursor:pointer;font-family:inherit;b
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:24px}
 .stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;align-items:center;gap:14px;transition:all .3s;position:relative;overflow:hidden}
 .stat-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.08)}
+a.stat-card{color:inherit;text-decoration:none;cursor:pointer}
+a.stat-card:hover .stat-label{color:var(--blue)}
 .stat-card::after{content:'';position:absolute;top:0;left:0;width:4px;height:100%}
 .sc-red::after{background:var(--accent)}.sc-green::after{background:var(--green)}.sc-blue::after{background:var(--blue)}.sc-gold::after{background:var(--gold)}.sc-purple::after{background:var(--purple)}
 .stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
@@ -1482,14 +1838,19 @@ if (!empty($currentSiteLogo)) {
             $__fm = @filemtime(__DIR__ . '/' . $p);
             $__siteLogoUrl = $p . ($__fm ? '?v=' . $__fm : '');
         } elseif (is_file(__DIR__ . '/../' . $p)) {
+            // ★ v5: project-root copy preferred (C:\xampp\htdocs\Newspaper\uploads\logo on XAMPP)
             $__siteLogoOK = true;
             $__fm = @filemtime(__DIR__ . '/../' . $p);
             $__siteLogoUrl = '../' . $p . ($__fm ? '?v=' . $__fm : '');
+        } elseif (!empty($_SERVER['DOCUMENT_ROOT']) && is_file(rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $p)) {
+            $__siteLogoOK = true;
+            $__fm = @filemtime(rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/' . $p);
+            $__siteLogoUrl = '/' . $p . ($__fm ? '?v=' . $__fm : '');
         }
     }
 }
 ?>
-<label class="sb-logo<?= $__siteLogoOK ? ' sb-logo-has-img' : '' ?>" title="<?= $__siteLogoOK ? 'Click to replace logo' : 'Click to upload logo' ?>"><?php if ($__siteLogoOK): ?><img src="<?= htmlspecialchars($__siteLogoUrl) ?>" alt="logo"><?php else: ?>A<?php endif; ?><input type="file" name="site_logo_file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" onchange="document.getElementById('sbLogoForm').submit()"><span class="sb-logo-edit"><i class="fas fa-camera"></i></span></label></form><?php if ($__siteLogoOK): ?><a href="?page=admin_dashboard&delete_site_logo=1&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>" class="sb-logo-del" title="Delete logo — revert to default A" onclick="return confirm('Delete the site logo? The default A will be shown again.')"><i class="fas fa-times"></i></a><?php endif; ?></div><div class="sb-brand">News Portal<small>Admin Panel</small></div></div>
+<label class="sb-logo<?= $__siteLogoOK ? ' sb-logo-has-img' : '' ?>" title="<?= $__siteLogoOK ? 'Click to replace logo (v6 OK)' : 'Click to upload logo (v6 OK)' ?>"><?php if ($__siteLogoOK): ?><img src="<?= htmlspecialchars($__siteLogoUrl) ?>" alt="logo"><?php else: ?>A<?php endif; ?><input type="file" name="site_logo_file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" onchange="document.getElementById('sbLogoForm').submit()"><span class="sb-logo-edit"><i class="fas fa-camera"></i></span></label></form><?php if ($__siteLogoOK): ?><a href="?page=admin_dashboard&delete_site_logo=1&dtoken=<?= htmlspecialchars($_SESSION["csrf_token"] ?? "") ?>" class="sb-logo-del" title="Delete logo — revert to default A" onclick="return confirm('Delete the site logo? The default A will be shown again.')"><i class="fas fa-times"></i></a><?php endif; ?></div><div class="sb-brand">News Portal<small>Admin Panel</small></div></div>
 <div class="sb-user"><div class="sb-avatar"><?= mb_substr($fullName,0,1) ?></div><div class="sb-user-info"><?= htmlspecialchars($fullName) ?><small><?= htmlspecialchars($currentUserRoleLabel) ?></small></div></div>
 <nav class="sb-nav">
 <?php if (hasPerm('dashboard')): ?>
@@ -1573,10 +1934,11 @@ if (!empty($currentSiteLogo)) {
 <main class="admin-main">
 <?php if (!empty($siteLogoMsg)):
     $__m = $siteLogoMsg;
-    if ($__m === 'saved'):      $__cls = 'ok';   $__ico = 'fa-circle-check';  $__txt = 'Logo uploaded successfully.';
+    if (strpos($__m, 'saved:') === 0): $__cls = 'ok'; $__ico = 'fa-circle-check'; $__txt = 'Logo saved — filename kept: ' . htmlspecialchars(substr($__m, 6)) . ' [v6]';
+    elseif ($__m === 'saved'): $__cls = 'ok'; $__ico = 'fa-circle-check'; $__txt = 'Logo saved — filename kept: ' . htmlspecialchars(basename((string)$currentSiteLogo)) . ' [v6]';
     elseif ($__m === 'deleted'): $__cls = 'ok';   $__ico = 'fa-trash-can';     $__txt = 'Logo deleted. Default A is shown again.';
     elseif ($__m === 'token'):  $__cls = 'err';  $__ico = 'fa-triangle-exclamation'; $__txt = 'Token mismatch — please retry.';
-    elseif (strpos($__m, 'err:') === 0): $__cls = 'err'; $__ico = 'fa-triangle-exclamation'; $__txt = 'Logo upload failed: ' . htmlspecialchars(substr($__m, 4));
+    elseif (strpos($__m, 'err:') === 0): $__cls = 'err'; $__ico = 'fa-triangle-exclamation'; $__txt = 'Logo upload failed: ' . htmlspecialchars(substr($__m, 4)) . ' [v6]';
     else: $__cls = 'warn'; $__ico = 'fa-circle-info'; $__txt = htmlspecialchars($__m);
     endif;
 ?>
@@ -1665,15 +2027,24 @@ if (!empty($currentSiteLogo)) {
     </div>
 </div>
 
+<?php
+// ★ Clickable stat cards — each card opens its matching section (with the right filter pre-applied).
+//   Cards are links only when the current user has the permission; otherwise plain display.
+$__statCards = [
+    ['sc-red',    'fa-newspaper',     $totalNews,                    'Total News',  '?page=admin_dashboard&section=manage',                          'manage_news',    'Click to open Manage News'],
+    ['sc-green',  'fa-circle-check',  $publishedNews,                'Published',   '?page=admin_dashboard&section=manage&filter=published',         'manage_news',    'Click to show published news'],
+    ['sc-gold',   'fa-file-pen',      $draftNews,                    'Drafts',      '?page=admin_dashboard&section=manage&filter=draft',             'manage_news',    'Click to show draft news'],
+    ['sc-purple', 'fa-star',          $featuredNews,                 'Featured',    '?page=admin_dashboard&section=manage&filter=featured',          'manage_news',    'Click to show featured news'],
+    ['sc-blue',   'fa-folder-tree',   $totalCats,                    'Categories',  '?page=admin_dashboard&section=categories',                      'categories',     'Click to manage categories'],
+    ['sc-red',    'fa-bolt',          $totalBreaking,                'Breaking',    '?page=admin_dashboard&section=breaking_speed',                  'breaking_speed', 'Click to open Breaking News settings'],
+    ['sc-gold',   'fa-rectangle-ad',  $activeAds,                    'Active Ads',  '?page=admin_dashboard&section=ads&ad_filter=active',            'ads',            'Click to show active advertisements'],
+    ['sc-green',  'fa-mouse-pointer', number_format($totalClicks),   'Total Clicks','?page=admin_dashboard&section=ads',                             'ads',            'Click to open advertisements report'],
+];
+?>
 <div class="stats-grid">
-<div class="stat-card sc-red"><div class="stat-icon"><i class="fas fa-newspaper"></i></div><div><div class="stat-num"><?= $totalNews ?></div><div class="stat-label">Total News</div></div></div>
-<div class="stat-card sc-green"><div class="stat-icon"><i class="fas fa-circle-check"></i></div><div><div class="stat-num"><?= $publishedNews ?></div><div class="stat-label">Published</div></div></div>
-<div class="stat-card sc-gold"><div class="stat-icon"><i class="fas fa-file-pen"></i></div><div><div class="stat-num"><?= $draftNews ?></div><div class="stat-label">Drafts</div></div></div>
-<div class="stat-card sc-purple"><div class="stat-icon"><i class="fas fa-star"></i></div><div><div class="stat-num"><?= $featuredNews ?></div><div class="stat-label">Featured</div></div></div>
-<div class="stat-card sc-blue"><div class="stat-icon"><i class="fas fa-folder-tree"></i></div><div><div class="stat-num"><?= $totalCats ?></div><div class="stat-label">Categories</div></div></div>
-<div class="stat-card sc-red"><div class="stat-icon"><i class="fas fa-bolt"></i></div><div><div class="stat-num"><?= $totalBreaking ?></div><div class="stat-label">Breaking</div></div></div>
-<div class="stat-card sc-gold"><div class="stat-icon"><i class="fas fa-rectangle-ad"></i></div><div><div class="stat-num"><?= $activeAds ?></div><div class="stat-label">Active Ads</div></div></div>
-<div class="stat-card sc-green"><div class="stat-icon"><i class="fas fa-mouse-pointer"></i></div><div><div class="stat-num"><?= number_format($totalClicks) ?></div><div class="stat-label">Total Clicks</div></div></div>
+<?php foreach ($__statCards as $__sc): ?>
+<?php if (hasPerm($__sc[5])): ?><a href="<?= $__sc[4] ?>" class="stat-card <?= $__sc[0] ?>" title="<?= $__sc[6] ?>"><?php else: ?><div class="stat-card <?= $__sc[0] ?>" style="cursor:default"><?php endif; ?><div class="stat-icon"><i class="fas <?= $__sc[1] ?>"></i></div><div><div class="stat-num"><?= $__sc[2] ?></div><div class="stat-label"><?= $__sc[3] ?></div></div><?php if (hasPerm($__sc[5])): ?></a><?php else: ?></div><?php endif; ?>
+<?php endforeach; ?>
 </div>
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:22px">
 <div class="panel"><div class="panel-header"><div class="panel-title"><i class="fas fa-clock-rotate-left"></i> Recent News</div><?php if (hasPerm('manage_news')): ?><a href="?page=admin_dashboard&section=manage" class="btn btn-sm btn-outline">View All</a><?php endif; ?></div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Title</th><th>Category</th><th>Status</th><th>Date</th></tr></thead><tbody>
@@ -3353,7 +3724,7 @@ if (fli) fli.onchange = function() { if (this.files && this.files[0]) { var r = 
                 
                 // If new file is uploaded, overwrite the URL path
                 if (isset($_FILES['festival_logo_file']) && $_FILES['festival_logo_file']['error'] === UPLOAD_ERR_OK) {
-                    $ur = handleUpload('festival_logo_file');
+                    $ur = handleLogoUploadKeepName('festival_logo_file');   // ★ original filename kept
                     if ($ur !== null) {
                         if (isset($ur["error"])) {
                             echo "<div class='alert alert-error' style='margin-bottom: 15px;'><i class='fas fa-exclamation-triangle'></i> Upload Error: " . $ur["error"] . "</div>";

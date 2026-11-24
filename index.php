@@ -2525,21 +2525,29 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
    এক লাইনে থাকবে — নাম দীর্ঘ হলে ellipsis (...) দিয়ে ছোট হবে, ব্যাজ
    ডানদিকে একই সারিতে aligned থাকবে। কখনো wrap/double-line হবে না। */
 .sb-ci a span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* ★ সব ব্যাজ (sb-cc, sb-unread, ssc) একই সাইজ + একই ডান-প্রান্তিক অবস্থান —
-   যাতে সংখ্যাগুলো এক সোজা উল্লম্ব রেখায় (vertical line) সাজে। আগে sb-cc 15px
-   আর sb-unread 17px+border ছিল, তাই দুটোর অবস্থান মিলত না। */
-.sb-cc{font-size:10px;color:#fff;background:var(--red);padding:0;height:14px;width:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1;margin-left:auto;box-sizing:border-box;overflow:hidden}
+/* ★ সব ব্যাজ (sb-cc, sb-unread, ssc) একই ডান-প্রান্তিক অবস্থান —
+   যাতে সংখ্যাগুলো এক সোজা উল্লম্ব রেখায় (vertical line) সাজে।
+   ★ সংখ্যা একটু বড় করা হয়েছে: ব্যাজ 18px গোল + font-size 12px
+   (আগে 14px গোল + 10px ছিল — সংখ্যা ছোট দেখাত)। */
+.sb-cc{font-size:12px;color:#fff;background:var(--red);padding:0;height:18px;width:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:700;flex-shrink:0;line-height:1;margin-left:auto;box-sizing:border-box;overflow:hidden}
 /* ★ Unread/new news badge — সম্পূর্ণ গোলাকার (perfect circle), pulsing red.
    fixed width=height=18px + border-radius:50% → সংখ্যা যতই বড় হোক না কেন গোল থাকবে।
-   ২+ অঙ্কের সংখ্যা গোল চেনাশনের ভেতরে সেঁটে যাবে (font-size ছোট, scale করা যায়)। */
-.sb-unread{font-size:10px;color:#fff;background:linear-gradient(135deg,#e53935,#b71c1c);padding:0;height:14px;width:14px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:800;flex-shrink:0;line-height:1;box-shadow:0 1px 4px rgba(183,28,28,.5);animation:sbUnreadPulse 1.8s ease-in-out infinite;border:1px solid #fff;margin-left:auto;box-sizing:border-box;overflow:hidden}
-/* ★ has-subs আইটেমে chevron ডানদিকে absolute position করা, তাই ব্যাজকে বামে
-   ঠেলতে হয় যাতে chevron-এর সাথে overlap না করে। কিন্তু এতে has-subs ও সাধারণ
-   আইটেমের ব্যাজ আলাদা উল্লম্ব রেখায় পড়বে। সমাধান: সব আইটেমেই ব্যাজকে একই
-   অবস্থানে রাখা হয়েছে (margin-left:auto + একই padding-right)। has-subs এ
-   chevron উপরে (z-index:20) থাকে, ব্যাজ নিচে। দুটো overlap এড়াতে ব্যাজের
-   অবস্থান chevron-এর ঠিক বাম পাশে ঠিক করা হয়েছে। */
-.sb-ci.has-subs .sb-cc,.sb-ci.has-subs .sb-unread{margin-right:30px}
+   ★ সংখ্যা বড় করা হয়েছে: font-size 12px (আগে 10px)। */
+.sb-unread{font-size:12px;color:#fff;background:linear-gradient(135deg,#e53935,#b71c1c);padding:0;height:18px;width:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;font-weight:800;flex-shrink:0;line-height:1;box-shadow:0 1px 4px rgba(183,28,28,.5);animation:sbUnreadPulse 1.8s ease-in-out infinite;border:1px solid #fff;margin-left:auto;box-sizing:border-box;overflow:hidden}
+/* ★ "ekta column" fix: সব ব্যাজ (sb-cc ও sb-unread) একই উল্লম্ব রেখায়।
+   আসল সমস্যা ছিল ২টো:
+   ১) ওপরের `.sb-ci a span{flex:1}` নিয়মটি ব্যাজের span-এও প্রযোজ্য হয়ে
+      যাচ্ছিল — এই নিয়মের specificity বেশি হওয়ায় ব্যাজের width:18px আর
+      flex-shrink:0 কাজ করত না, flex-basis:0% হয়ে যেত। ফলে ব্যাজ flex-item
+      হয়ে অনুভূমিকভাবে প্রসারিত (লম্বা ডিম্বাকৃতি/oval) হয়ে যাচ্ছিল এবং
+      প্রতি সারিতে প্রস্থ-অবস্থান বদলে যাচ্ছিল। flex:0 0 auto দিলে ব্যাজ
+      সবসময় 18px-এর গোল থাকবে।
+   ২) আগে শুধু has-subs আইটেমে margin-right:30px ছিল — chevron-সহ ও
+      chevron-ছাড়া আইটেমের ব্যাজ দুই আলাদা উল্লম্ব রেখায় পড়ত। এখন সব
+      আইটেমেই একই margin-right:30px — সব ব্যাজ এক সোজা কলামে বসবে, আর
+      has-subs আইটেমে chevron (absolute, right:4px) তার ঠিক ডান পাশে
+      নিজের আলাদা কলামে থাকবে — overlap হবে না। */
+.sb-ci a .sb-cc,.sb-ci a .sb-unread{flex:0 0 auto;margin-right:30px}
 @keyframes sbUnreadPulse{0%,100%{box-shadow:0 2px 6px rgba(183,28,28,.5),0 0 0 0 rgba(229,57,53,.55)}50%{box-shadow:0 3px 10px rgba(183,28,28,.65),0 0 0 6px rgba(229,57,53,0)}}
 .sb-st{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:rgba(183,28,28,.08);border:1px solid rgba(183,28,28,.15);color:var(--red);font-size:8px;cursor:pointer;border-radius:4px;transition:all .2s;z-index:20}
 .sb-st:hover{background:rgba(183,28,28,.18);transform:translateY(-50%) scale(1.05)}
@@ -2552,7 +2560,9 @@ a{color:inherit;text-decoration:none}img{max-width:100%;display:block}
 .sb-si a i{font-size:7px;opacity:.4;width:10px;text-align:center;flex-shrink:0}
 .sb-si a .ssn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sb-si a:hover i{opacity:1}
-.sb-si .ssc{font-size:9px;color:#fff;background:var(--red);padding:0;height:13px;width:13px;border-radius:50%;margin-left:auto;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1;box-sizing:border-box;overflow:hidden}
+/* ★ সাব-ক্যাটাগরির ব্যাজও একই নিয়মে বড় করা হয়েছে: 16px গোল + font-size 11px
+   (আগে 13px গোল + 9px) — মূল ক্যাটাগরির ব্যাজের সাথে সামঞ্জস্য রাখতে। */
+.sb-si .ssc{font-size:11px;color:#fff;background:var(--red);padding:0;height:16px;width:16px;border-radius:50%;margin-left:auto;font-weight:700;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;vertical-align:middle;flex-shrink:0;line-height:1;box-sizing:border-box;overflow:hidden}
 .pop-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;border-radius:4px;padding-left:4px}
 .pop-item:hover{background:rgba(183,28,28,.04)}
 .pop-item:last-child{border-bottom:none}

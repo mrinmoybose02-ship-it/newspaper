@@ -114,7 +114,6 @@ function hasPerm($perm) {
     'dashboard' => ['label' => 'Dashboard', 'icon' => 'fas fa-gauge-high'],
     'add_news' => ['label' => 'Add News', 'icon' => 'fas fa-plus-circle'],
     'manage_news' => ['label' => 'Manage News', 'icon' => 'fas fa-newspaper'],
-    'breaking' => ['label' => 'Breaking News', 'icon' => 'fas fa-bolt'],
     'categories' => ['label' => 'Categories', 'icon' => 'fas fa-folder-tree'],
     'home_panels' => ['label' => 'Home Panels', 'icon' => 'fas fa-table-cells'],
     'breaking_speed' => ['label' => 'Breaking Speed', 'icon' => 'fas fa-gauge-high'],
@@ -123,14 +122,20 @@ function hasPerm($perm) {
     'ads' => ['label' => 'Advertisements', 'icon' => 'fas fa-rectangle-ad'],
     'videos' => ['label' => 'Videos', 'icon' => 'fas fa-video'],
     'nse_market' => ['label' => 'NSE Market', 'icon' => 'fas fa-chart-line'],
+    'visitor_stats' => ['label' => 'Visitor Monitor', 'icon' => 'fas fa-chart-line'],
     'users' => ['label' => 'User Management', 'icon' => 'fas fa-users'],
     'password' => ['label' => 'Change Password', 'icon' => 'fas fa-key'],
 ];
 
+// ★ Super Admin stored in DB: when a user's saved permission list covers EVERY available
+//   permission, treat them as Super Admin too. (permissions = NULL still means Super Admin,
+//   so accounts created before this change keep working unchanged.)
+if (is_array($currentUserPerms) && !array_diff(array_keys($allPermissions), $currentUserPerms)) { $currentUserPerms = null; }
+
  $allRoles = [
     'super_admin' => ['label' => 'Super Admin', 'icon' => 'fas fa-crown', 'color' => 'var(--purple)', 'description' => 'Full access to everything.', 'permissions' => null],
     'editor' => ['label' => 'Editor', 'icon' => 'fas fa-user-pen', 'color' => 'var(--blue)', 'description' => 'Can add, edit, and manage news articles.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'password']],
-    'publisher' => ['label' => 'Publisher', 'icon' => 'fas fa-newspaper', 'color' => 'var(--green)', 'description' => 'Can manage news, categories, breaking news, and home panels.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'breaking', 'categories', 'home_panels', 'breaking_speed', 'password']],
+    'publisher' => ['label' => 'Publisher', 'icon' => 'fas fa-newspaper', 'color' => 'var(--green)', 'description' => 'Can manage news, categories, and home panels.', 'permissions' => ['dashboard', 'add_news', 'manage_news', 'categories', 'home_panels', 'breaking_speed', 'password']],
     'ad_manager' => ['label' => 'Ad Manager', 'icon' => 'fas fa-rectangle-ad', 'color' => 'var(--gold)', 'description' => 'Can manage advertisements and ad embed codes.', 'permissions' => ['dashboard', 'ads', 'password']],
     'social_manager' => ['label' => 'Social Manager', 'icon' => 'fas fa-share-nodes', 'color' => '#25D366', 'description' => 'Can manage social media, contact details, and videos.', 'permissions' => ['dashboard', 'social', 'contact', 'videos', 'password']],
     'market_viewer' => ['label' => 'Market Viewer', 'icon' => 'fas fa-chart-line', 'color' => '#FF9933', 'description' => 'Can view NSE market data and dashboard only.', 'permissions' => ['dashboard', 'nse_market', 'password']],
@@ -138,9 +143,11 @@ function hasPerm($perm) {
 ];
 
 function getUserRole($permissionsRaw) {
-    global $allRoles;
+    global $allRoles, $allPermissions;
     if ($permissionsRaw === null) return 'super_admin';
     $perms = json_decode($permissionsRaw, true) ?: [];
+    // ★ Full permission list stored in DB = Super Admin (matches isSuperAdmin check below)
+    if (is_array($perms) && !array_diff(array_keys($allPermissions), $perms)) return 'super_admin';
     foreach ($allRoles as $roleKey => $roleInfo) {
         if ($roleInfo['permissions'] === null) continue;
         if (count($perms) === count($roleInfo['permissions']) && empty(array_diff($perms, $roleInfo['permissions']))) return $roleKey;
@@ -590,7 +597,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_action'])) {
         if ($currentUserPerms !== null) { $umsg = 'Only Super Admin can change user roles.'; }
         elseif (empty($roleKey) || $roleKey === 'custom') { $umsg = 'Select a role or use manual checkboxes below.'; }
         elseif (!isset($allRoles[$roleKey])) { $umsg = 'Invalid role selected.'; }
-        elseif ($uid > 0 && $uid != $_SESSION['user_id']) { $rolePerms = $allRoles[$roleKey]['permissions']; $permJson = $rolePerms === null ? null : json_encode($rolePerms); $pdo->prepare("UPDATE users SET permissions = ?, role = ? WHERE id = ?")->execute([$permJson, $roleKey, $uid]); $umsg = 'Role changed to "' . $allRoles[$roleKey]['label'] . '" for user ID: ' . $uid; }
+        elseif ($uid > 0 && $uid != $_SESSION['user_id']) { $rolePerms = $allRoles[$roleKey]['permissions']; // ★ Super Admin now stores the FULL permission list in the DB (was NULL) so every permission shows there; NULL from older accounts still means Super Admin
+            $permJson = $rolePerms === null ? json_encode(array_keys($allPermissions)) : json_encode($rolePerms); $pdo->prepare("UPDATE users SET permissions = ?, role = ? WHERE id = ?")->execute([$permJson, $roleKey, $uid]); $umsg = 'Role changed to "' . $allRoles[$roleKey]['label'] . '" for user ID: ' . $uid; }
         else { $umsg = 'You cannot change your own role.'; }
     }
 }
@@ -1863,12 +1871,9 @@ if (!empty($currentSiteLogo)) {
 <?php if (hasPerm('manage_news')): ?>
 <?= secLink("manage","fa-newspaper","Manage News",$totalNews) ?>
 <?php endif; ?>
-<?php if (hasPerm('breaking') || hasPerm('categories') || hasPerm('home_panels') || hasPerm('social') || hasPerm('contact')): ?>
+<?php if (hasPerm('categories') || hasPerm('home_panels') || hasPerm('social') || hasPerm('contact')): ?>
 <div class="sb-nav-divider"></div>
 <div class="sb-nav-label">Configuration</div>
-<?php endif; ?>
-<?php if (hasPerm('breaking')): ?>
-<?php /* Breaking News section removed - now managed via Add News checkbox */ ?>
 <?php endif; ?>
 <?php if (hasPerm('categories')): ?>
 <?= secLink("categories","fa-folder-tree","Categories / Subcategories",$totalCats) ?>
@@ -1894,10 +1899,12 @@ if (!empty($currentSiteLogo)) {
 <?= secLink("ads","fa-rectangle-ad","Advertisements",$activeAds."/".$totalAds) ?>
 <?php endif; ?>
 
-<!-- ★ Visitor Stats Monitoring — sidebar menu item (after Advertisements) -->
+<!-- ★ Visitor Stats Monitoring — sidebar menu item (after Advertisements); shown only with 'visitor_stats' permission -->
+<?php if (hasPerm('visitor_stats')): ?>
 <div class="sb-nav-divider"></div>
 <div class="sb-nav-label">Analytics</div>
 <?= secLink("visitor_stats","fa-chart-line","Visitor Monitor") ?>
+<?php endif; ?>
 
 <?php if (hasPerm('videos') || hasPerm('nse_market') || hasPerm('users') || hasPerm('password') || $currentUserPerms === null): ?>
 <div class="sb-nav-divider"></div>
@@ -3929,8 +3936,10 @@ if (fli) fli.onchange = function() {
 foreach ($allUsers as $usr) {
     $uRole = !empty($usr['role']) ? $usr['role'] : getUserRole($usr['permissions'] ?? null);
     $uPermsRaw = $usr['permissions'] ?? null;
-    $uIsSuper = ($uPermsRaw === null) || ($uRole === 'super_admin');
-    $uPerms = $uIsSuper ? array_keys($allPermissions) : (json_decode($uPermsRaw, true) ?: []);
+    $uPermsDecoded = json_decode($uPermsRaw ?? '', true) ?: [];
+    // ★ Super Admin = NULL permissions, role 'super_admin', OR a stored permission list covering every permission
+    $uIsSuper = ($uPermsRaw === null) || ($uRole === 'super_admin') || (is_array($uPermsDecoded) && !array_diff(array_keys($allPermissions), $uPermsDecoded));
+    $uPerms = $uIsSuper ? array_keys($allPermissions) : $uPermsDecoded;
     $isSelf = ($usr['id'] == $_SESSION['user_id']);
     // ★ Include ALL users (admin + super admins too), but mark them as 'locked'
     //   so the JS can disable the form when they are selected (display-only).
@@ -4015,15 +4024,17 @@ foreach ($allUsers as $usr) {
 <div class="panel">
     <div class="panel-header"><div class="panel-title"><i class="fas fa-info-circle"></i> Role & Permission System</div></div>
     <div class="panel-body" style="font-size:13px;color:var(--muted);line-height:1.8">
-        <p><i class="fas fa-crown" style="color:var(--purple)"></i> <strong>Super Admin</strong> — Full access. Only Super Admin can manage permissions.</p>
-        <p><i class="fas fa-id-badge" style="color:var(--blue)"></i> <strong>Quick Role Assign</strong> — Select user → Select role → Auto-saves.</p>
+        <p><i class="fas fa-crown" style="color:var(--purple)"></i> <strong>Super Admin</strong> — Full access to every section, including Visitor Monitor. All permissions are stored in the database. Only Super Admin can manage permissions.</p>
+        <p><i class="fas fa-id-badge" style="color:var(--blue)"></i> <strong>Quick Role Assign</strong> — Select user → Select role → Auto-saves (permissions saved to DB).</p>
         <p><i class="fas fa-shield-halved" style="color:var(--purple)"></i> <strong>Manual Permissions</strong> — Select user → Check/uncheck → Save. Role stays unchanged.</p>
         <p><i class="fas fa-user-pen" style="color:var(--blue)"></i> <strong>Editor</strong> — Dashboard + Add/Manage News only.</p>
-        <p><i class="fas fa-newspaper" style="color:var(--green)"></i> <strong>Publisher</strong> — News + Categories + Breaking + Home Panels.</p>
+        <p><i class="fas fa-newspaper" style="color:var(--green)"></i> <strong>Publisher</strong> — News + Categories + Home Panels.</p>
         <p><i class="fas fa-rectangle-ad" style="color:var(--gold)"></i> <strong>Ad Manager</strong> — Dashboard + Advertisements only.</p>
         <p><i class="fas fa-share-nodes" style="color:#25D366"></i> <strong>Social Manager</strong> — Social + Contact + Videos.</p>
         <p><i class="fas fa-chart-line" style="color:#FF9933"></i> <strong>Market Viewer</strong> — Dashboard + NSE Market only.</p>
         <p><i class="fas fa-eye" style="color:var(--muted)"></i> <strong>Viewer</strong> — Dashboard only (read-only).</p>
+        <p><i class="fas fa-chart-line" style="color:#FF9933"></i> <strong>Visitor Monitor</strong> — Not tied to any role; grant it to any user via Manual Permissions.</p>
+        <p><i class="fas fa-bolt" style="color:var(--muted)"></i> <strong>Breaking News permission removed</strong> — Breaking news is managed inside Add News, so its separate permission option is gone.</p>
     </div>
 </div>
 
@@ -4270,8 +4281,8 @@ function cps(v){var b=document.getElementById('psB'),t=document.getElementById('
     </div>
 </div>
 
-<?php elseif ($section === "visitor_stats"): ?>
-<!-- ★ Visitor Stats Monitoring Section — full page view -->
+<?php elseif ($section === "visitor_stats" && hasPerm('visitor_stats')): ?>
+<!-- ★ Visitor Stats Monitoring Section — full page view (requires 'visitor_stats' permission) -->
 <?php
 // ★ v3.58: Bulletproof wrapping — errors are caught and displayed, never white page
 error_reporting(E_ALL);
